@@ -123,6 +123,40 @@ def init_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_debug_events_trace ON debug_events(trace_id, id)"
         )
+        # mind 表（P1 骨架）
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_state (
+                session_id TEXT PRIMARY KEY,
+                valence REAL NOT NULL DEFAULT 0.0,
+                arousal REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                version INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_cycle (
+                cycle_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                trigger_type TEXT NOT NULL DEFAULT 'message',
+                trigger_ref TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                l1_json TEXT,
+                plan_json TEXT,
+                expr_text TEXT,
+                final_text TEXT,
+                models_json TEXT DEFAULT '{}',
+                error TEXT,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_cycle_session ON mind_cycle(session_id, created_at)"
+        )
     from app.storage.image_store import init_image_store
     init_image_store()
 

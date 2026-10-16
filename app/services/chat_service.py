@@ -18,6 +18,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.config import HISTORY_TOKEN_LIMIT, SYSTEM_PROMPT
+from app import config
 from app.services.chat.llm_gateway import generate_chat_reply
 from app.storage.db import add_message, get_recent_messages_by_tokens
 from app.storage import image_store
@@ -168,7 +169,18 @@ def run_chat_turn(
         # ④ 生成回复
         model_started = time.perf_counter()
         log_event("chat", "model_request_start", trace_id=trace_id)
-        reply = generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+        if config.MIND_ENABLED:
+            from app.services.mind.cycle import run_cycle
+            reply = run_cycle(
+                session_id=session_id,
+                message=message,
+                history=history,
+                messages=messages,
+                trace_id=trace_id,
+                injected_context=split_injected_context(message)[0],
+            )
+        else:
+            reply = generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
         log_event(
             "chat",
             "model_response_ok",

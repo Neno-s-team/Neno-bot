@@ -82,3 +82,15 @@ IMAGE_LOCAL_SPOOL_ROOTS = tuple(
 # ── System Prompt（当前单句人设） ──────────────────────────────────────────
 CHAT_PERSONA_ENABLED = _env_bool("CHAT_PERSONA_ENABLED", True)
 SYSTEM_PROMPT = load_text("prompts/system.txt") if CHAT_PERSONA_ENABLED else ""
+
+# ── 多层大脑 P1 ─────────────────────────────────────────────────────────────
+MIND_ENABLED = _env_bool("MIND_ENABLED", False)
+MIND_L1_MODEL = os.getenv("MIND_L1_MODEL", "").strip()
+MIND_L1_EXTRA_BODY = json.loads(os.getenv("MIND_L1_EXTRA_BODY", "") or "null") or {}
+MIND_EXPR_MODEL = os.getenv("MIND_EXPR_MODEL", "").strip() or CHAT_MODEL_NAME
+MIND_EXPR_EXTRA_BODY = json.loads(os.getenv("MIND_EXPR_EXTRA_BODY", "") or "null") or {}
+MIND_SELF_CARD_PATH = os.getenv("MIND_SELF_CARD_PATH", "prompts/mind/self_card.md").strip()
+MIND_STYLE_CARD_PATH = os.getenv("MIND_STYLE_CARD_PATH", "prompts/mind/style_card.md").strip()
+MIND_RECENT_TURNS = _env_int("MIND_RECENT_TURNS", 6)
+MIND_AFFECT_HALF_LIFE_MINUTES = _env_int("MIND_AFFECT_HALF_LIFE_MINUTES", 180)
+MIND_TIMEZONE = os.getenv("MIND_TIMEZONE", "Asia/Shanghai").strip()
