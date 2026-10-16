@@ -197,7 +197,8 @@ def test_mind_p2_e2_isolation(mind_db, fake_mind_env, monkeypatch):
         expr="好",
         recorder=calls,
     )
-    run_chat_turn("p2-isolation", "聊聊 EP_SUMMARY_MARK", trace_id="tp2iso")
+    # 当前消息可见于 E2；该标记仅用于验证检索出的 episode 不泄露。
+    run_chat_turn("p2-isolation", "聊聊一件无关的小事", trace_id="tp2iso")
 
     expr_kwargs = next(kwargs for purpose, kwargs in calls if purpose == "mind_expr")
     texts = []

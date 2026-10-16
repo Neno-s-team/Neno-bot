@@ -48,7 +48,7 @@ operations_storage._instance = None
 
 from app.storage.db import add_message, init_db, fetch_all  # noqa: E402
 from app.services.mind import orchestration, perception, schedule, store  # noqa: E402
-from app.services.mind import scheduler as mind_scheduler  # noqa: E402
+from app.services.mind import scheduler as mind_scheduler  # noqa: E402  (顶部导入)
 
 T_MON_0810 = datetime(2026, 10, 12, 8, 10).timestamp()
 T_MON_0941 = datetime(2026, 10, 12, 9, 41).timestamp()
@@ -108,7 +108,16 @@ def main() -> int:
 
     clock_state["t"] = T_MON_0941
     print(f"[{ts_to_str(T_MON_0941)}] 下课：level={schedule.segment_at(T_MON_0941)['level']}")
-    orchestration.handle_opened(session, ["t1"])
+    # preview 重看：按当前时刻（下课，等级3）判 → 打开
+    mind_scheduler.process_glance(session, "t1")
+    record = store.get_perception_by_trace("t1")
+    print(f"  -> 下课后点开：seen={record['seen']}")
+    assert record["seen"] == "opened"
+    marks = [dict(r) for r in fetch_all(
+        "SELECT * FROM mind_delivery WHERE session_id=? AND kind='mark_read'", (session,))]
+    assert marks, "点开时生成 mark_read"
+    # 决策写作业 → 调度器执行
+    mind_scheduler.process_due_batch()
     pending = [
         dict(row) for row in fetch_all(
             "SELECT * FROM mind_delivery WHERE session_id=? AND status='pending' ORDER BY seq",
@@ -118,17 +127,19 @@ def main() -> int:
     assert pending, "下课后应生成投递计划"
     kinds = [row["kind"] for row in pending]
     print(f"  -> 投递计划：{kinds}")
-    assert kinds[0] == "mark_read"
     assert "text" in kinds
-    print("  -> mark_read 在 text 之前 OK")
+    assert marks[0]["send_at"] == record["seen_at"], "mark_read 锚 seen_at"
+    print("  -> mark_read 锚 seen_at OK")
 
-    cycle = store.get_cycle(orchestration.derive_cycle_id(session, "async:t1"))
+    jobs = fetch_all("SELECT * FROM mind_deferred WHERE session_id=?", (session,))
+    assert jobs and jobs[0]["status"] == "done"
+    cycle = store.get_cycle(orchestration.derive_cycle_id(session, f"job:{jobs[0]['id']}"))
     wm = json.loads(cycle["wm_json"])
     print(f"  -> 工作记忆时间：{wm['situation']['local_time']}（应为 09:4x）")
     assert wm["situation"]["local_time"].startswith("2026-10-12 09:4")
 
     print()
-    print(f"L1 调用 {provider.calls['mind_l1']} 次（预览 1 + 决策 1 + 周期内全文 1）")
+    print(f"L1 调用 {provider.calls['mind_l1']} 次（预览 1 + 决策 1；周期复用作业里的 L1）")
     print(f"E2 调用 {provider.calls['mind_expr']} 次")
     print("PASS: verify_mind_p3a")
     return 0

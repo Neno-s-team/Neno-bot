@@ -142,3 +142,7 @@ MIND_HESITATE_PAUSE_SEC = json.loads(
 )
 MIND_SCHEDULER_TICK_SEC = _env_float("MIND_SCHEDULER_TICK_SEC", 2.0)
 MIND_LEASE_SEC = _env_int("MIND_LEASE_SEC", 120)
+# /mind/deliveries/due 认领后的投递租约（秒）
+MIND_DELIVERY_LEASE_SEC = _env_int("MIND_DELIVERY_LEASE_SEC", 60)
+# mind_deferred 作业重试上限；超过后 status=failed
+MIND_JOB_MAX_ATTEMPTS = _env_int("MIND_JOB_MAX_ATTEMPTS", 3)

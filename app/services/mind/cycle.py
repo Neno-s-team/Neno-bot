@@ -239,6 +239,7 @@ def run_cycle(
     trigger_ref: str | None = None,
     skip_l2: bool = False,
     plan_patch: dict[str, Any] | None = None,
+    preset_l1_json: str | None = None,
 ) -> str:
     if not config.MIND_ENABLED:
         raise RuntimeError("run_cycle called while MIND_ENABLED is false")
@@ -256,6 +257,16 @@ def run_cycle(
     if existing is None:
         create_cycle(cycle_id, session_id, trigger_type=trigger_type, trigger_ref=trigger_ref or trace_id)
         existing = get_cycle(cycle_id)
+    if preset_l1_json and not existing.get("l1_json"):
+        # 决策阶段已跑过 L1：直接预置，周期内不再调用
+        try:
+            L1Appraisal.from_dict(json.loads(preset_l1_json))
+        except ValueError as exc:
+            log_event("mind", "preset_l1_invalid", trace_id=trace_id,
+                      session_id=session_id, error_type=type(exc).__name__)
+        else:
+            update_cycle(cycle_id, l1_json=preset_l1_json)
+            existing = get_cycle(cycle_id)
 
     self_card = _load_self_card()
     style_card = _load_style_card()

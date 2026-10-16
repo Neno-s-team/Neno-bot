@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import time
+import json
 from copy import deepcopy
 from typing import Any
 
@@ -177,7 +178,7 @@ def run_chat_turn(
         log_event("chat", "model_request_start", trace_id=trace_id)
         if config.MIND_ENABLED:
             from app.services.mind.cycle import run_cycle
-            clean_message, injected = split_injected_context(message)
+            injected, clean_message = split_injected_context(message)
             reply = run_cycle(
                 session_id=session_id,
                 message=clean_message,
@@ -258,12 +259,63 @@ def _run_chat_turn_async(
     from app.storage import db
     from app.storage.operations import operations
     from app.services.mind import orchestration, perception as mind_perception
+    from app.services.mind.store import upsert_mind_session_context
+
+    # trace 去重：messages 或 mind_perception 里已有就直接 accepted
+    from app.services.mind.store import get_perception_by_trace
+
+    known = db.fetch_one(
+        "SELECT id FROM messages WHERE session_id=? AND trace_id=? AND role='user' LIMIT 1",
+        (session_id, trace_id),
+    ) or get_perception_by_trace(trace_id)
+    if known:
+        return {
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "status": "accepted",
+            "latency_ms": 0,
+            "duplicate": True,
+        }
+
+    injected, clean_message = split_injected_context(message)
 
     trace_ids: list[str] = []
+    injection_blocks: list[tuple[str, str]] = []
+    if injected:
+        injection_blocks.append((trace_id, injected))
+    if user_records:
+        for record in user_records:
+            metadata = record.get("metadata") or {}
+            aggregation = metadata.get("aggregation") or {}
+            record_trace = (
+                metadata.get("source_trace_id")
+                or aggregation.get("source_trace_id")
+                or trace_id
+            )
+            record_injected, _record_clean = split_injected_context(
+                str(record.get("content") or "")
+            )
+            if record_injected:
+                injection_blocks.append((record_trace, record_injected))
+    for _record_trace, block in injection_blocks:
+        from app.services.mind.cycle import _parse_sticker_names
+
+        names = _parse_sticker_names(block)
+        if names:
+            upsert_mind_session_context(
+                session_id, block, json.dumps(sorted(names), ensure_ascii=False)
+            )
+
     with operations().session_guard(session_id, operations().generation(session_id), trace_id):
         if user_records:
-            for index, record in enumerate(user_records):
-                record_trace = (record.get("metadata") or {}).get("source_trace_id") or trace_id
+            for record in user_records:
+                metadata = record.get("metadata") or {}
+                aggregation = metadata.get("aggregation") or {}
+                record_trace = (
+                    metadata.get("source_trace_id")
+                    or aggregation.get("source_trace_id")
+                    or trace_id
+                )
                 if record_trace not in trace_ids:
                     trace_ids.append(record_trace)
                 existing = db.fetch_all(
@@ -279,14 +331,27 @@ def _run_chat_turn_async(
                     trace_id=record_trace,
                     message_type=str(record.get("message_type") or "text"),
                     source=str(record.get("source") or source),
-                    metadata=record.get("metadata"),
+                    metadata=metadata,
                 )
         else:
             trace_ids.append(trace_id)
+            already = db.fetch_one(
+                "SELECT id FROM messages WHERE session_id=? AND trace_id=? AND role='user' LIMIT 1",
+                (session_id, trace_id),
+            )
+            if already:
+                trace_ids.pop()
+                return {
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "status": "accepted",
+                    "latency_ms": 0,
+                    "duplicate": True,
+                }
             add_message(
                 session_id,
                 "user",
-                split_injected_context(message)[1],
+                clean_message,
                 trace_id=trace_id,
                 message_type=message_type,
                 source=source,
@@ -294,8 +359,10 @@ def _run_chat_turn_async(
             )
 
     for item_trace in trace_ids:
-        mind_perception.create_perception(session_id, item_trace)
-        orchestration.on_new_message(session_id, item_trace)
+        existing_perception = get_perception_by_trace(item_trace)
+        if existing_perception is None:
+            mind_perception.create_perception(session_id, item_trace)
+            orchestration.on_new_message(session_id, item_trace)
 
     return {
         "trace_id": trace_id,

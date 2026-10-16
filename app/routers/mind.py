@@ -86,6 +86,11 @@ def deliveries_ack(delivery_id: int, req: DeliveryAckRequest):
     else:
         log_event("mind", "delivery_failed", session_id=row["session_id"],
                   candidate_id=delivery_id, reason=req.error)
+        if row["kind"] == "text":
+            # text 失败：同一周期后续 text/sticker/typing 全部取消（mark_read 保留）
+            store.cancel_remaining_deliveries(row["cycle_id"])
+            log_event("mind", "delivery_cycle_cancelled_after_failure",
+                      session_id=row["session_id"], cycle_id=row["cycle_id"])
     return {"ok": True, "id": delivery_id, "status": req.status}
 
 

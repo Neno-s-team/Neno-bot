@@ -66,11 +66,15 @@ def create_perception(session_id: str, trace_id: str, *, received_at: float | No
 def glance(session_id: str, trace_id: str) -> dict[str, Any] | None:
     """到点：等级 1 只预览（不标已读），紧急则抢占；>=2 打开（记 seen_at）。"""
     record = store.get_perception_by_trace(trace_id)
-    if record is None or record["status"] != "pending" or record["retracted"]:
+    if record is None or record["retracted"]:
+        return record
+    if record["status"] not in ("pending", "previewed"):
         return record
     ts = clock.now()
-    seg = schedule.segment_at(record["received_at"])
-    level = int(seg.get("level", 3))  # 抽样/抢占按"收到时"的活动判定
+    # 首次 glance 按抽样的 glance_at 判等级；preview 重看时按当前时刻判
+    judge_ts = record["glance_at"] if record["status"] == "pending" else ts
+    seg = schedule.segment_at(judge_ts)
+    level = int(seg.get("level", 3))
     if level == 1:
         preview_text = _preview_text(record)
         l1_preview = _preview_l1(session_id, record, preview_text, ts)

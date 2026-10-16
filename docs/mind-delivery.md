@@ -31,6 +31,22 @@
 | `send_at` | 绝对时刻 |
 | `status` | `pending` \| `sent` \| `failed` \| `cancelled` |
 
+`status` 完整集合：`pending`（未认领）→ `claimed`（被 `/mind/deliveries/due` 认领，带 `lease_until`）→ `sent` / `failed`（ack 后终态）。`cancelled` 只用于 text/sticker/typing；`mark_read` 不随打断或撤回取消。
+
+## 记忆与发送一致性
+
+周期内的 text/sticker 一条都没发出就被取消（打断/撤回）时，追加一条简短经历：
+`想回「前40字」但没发出去（原因：被新消息打断/对方撤回）`，tags 含"未送达"，note_idx=98（UNIQUE 幂等）。已发出的内容以 ack(sent) 写进 messages 为准。
+
+text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark_read 保留）并记日志。
+
+## 网关约定（P3b）
+
+- 网关配置：`NENO_MIND_POLL_SEC=1`、`NENO_MIND_MAX_CONCURRENCY=4`；同一会话串行执行。
+- mark_read 的计划时间锚 seen_at，实际执行时间以网关 ack 为准，记录在 acked_at。
+- 等级 2 先短回、之后出队深想时按当时状态重想；已发出的短回进历史，深想时能看到，不覆盖、不撤回。
+- `/mind/deliveries/due` 会在返回前原子认领（`pending → claimed`，租约 `MIND_DELIVERY_LEASE_SEC` 默认 60s）；租约过期后可重新拿到。ack 接受 pending 或 claimed，重复 ack 幂等。
+
 ## 接口（`/mind/*`，沿用 `X-Internal-Token` 鉴权）
 
 - `POST /chat`：照常落库 user 消息、建感知记录，返回 `{"status":"accepted","trace_id":...}`；同 trace 重发不重复建记录。

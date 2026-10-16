@@ -275,11 +275,20 @@ def init_db():
                 status TEXT NOT NULL DEFAULT 'pending',
                 lease_until REAL,
                 cycle_id TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                attempts INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL DEFAULT 0.0,
                 updated_at REAL NOT NULL DEFAULT 0.0
             )
             """
         )
+        deferred_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mind_deferred)").fetchall()
+        }
+        if "attempts" not in deferred_columns:
+            conn.execute("ALTER TABLE mind_deferred ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        if "payload_json" not in deferred_columns:
+            conn.execute("ALTER TABLE mind_deferred ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_deferred_due"
             " ON mind_deferred(status, due_at)"
@@ -297,12 +306,18 @@ def init_db():
                 status TEXT NOT NULL DEFAULT 'pending',
                 acked_at REAL,
                 error TEXT,
+                lease_until REAL,
                 created_at REAL NOT NULL DEFAULT 0.0,
                 updated_at REAL NOT NULL DEFAULT 0.0,
                 UNIQUE(cycle_id, seq)
             )
             """
         )
+        delivery_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mind_delivery)").fetchall()
+        }
+        if "lease_until" not in delivery_columns:
+            conn.execute("ALTER TABLE mind_delivery ADD COLUMN lease_until REAL")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_delivery_due"
             " ON mind_delivery(session_id, status, send_at)"

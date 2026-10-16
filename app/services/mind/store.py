@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import time
 from typing import Any
 
 from app.storage.db import fetch_one, fetch_all, execute_write
+from app.services.mind import clock
 
 
 def init_mind_tables():
@@ -36,7 +36,7 @@ def insert_mind_state(session_id: str, valence: float, arousal: float) -> int:
         """INSERT INTO mind_state(session_id, valence, arousal, updated_at, version)
            VALUES (?, ?, ?, ?, 1)
            ON CONFLICT(session_id) DO NOTHING""",
-        (session_id, valence, arousal, time.time()),
+        (session_id, valence, arousal, clock.now()),
     )
 
 
@@ -51,7 +51,7 @@ def update_mind_state_versioned(
         """UPDATE mind_state
            SET valence=?, arousal=?, updated_at=?, version=version+1
            WHERE session_id=? AND version=?""",
-        (valence, arousal, time.time(), session_id, expected_version),
+        (valence, arousal, clock.now(), session_id, expected_version),
     )
 
 
@@ -73,7 +73,7 @@ def get_mind_session_context(session_id: str) -> dict[str, Any] | None:
 def upsert_mind_session_context(
     session_id: str, sticker_table_text: str, sticker_names_json: str
 ) -> None:
-    now = time.time()
+    now = clock.now()
     execute_write(
         """INSERT INTO mind_session_context(session_id, sticker_table_text, sticker_names_json, updated_at)
            VALUES (?, ?, ?, ?)
@@ -101,7 +101,7 @@ def create_cycle(
     trigger_type: str = "message",
     trigger_ref: str | None = None,
 ) -> None:
-    now = time.time()
+    now = clock.now()
     execute_write(
         """INSERT INTO mind_cycle(cycle_id, session_id, trigger_type, trigger_ref, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'running', ?, ?)
@@ -127,7 +127,7 @@ def update_cycle(
     models_json: str | None = None,
     error: str | None = None,
 ) -> None:
-    now = time.time()
+    now = clock.now()
     fields = []
     params = []
     for key, value in [
@@ -172,7 +172,7 @@ def create_perception(
     received_at: float,
     glance_at: float,
 ) -> int:
-    now = time.time()
+    now = clock.now()
     return execute_write(
         """INSERT INTO mind_perception(
                session_id, trace_id, received_at, glance_at, status, created_at, updated_at
@@ -222,7 +222,7 @@ def update_perception(
     if not fields:
         return
     fields.append("updated_at = ?")
-    params.append(time.time())
+    params.append(clock.now())
     execute_write(
         f"UPDATE mind_perception SET {', '.join(fields)} WHERE id = ?",
         (*params, perception_id),
@@ -232,7 +232,7 @@ def update_perception(
 def due_perceptions(ts: float, limit: int = 50) -> list[dict[str, Any]]:
     rows = fetch_all(
         """SELECT * FROM mind_perception
-           WHERE status = 'pending' AND retracted = 0 AND glance_at <= ?
+           WHERE status IN ('pending', 'previewed') AND retracted = 0 AND glance_at <= ?
            ORDER BY glance_at ASC LIMIT ?""",
         (ts, limit),
     )
@@ -285,27 +285,31 @@ def create_deferred(
     trace_ids: list[str],
     due_at: float,
     reason: str,
+    payload: dict[str, Any] | None = None,
 ) -> int:
-    now = time.time()
+    now = clock.now()
     cursor = fetch_one("SELECT MAX(id) AS max_id FROM mind_deferred")
     next_id = int(cursor["max_id"] or 0) + 1
     execute_write(
         """INSERT INTO mind_deferred(
-               id, session_id, trace_ids_json, enqueued_at, due_at, reason,
+               id, session_id, trace_ids_json, enqueued_at, due_at, reason, payload_json,
                status, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
         (next_id, session_id, json.dumps(trace_ids, ensure_ascii=False),
-         now, due_at, reason, now, now),
+         now, due_at, reason,
+         json.dumps(payload or {}, ensure_ascii=False), now, now),
     )
     return next_id
 
 
 def merge_deferred(deferred_id: int, trace_ids: list[str], due_at: float) -> None:
+    from app.services.mind import clock
+
     execute_write(
         """UPDATE mind_deferred
            SET trace_ids_json = ?, due_at = MIN(due_at, ?), updated_at = ?
            WHERE id = ? AND status = 'pending'""",
-        (json.dumps(trace_ids, ensure_ascii=False), due_at, time.time(), deferred_id),
+        (json.dumps(trace_ids, ensure_ascii=False), due_at, clock.now(), deferred_id),
     )
 
 
@@ -321,6 +325,7 @@ def update_deferred(
     lease_until: float | None = None,
     cycle_id: str | None = None,
     due_at: float | None = None,
+    attempts: int | None = None,
 ) -> None:
     fields = []
     params: list[Any] = []
@@ -329,6 +334,7 @@ def update_deferred(
         ("lease_until", lease_until),
         ("cycle_id", cycle_id),
         ("due_at", due_at),
+        ("attempts", attempts),
     ):
         if value is not None:
             fields.append(f"{key} = ?")
@@ -336,7 +342,7 @@ def update_deferred(
     if not fields:
         return
     fields.append("updated_at = ?")
-    params.append(time.time())
+    params.append(clock.now())
     execute_write(
         f"UPDATE mind_deferred SET {', '.join(fields)} WHERE id = ?",
         (*params, deferred_id),
@@ -344,13 +350,11 @@ def update_deferred(
 
 
 def lease_deferred(deferred_id: int, lease_until: float) -> bool:
-    """租约领取：pending 或租约已过期 → running。返回是否领取成功。"""
-    from app.services.mind import clock
-
+    """租约领取：pending 或租约已过期的 running → running 并 +1 attempts。"""
     now = clock.now()
     rowcount = execute_write(
         """UPDATE mind_deferred
-           SET status = 'running', lease_until = ?, updated_at = ?
+           SET status = 'running', lease_until = ?, attempts = attempts + 1, updated_at = ?
            WHERE id = ? AND (status = 'pending' OR (status = 'running' AND lease_until < ?))""",
         (lease_until, now, deferred_id, now),
     )
@@ -360,7 +364,18 @@ def lease_deferred(deferred_id: int, lease_until: float) -> bool:
 def due_deferred(ts: float, limit: int = 50) -> list[dict[str, Any]]:
     rows = fetch_all(
         """SELECT * FROM mind_deferred
-           WHERE status IN ('pending', 'running') AND due_at <= ?
+           WHERE (status = 'pending' AND due_at <= ?)
+              OR (status = 'running' AND due_at <= ? AND lease_until < ?)
+           ORDER BY due_at ASC LIMIT ?""",
+        (ts, ts, ts, limit),
+    )
+    return [dict(row) for row in rows]
+
+
+def stale_running_deferred(ts: float, limit: int = 100) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        """SELECT * FROM mind_deferred
+           WHERE status = 'running' AND lease_until < ?
            ORDER BY due_at ASC LIMIT ?""",
         (ts, limit),
     )
@@ -370,6 +385,7 @@ def due_deferred(ts: float, limit: int = 50) -> list[dict[str, Any]]:
 # ── 投递计划 ────────────────────────────────────────────────────────────────
 
 def insert_delivery(item: dict[str, Any]) -> None:
+    now = clock.now()
     execute_write(
         """INSERT INTO mind_delivery(
                session_id, cycle_id, seq, kind, payload_json, send_at, status,
@@ -379,19 +395,44 @@ def insert_delivery(item: dict[str, Any]) -> None:
         (
             item["session_id"], item["cycle_id"], item["seq"], item["kind"],
             json.dumps(item.get("payload") or {}, ensure_ascii=False),
-            item["send_at"], time.time(), time.time(),
+            item["send_at"], now, now,
         ),
     )
 
 
 def due_deliveries(session_id: str, ts: float, limit: int = 50) -> list[dict[str, Any]]:
-    rows = fetch_all(
-        """SELECT * FROM mind_delivery
-           WHERE session_id = ? AND status = 'pending' AND send_at <= ?
-           ORDER BY send_at ASC, seq ASC LIMIT ?""",
-        (session_id, ts, limit),
+    """原子认领：pending（或租约过期的 claimed）→ claimed + lease_until。"""
+    from app import config
+    from app.storage.db import get_conn
+
+    lease_until = ts + max(1, int(config.MIND_DELIVERY_LEASE_SEC))
+    # 一次原子 UPDATE 同时覆盖 pending 与租约过期的 claimed，再读回本调用认领的行
+    with get_conn() as conn:
+        claimed_ids = [
+            int(row["id"]) for row in conn.execute(
+                f"""SELECT id FROM mind_delivery
+                    WHERE session_id = ? AND send_at <= ?
+                      AND (status = 'pending' OR (status = 'claimed' AND lease_until < ?))
+                    ORDER BY send_at ASC, seq ASC LIMIT ?""",
+                (session_id, ts, ts, limit),
+            ).fetchall()
+        ]
+        if not claimed_ids:
+            return []
+        placeholders = ",".join("?" for _ in claimed_ids)
+        conn.execute(
+            f"""UPDATE mind_delivery
+                SET status = 'claimed', lease_until = ?, updated_at = ?
+                WHERE id IN ({placeholders})""",
+            (lease_until, ts, *claimed_ids),
+        )
+    claimed = fetch_all(
+        f"""SELECT * FROM mind_delivery
+            WHERE id IN ({placeholders}) AND status = 'claimed' AND lease_until = ?
+            ORDER BY send_at ASC, seq ASC""",
+        (*claimed_ids, lease_until),
     )
-    return [dict(row) for row in rows]
+    return [dict(row) for row in claimed]
 
 
 def get_delivery(delivery_id: int) -> dict[str, Any] | None:
@@ -400,20 +441,22 @@ def get_delivery(delivery_id: int) -> dict[str, Any] | None:
 
 
 def ack_delivery(delivery_id: int, status: str, *, error: str | None = None) -> bool:
+    now = clock.now()
     rowcount = execute_write(
         """UPDATE mind_delivery SET status = ?, acked_at = ?, error = ?, updated_at = ?
-           WHERE id = ? AND status = 'pending'""",
-        (status, time.time(), error, time.time(), delivery_id),
+           WHERE id = ? AND status IN ('pending', 'claimed')""",
+        (status, now, error, now, delivery_id),
     )
     return rowcount == 1
 
 
-def cancel_remaining_deliveries(cycle_id: str, after_seq: int = 0) -> int:
-    """取消该周期 text/sticker 一条都没发出时剩余的全部 pending 项（含 mark_read）。"""
+def cancel_remaining_deliveries(cycle_id: str) -> int:
+    """只取消 text/sticker/typing；mark_read 不随打断或撤回取消。"""
     return execute_write(
         """UPDATE mind_delivery SET status = 'cancelled', updated_at = ?
-           WHERE cycle_id = ? AND status = 'pending'""",
-        (time.time(), cycle_id),
+           WHERE cycle_id = ? AND status IN ('pending', 'claimed')
+             AND kind IN ('text', 'sticker', 'typing')""",
+        (clock.now(), cycle_id),
     )
 
 
@@ -429,7 +472,8 @@ def cycle_has_sent_text(cycle_id: str) -> bool:
 def list_pending_delivery_cycles(session_id: str) -> list[dict[str, Any]]:
     rows = fetch_all(
         """SELECT DISTINCT cycle_id FROM mind_delivery
-           WHERE session_id = ? AND status = 'pending'""",
+           WHERE session_id = ? AND status IN ('pending', 'claimed')
+             AND kind IN ('text', 'sticker', 'typing')""",
         (session_id,),
     )
     return [dict(row) for row in rows]

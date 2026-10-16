@@ -146,7 +146,7 @@ def _validate_session_id(session_id: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 def chat(req: ChatRequest):
     from app.services.chat.idempotency import execute
     canonical = _validate_session_id(req.session_id)
@@ -224,10 +224,16 @@ def _chat(req: ChatRequest, trace_id: str | None = None):
         source=source,
         session_id=session_id,
         message=message,
-        reply=result.get("reply"),
+        reply=result.get("reply") or "",
         success=True,
         latency_ms=int((time.perf_counter() - started) * 1000),
     )
+
+    if result.get("status") == "accepted":
+        return {
+            "status": "accepted",
+            "trace_id": result.get("trace_id") or trace_id,
+        }
 
     return ChatResponse(
         reply=result["reply"],

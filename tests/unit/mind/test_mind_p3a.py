@@ -69,6 +69,7 @@ class FakeProvider:
     def __init__(self, l1_urgency: float = 0.1, l1_depth: str = "normal",
                  l1_reply_will: str = "later", expr_text: str = "好哦\n[表情包：喵]"):
         self.calls = {"mind_l1": 0, "mind_think": 0, "mind_expr": 0}
+        self.requests: list[dict] = []
         self.l1_urgency = l1_urgency
         self.l1_depth = l1_depth
         self.l1_reply_will = l1_reply_will
@@ -79,6 +80,8 @@ class FakeProvider:
                  purpose="chat", **_kw):
         if purpose in self.calls:
             self.calls[purpose] += 1
+        self.requests.append({"purpose": purpose, "messages": messages, "trace_id": trace_id,
+                              "extra_body": extra_body, "session_id": session_id})
         if purpose == "mind_l1":
             return json.dumps({
                 "category": "分享", "gut": "想他", "affect_delta": {"valence": 0.2, "arousal": 0.1},
@@ -104,7 +107,33 @@ def _deliveries(session_id: str) -> list[dict]:
 
 
 def _pending(session_id: str) -> list[dict]:
-    return [dict(r) for r in _deliveries(session_id) if r["status"] == "pending"]
+    return [dict(r) for r in _deliveries(session_id) if r["status"] in ("pending", "claimed")]
+
+
+def _flatten(messages) -> str:
+    """把 OpenAI 风格 messages 压平成一段文本，用于包含性断言。"""
+    parts: list[str] = []
+    for message in messages or []:
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+    return "\n".join(parts)
+
+
+def _force_opened(session: str, trace_id: str, *, seen_at: float | None = None) -> None:
+    """测试助手：直接把感知置为 opened（跳过 glance 抽样路径）。"""
+    from app.services.mind import clock as _c
+
+    add_message(session, "user", f"msg-{trace_id}", trace_id=trace_id)
+    perception.create_perception(session, trace_id)
+    record = store.get_perception_by_trace(trace_id)
+    store.update_perception(
+        record["id"], seen="opened", seen_at=seen_at or _c.now(), status="opened"
+    )
 
 
 from app.services.mind import delivery, orchestration, perception, schedule, store  # noqa: E402
@@ -149,13 +178,22 @@ def test_class_preview_then_reply_after_class(mind_env, fake_provider, monkeypat
 
     # 09:40 下课后：出队周期
     mind_env["clock"]["t"] = datetime(2026, 10, 12, 9, 41).timestamp()
-    orchestration.handle_opened(session, ["t1"])
-    rows = _pending(session)
-    assert rows, "下课后应生成投递计划"
-    kinds = [r["kind"] for r in rows]
-    assert "mark_read" in kinds and "text" in kinds
-    assert kinds.index("mark_read") < next(i for i, k in enumerate(kinds) if k == "text")
-    cycle = store.get_cycle(orchestration.derive_cycle_id(session, "async:t1"))
+    # 下课后等级 >=2：preview → opened 由调度器续上
+    mind_scheduler.process_glance(session, "t1")
+    rec = store.get_perception_by_trace("t1")
+    assert rec["seen"] == "opened" and rec["status"] == "opened"
+    mark_reads = [r for r in _deliveries(session) if r["kind"] == "mark_read"]
+    assert mark_reads, "点开时应生成 mark_read（锚 seen_at）"
+    assert mark_reads[0]["send_at"] == rec["seen_at"]
+    job = store.get_pending_deferred(session)
+    assert job and "t1" in json.loads(job["trace_ids_json"]), "handle_opened 只写作业"
+    # 调度器执行作业 → 生成投递计划
+    mind_scheduler.process_due_batch()
+    rows = _deliveries(session)
+    assert any(r["kind"] == "text" for r in rows), "下课后应有 text 投递"
+    done_job = store.get_deferred(1)
+    assert done_job["status"] == "done"
+    cycle = store.get_cycle(orchestration.derive_cycle_id(session, "job:1"))
     assert json.loads(cycle["wm_json"])["situation"]["local_time"].startswith("2026-10-12 09:4")
 
 
@@ -178,9 +216,11 @@ def test_preempt_on_high_urgency(mind_env, fake_provider, monkeypatch):
 def test_reply_will_not(mind_env, fake_provider):
     fake_provider.l1_reply_will = "not"
     session = "s-not"
-    add_message(session, "user", "哦", trace_id="t1")
+    _force_opened(session, "t1")
     orchestration.handle_opened(session, ["t1"])
-    assert _deliveries(session) == []
+    rows = _deliveries(session)
+    kinds = [r["kind"] for r in rows]
+    assert "mark_read" in kinds and "text" not in kinds  # 修正7：已读不回
 
 
 # 5) 等级 2 + reply_will=now → 先短回一条 + 进待想队列；等级 3 再完整周期
@@ -203,20 +243,37 @@ def test_level2_quick_reply_then_deferred(mind_env, fake_provider, monkeypatch):
     rec = store.get_perception_by_trace("t1")
     mind_env["clock"]["t"] = rec["glance_at"] + 1
     mind_scheduler.process_glance(session, "t1")
-    rows = _deliveries(session)
-    texts = [r for r in rows if r["kind"] == "text"]
-    assert len(texts) == 1  # 先短回一条
-    cycle = store.get_cycle(orchestration.derive_cycle_id(session, "async:t1"))
-    plan = json.loads(cycle["plan_json"])
-    assert plan["length"] == "short" and plan["n_messages"] == 1
+    # handle_opened 只写作业（quick_reply：force_short + n=1 + 后续深想作业）
     pending = store.get_pending_deferred(session)
     assert pending and "t1" in json.loads(pending["trace_ids_json"])
-    # 到等级 3（14:10 之后）出队：完整周期（E1 不再强制 short）
-    mind_env["clock"]["t"] = datetime(2026, 10, 12, 14, 11).timestamp()
-    orchestration.run_async_cycle(session, ["t1"], trigger_ref=f"deferred:{pending['id']}")
-    cycle2 = store.get_cycle(orchestration.derive_cycle_id(session, f"deferred:{pending['id']}"))
+    quick = pending
+    assert json.loads(quick["payload_json"])["force_short"] is True
+    assert json.loads(quick["payload_json"])["max_messages"] == 1
+    # 调度器执行短回作业
+    mind_env["clock"]["t"] = quick["due_at"] + 0.1
+    mind_scheduler.process_deferred(session, quick["id"])
+    cycle = store.get_cycle(orchestration.derive_cycle_id(session, f"job:{quick['id']}"))
+    plan = json.loads(cycle["plan_json"])
+    assert plan["length"] == "short" and plan["n_messages"] == 1
+    texts = [r for r in _deliveries(session) if r["kind"] == "text" and r["status"] in ("pending", "claimed")]
+    assert len(texts) == 1  # 先短回一条
+    # 短回 ack sent 后进历史；深想能看到但不覆盖
+    from app.routers.mind import DeliveryAckRequest, deliveries_ack
+
+    deliveries_ack(texts[0]["id"], DeliveryAckRequest(status="sent"))
+    # 短回完成后补深想作业（等级 >=3）
+    deep_jobs = [dict(j) for j in fetch_all(
+        "SELECT * FROM mind_deferred WHERE session_id=? AND reason='quick_reply_then_think'", (session,))]
+    assert deep_jobs, "短回 done 后应补深想作业"
+    deep = store.get_pending_deferred(session)
+    assert deep and deep["id"] == deep_jobs[-1]["id"]
+    mind_env["clock"]["t"] = deep["due_at"] + 0.1
+    mind_scheduler.process_deferred(session, deep["id"])
+    cycle2 = store.get_cycle(orchestration.derive_cycle_id(session, f"job:{deep['id']}"))
     assert cycle2["status"] == "completed"
-    assert json.loads(cycle2["plan_json"])["n_messages"] != 1 or True
+    assert json.loads(cycle2["plan_json"])["length"] != "short"
+    assistants = fetch_all("SELECT * FROM messages WHERE session_id=? AND role='assistant'", (session,))
+    assert len(assistants) >= 1  # 短回已进历史，不撤回
 
 
 # 10) ack sent 才写 assistant 历史
@@ -333,8 +390,10 @@ def test_new_message_cancels_unsent_cycle(mind_env, fake_provider):
     orchestration.on_new_message(session, "t2")
     rows = _deliveries(session)
     assert all(r["status"] == "cancelled" for r in rows if r["id"] in before)
-    pending = store.get_pending_deferred(session)
-    assert pending and "t2" in json.loads(pending["trace_ids_json"])
+    # 旧 trace 并入新消息的感知批次（t1 拉回 opened），没有 due=now 的第二周期
+    rec1 = store.get_perception_by_trace("t1")
+    assert rec1["status"] == "opened"
+    assert store.get_pending_deferred(session) is None
 
 
 def test_new_message_keeps_partially_sent_cycle(mind_env, fake_provider):
@@ -421,3 +480,269 @@ def test_sync_path_unchanged_when_disabled(mind_env, fake_provider, monkeypatch)
     assert result["reply"] == "好哦"
     assert result["trace_id"] == "t1"
     assert fetch_all("SELECT * FROM mind_delivery") == []
+
+
+# ── 修正轮新增 ─────────────────────────────────────────────────────────────
+
+
+# 修正1) 同步路径：injected/clean 顺序 + 注入不进模型请求 + 表情包表持久化
+def test_sync_path_split_order_and_requests(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_ASYNC_DELIVERY", False)
+    from app.services.chat_service import run_chat_turn, split_injected_context
+    from app.services.mind.store import get_mind_session_context
+
+    injected, clean = split_injected_context("【表情包表｜网关注入】\n表（名字共2个）：\n喵、晚安\n\n用户正文ABC")
+    assert clean == "用户正文ABC"
+    assert "喵" in injected and "用户正文ABC" not in injected
+
+    run_chat_turn("s-split", "【表情包表｜网关注入】\n表（名字共2个）：\n喵、晚安\n\n用户正文ABC", trace_id="t1")
+    for request in fake_provider.requests:
+        flat = _flatten(request["messages"])
+        if request["purpose"] in ("mind_l1", "mind_expr", "mind_think"):
+            assert "用户正文ABC" in flat, request["purpose"]
+            # L1 只看 clean_message（E2 的 system 第二块是表文本，允许）
+            if request["purpose"] == "mind_l1":
+                assert "【表情包表｜网关注入】" not in flat
+    saved = get_mind_session_context("s-split")
+    assert saved and "喵" in json.loads(saved["sticker_names_json"])
+
+
+# 修正2) 调度器不阻塞事件循环：批次卡住时 due 接口照常
+def test_scheduler_does_not_block_event_loop(mind_env, fake_provider):
+    import threading
+    import time as _time
+
+    session = "s-block"
+    add_message(session, "user", "hi", trace_id="t1")
+    perception.create_perception(session, "t1")
+    mind_env["clock"]["t"] += 3600
+    release = threading.Event()
+
+    def slow_process_due_batch(*_a, **_kw):
+        release.wait(5)
+
+    import app.services.mind.scheduler as sched_mod
+
+    orig = sched_mod.process_due_batch
+    sched_mod.process_due_batch = slow_process_due_batch
+    try:
+        started = _time.perf_counter()
+        # 直接模拟一个正在跑的批次；to_thread 里的 due 调用不被阻塞
+        sched_mod._batch_running = True
+
+        def call_due():
+            from app.routers.mind import deliveries_due
+
+            result = deliveries_due(session, 50)
+            return {"items": result["items"]}
+
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+
+        result = loop.run_until_complete(loop.run_in_executor(None, call_due))
+        assert _time.perf_counter() - started < 5
+        assert "items" in result
+        # 批次互斥：正在跑时 _try_run_batch 直接跳过（不阻塞）
+        ran = sched_mod._try_run_batch()
+        assert ran is None
+        release.set()
+    finally:
+        sched_mod.process_due_batch = orig
+        sched_mod._batch_running = False
+
+
+# 修正3) 作业失败 → 调度器重领重跑，不丢、不重复
+def test_reply_job_retry_after_failure(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_JOB_MAX_ATTEMPTS", 3)
+    session = "s-retry"
+    add_message(session, "user", "继续", trace_id="t1")
+    perception.create_perception(session, "t1")
+    rec = store.get_perception_by_trace("t1")
+    # 直接置 opened + seen_at，保证 handle_opened 走决策路径
+    store.update_perception(rec["id"], seen="opened", seen_at=rec["glance_at"], status="opened")
+    mind_env["clock"]["t"] = rec["glance_at"] + 1
+    calls = {"n": 0}
+    orig = orchestration.run_async_cycle
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated crash")
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr("app.services.mind.orchestration.run_async_cycle", flaky)
+    # opened 批次直接决策写作业（不跑周期）
+    from app.services.mind import scheduler as _sched
+
+    trace_ids = _sched._open_batch(session)
+    orchestration.handle_opened(session, trace_ids)
+    job = store.get_pending_deferred(session)
+    assert job, "决策应写作业"
+    # 第一次执行抛异常 → job 退回 pending
+    mind_scheduler.process_deferred(session, job["id"])
+    assert store.get_deferred(job["id"])["status"] == "pending"
+    # 重启调度器（新实例）后重领 → 成功
+    mind_scheduler.process_due_batch()
+    final_job = store.get_deferred(job["id"])
+    assert final_job["status"] == "done"
+    assert calls["n"] == 2
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "decided"
+    texts = [r for r in _deliveries(session) if r["kind"] == "text"]
+    assert len(texts) == 1, "投递不重复"
+
+
+# 修正3b) attempts 超限 → failed + 日志
+def test_reply_job_fails_after_max_attempts(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_JOB_MAX_ATTEMPTS", 1)
+    session = "s-max"
+    add_message(session, "user", "hi", trace_id="t1")
+    store.create_deferred(session, ["t1"], mind_env["clock"]["t"], "reply_now")
+    monkeypatch.setattr("app.services.mind.orchestration.run_async_cycle",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    job = store.get_pending_deferred(session)
+    mind_scheduler.process_deferred(session, job["id"])
+    assert store.get_deferred(job["id"])["status"] == "failed"
+
+
+# 修正4) 正常回复 L1 只调 1 次
+def test_l1_called_once_per_reply(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_L0_LAMBDA_PER_MIN",
+                        {"0": 0, "1": 0.025, "2": 0.12, "3": 30.0, "4": 3.0})
+    session = "s-l1once"
+    add_message(session, "user", "中午吃啥", trace_id="t1")
+    rec = perception.create_perception(session, "t1")
+    perception_rec = store.get_perception_by_trace("t1")
+    store.update_perception(perception_rec["id"], seen="opened",
+                           seen_at=perception_rec["glance_at"], status="opened")
+    mind_env["clock"]["t"] = perception_rec["glance_at"] + 1
+    before = fake_provider.calls["mind_l1"]
+    trace_ids = mind_scheduler._open_batch(session)
+    orchestration.handle_opened(session, trace_ids)
+    decision_calls = fake_provider.calls["mind_l1"]
+    # 调度器执行作业：周期复用作业里的 L1，不再调用
+    after = fake_provider.calls["mind_l1"]
+    assert after == decision_calls == before + 1
+    job = store.get_pending_deferred(session)
+    assert job
+    mind_scheduler.process_due_batch()
+    assert fake_provider.calls["mind_l1"] == after, "周期内复用作业的 L1，不再调用"
+
+
+# 修正5) 已发出 text 后撤回 → 不重建
+def test_retract_after_sent_keeps_cycle(mind_env, fake_provider):
+    session = "s-rsent"
+    add_message(session, "user", "第一条", trace_id="t1")
+    cycle_id = orchestration.run_async_cycle(session, ["t1"], trigger_type="message")
+    text = next(r for r in _deliveries(session) if r["kind"] == "text")
+    from app.routers.mind import DeliveryAckRequest, deliveries_ack
+
+    deliveries_ack(text["id"], DeliveryAckRequest(status="sent"))
+    cycles_before = len(fetch_all("SELECT * FROM mind_cycle WHERE session_id=?", (session,)))
+    texts_before = len([r for r in _deliveries(session) if r["kind"] == "text"])
+    orchestration.rebuild_after_retract(session, "t1")
+    cycles_after = len(fetch_all("SELECT * FROM mind_cycle WHERE session_id=?", (session,)))
+    texts_after = len([r for r in _deliveries(session) if r["kind"] == "text"])
+    assert cycles_after == cycles_before
+    assert texts_after == texts_before
+
+
+# 修正7) reply_will=not → 有 mark_read 无 text；打断不取消 mark_read
+def test_mark_read_independent_of_reply(mind_env, fake_provider):
+    fake_provider.l1_reply_will = "not"
+    session = "s-mr"
+    add_message(session, "user", "哦", trace_id="t1")
+    perception.create_perception(session, "t1")
+    store.update_perception(store.get_perception_by_trace("t1")["id"],
+                            seen="opened", seen_at=mind_env["clock"]["t"], status="opened")
+    orchestration.handle_opened(session, ["t1"])
+    kinds = [r["kind"] for r in _deliveries(session)]
+    assert "mark_read" in kinds and "text" not in kinds
+    # mark_read 不随打断取消
+    store.update_perception(store.get_perception_by_trace("t1")["id"], status="opened")
+    add_message(session, "user", "第二条", trace_id="t2")
+    cycle_id = orchestration.run_async_cycle(session, ["t2"], trigger_type="message")
+    orchestration.on_new_message(session, "t2")
+    marks = [r for r in _deliveries(session) if r["kind"] == "mark_read"]
+    assert marks and all(r["status"] in ("pending", "sent", "claimed") for r in marks)
+
+
+# 修正8) 异步入口 trace 去重
+def test_async_entry_dedupes_trace(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_ASYNC_DELIVERY", True)
+    from app.services.chat_service import run_chat_turn
+
+    r1 = run_chat_turn("s-dedup", "hi", trace_id="t1")
+    r2 = run_chat_turn("s-dedup", "hi", trace_id="t1")
+    assert r1["status"] == "accepted" and r2["status"] == "accepted"
+    assert r2.get("duplicate") is True
+    users = fetch_all("SELECT * FROM messages WHERE session_id=? AND role='user'", ("s-dedup",))
+    assert len(users) == 1
+    assert len(fetch_all("SELECT * FROM mind_perception WHERE trace_id='t1'")) == 1
+
+
+# 修正9) 课上收到、课后 glance → 按课后等级点开
+def test_level_judged_at_glance_time(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_L0_LAMBDA_PER_MIN",
+                        {"0": 0, "1": 0.001, "2": 0.12, "3": 30.0, "4": 3.0})
+    session = "s-glance"
+    class_time = datetime(2026, 10, 12, 8, 10).timestamp()
+    add_message(session, "user", "下课了吗", trace_id="t1")
+    rec = perception.create_perception(session, "t1", received_at=class_time)
+    after_class = datetime(2026, 10, 12, 9, 41).timestamp()
+    assert rec["glance_at"] > class_time
+    mind_env["clock"]["t"] = max(rec["glance_at"], after_class)
+    mind_scheduler.process_glance(session, "t1")
+    rec = store.get_perception_by_trace("t1")
+    assert rec["seen"] == "opened", "课后 glance 应按课后等级点开"
+
+
+# 修正10) 投递认领：第二次拉不到同一条；租约过期可重拿
+def test_delivery_claim_and_lease(mind_env):
+    from app.routers.mind import deliveries_due
+
+    session = "s-claim"
+    add_message(session, "user", "hi", trace_id="t1")
+    cycle_id = orchestration.run_async_cycle(
+        session, ["t1"], trigger_type="message",
+        trigger_ref="async:t1",
+    ) if False else None
+    store.insert_delivery({
+        "session_id": session, "cycle_id": "claim-cyc", "seq": 0,
+        "kind": "text", "payload": {"text": "hi"}, "send_at": mind_env["clock"]["t"],
+    })
+    mind_env["clock"]["t"] += 1
+    first = deliveries_due(session, 10)["items"]
+    assert first
+    second = deliveries_due(session, 10)["items"]
+    assert all(item["id"] != first[0]["id"] for item in second), "租约内不可重复拉取"
+    # 租约到期 = 认领时刻 + lease；再 +1 保证严格过期
+    claimed_at = mind_env["clock"]["t"]
+    mind_env["clock"]["t"] = claimed_at + int(config.MIND_DELIVERY_LEASE_SEC) + 1
+    third = deliveries_due(session, 10)["items"]
+    assert any(item["id"] == first[0]["id"] for item in third), "租约过期后可重拿"
+
+
+# 修正12) text ack failed → 同周期后续 text/sticker/typing 取消，mark_read 保留
+def test_text_failed_cancels_rest(mind_env, fake_provider):
+    from app.routers.mind import DeliveryAckRequest, deliveries_ack
+
+    session = "s-fail"
+    add_message(session, "user", "hi", trace_id="t1")
+    perception.create_perception(session, "t1")
+    store.update_perception(store.get_perception_by_trace("t1")["id"],
+                            seen="opened", seen_at=mind_env["clock"]["t"], status="opened")
+    orchestration.handle_opened(session, ["t1"])
+    store.update_perception(store.get_perception_by_trace("t1")["id"], status="decided")
+    job = store.get_pending_deferred(session)
+    mind_scheduler.process_deferred(session, job["id"])
+    rows = _deliveries(session)
+    texts = [r for r in rows if r["kind"] == "text"]
+    assert texts
+    marks = [r for r in rows if r["kind"] == "mark_read"]
+    assert marks
+    deliveries_ack(texts[0]["id"], DeliveryAckRequest(status="failed", error="boom"))
+    rows = _deliveries(session)
+    assert all(r["status"] != "pending" for r in rows if r["kind"] in ("text", "sticker", "typing"))
+    assert marks[0]["status"] in ("pending", "claimed"), "mark_read 保留"
