@@ -10,7 +10,7 @@ import pytest
 from app import config
 from app.services.chat import llm_gateway
 from app.services.chat_service import run_chat_turn
-from app.services.mind import consistency, cycle
+from app.services.mind import consistency, cycle, state
 from app.services.mind.deliberation import BeliefUpdate, Intent, L2Result
 from app.services.mind.memory import commit as memory_commit
 from app.services.mind.memory import store as memory_store
@@ -38,7 +38,7 @@ def fake_mind_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "MIND_E3_MAX_SINGLE_CHARS", 200)
     monkeypatch.setattr(config, "MIND_THINK_MODEL", "fake-think")
     monkeypatch.setattr(config, "MIND_THINK_EXTRA_BODY", {"reasoning": {"effort": "medium"}})
-    monkeypatch.setattr(config, "MIND_THINK_MAX_TOKENS", 4000)
+    monkeypatch.setattr(config, "MIND_THINK_MAX_TOKENS", 8000)
     monkeypatch.setattr(config, "MIND_FAST_SKIP_L2", True)
     monkeypatch.setattr(config, "MIND_WM_MAX_CHARS", 6000)
     monkeypatch.setattr(config, "MIND_WM_EPISODES", 5)
@@ -50,6 +50,7 @@ def fake_mind_env(monkeypatch: pytest.MonkeyPatch):
         {"rel": 1, "rec": 1, "imp": 1, "emo": 1, "str": 1},
     )
     monkeypatch.setattr(config, "MIND_MEMORY_SCOPE", "session")
+    monkeypatch.setattr(config, "MIND_BELIEF_INIT_MAX", 0.6)
 
 
 def _l1_payload(depth: str = "normal", gut: str = "他想聊聊", cues=None):
@@ -154,7 +155,7 @@ def test_mind_p2_normal_path(mind_db, fake_mind_env, monkeypatch):
 
     think_kwargs = next(kwargs for purpose, kwargs in calls if purpose == "mind_think")
     assert think_kwargs["model_name"] == "fake-think"
-    assert think_kwargs["max_tokens"] == 4000
+    assert think_kwargs["max_tokens"] == 8000
     extra = think_kwargs["extra_body"]
     assert extra.get("response_format", {}).get("type") == "json_schema"
     assert extra.get("provider", {}).get("require_parameters") is True
@@ -408,7 +409,11 @@ def test_mind_p2_wm_budget_trimming(mind_db, fake_mind_env, monkeypatch):
         self_card="SELF_CARD_MARK 完整自我卡内容",
     )
     text = wm["text"]
-    assert "SELF_CARD_MARK" in text  # 自我卡完整保留
+    # 给 L2 的渲染文本不含自我卡（自我卡已在 system 里）；槽位本身完整保留
+    assert "SELF_CARD_MARK" not in text
+    assert "SELF_CARD_MARK" in wm["self_card"]
+    full_text = wm_builder.render_working_memory(wm, include_self_card=True)
+    assert "SELF_CARD_MARK" in full_text
     assert wm["trimmed"], "预算内不可能装下全部，必须发生裁剪"
     assert wm["trimmed"][0] == "episodes", f"先裁经历，实际 {wm['trimmed']}"
     assert 2 <= len(wm["episodes"]) < 5
@@ -649,3 +654,249 @@ def test_mind_p2_wm_replay_no_recall_boost(mind_db, fake_mind_env, monkeypatch):
     after_replay = memory_store.get_episode("p2-replay", episode_id)
     assert after_replay["recall_count"] == 1
     assert after_replay["strength"] == after_first["strength"]
+
+
+# ════════════════════ P2 修正轮：以下为新增/修订行为 ════════════════════
+
+
+# ── 修正 1：时间线只检查对"当前时刻"的说法 ─────────────────────────────────────
+def test_mind_p2_time_line_only_current_claims():
+    # 22 点提"今天早上的事"：单纯提到时段 → 通过
+    past = L2Result(say_points=["说说今天早上的事"])
+    errors = consistency.check_time_line(past, hour=22)
+    assert errors == []
+
+    # 22 点说"早安" → 失败
+    greeting = L2Result(say_points=["早安"])
+    assert consistency.check_time_line(greeting, hour=22)
+
+    # 01 点说"现在下午了" → 失败（锚点 + 时段词同分句）
+    now_claim = L2Result(say_points=["现在下午了"])
+    assert consistency.check_time_line(now_claim, hour=1)
+
+    # 01 点说"还没到早上" → 时段词无锚点 → 通过
+    no_anchor = L2Result(say_points=["还没到早上"])
+    assert consistency.check_time_line(no_anchor, hour=1) == []
+
+    # 22 点说"这会儿该睡了" → 通过（该睡了是锚点，但没提时段词）
+    anchor_ok = L2Result(say_points=["这会儿该睡了"])
+    assert consistency.check_time_line(anchor_ok, hour=22) == []
+
+    # 01 点"现在早上六点"那种分句带锚点 + 时段 → 失败
+    wrong = L2Result(hidden=["现在早上就好了"])
+    assert consistency.check_time_line(wrong, hour=1)
+
+
+# ── 修正 2：action 只查开头主语；note 不参与完成态检查 ──────────────────────────
+def test_mind_p2_agency_action_only():
+    # action="去睡觉", note 里出现完成态词 → 通过
+    fine = L2Result(intents=[Intent(action="去睡觉", note="已经很晚了")])
+    ok, errors, _ = consistency.check_result("p2-ag", fine)
+    assert ok is True and not errors
+
+    # action="已经买好奶茶" → 失败
+    done = L2Result(intents=[Intent(action="已经买好奶茶")])
+    ok2, errors2, _ = consistency.check_result("p2-ag", done)
+    assert ok2 is False and any("完成态" in item for item in errors2)
+
+    # action="你去买" → 失败（外来主语在开头）
+    foreign = L2Result(intents=[Intent(action="你去买")])
+    ok3, errors3, _ = consistency.check_result("p2-ag", foreign)
+    assert ok3 is False and any("主语" in item for item in errors3)
+
+    # 名字里的"小雨/他/她"不再是禁词（只看开头固定的三个主语）
+    npc = L2Result(intents=[Intent(action="带小雨去看电影")])
+    ok4, errors4, _ = consistency.check_result("p2-ag", npc)
+    assert ok4 is True and not errors4
+
+
+# ── 修正 3：工作记忆带 #id，L2 用 #id 作 evidence → 通过 ───────────────────────
+def test_mind_p2_episode_id_in_wm_and_evidence(mind_db, fake_mind_env):
+    episode_id = memory_store.insert_episode(
+        "p2-eid", "c-old", 0, summary="小雨是同组同学", participants=["小雨"],
+        importance=0.9, strength=1.0,
+    )
+    memory_store.upsert_belief("p2-eid", "小雨", "同学", 0.9, [] )
+
+    class FakeL1:
+        cues = ["小雨"]
+
+    wm = wm_builder.build_working_memory(
+        "p2-eid", l1=FakeL1(), message="小雨是谁", history=[], self_card="",
+    )
+    assert f"#{episode_id}" in wm["text"], "经历行要带 #id"
+
+    with_evidence = L2Result(belief_updates=[
+        BeliefUpdate(subject="小雨", content="同组同学", confidence=1.0,
+                     evidence=[episode_id]),
+    ])
+    ok, errors, _ = consistency.check_result("p2-eid", with_evidence)
+    assert ok is True and not errors
+
+
+# ── 修正 4：提交幂等（提交后"崩溃"重跑，三项都不变）────────────────────────────
+def test_mind_p2_commit_survives_crash_replay(mind_db, fake_mind_env):
+    result = L2Result.from_dict(
+        json.loads(_l2_payload(
+            memory_notes=[{"summary": "崩溃测试事件", "participants": ["user"], "tags": []}],
+            belief_updates=[{"subject": "测试主题", "content": "可信度 0.9",
+                             "confidence": 0.9, "evidence": []}],
+            state_delta={"valence": 0.3, "arousal": 0.2},
+        )),
+        leak_cap=1.0, max_messages=4,
+    )
+    first = memory_commit.commit_memory(
+        session_id="p2-crash", cycle_id="cycle-crash", result=result, trace_id="t",
+    )
+    assert first.get("skipped") is None
+    state_after_first = state.read_state("p2-crash")
+    belief_after_first = memory_store.get_belief("p2-crash", "测试主题")
+    episodes_after_first = memory_store.count_episodes("p2-crash")
+    # 首插 confidence = min(0.9, MIND_BELIEF_INIT_MAX=0.6)
+    assert belief_after_first["confidence"] == pytest.approx(0.6)
+    assert episodes_after_first == 1
+
+    # 模拟"事务提交成功后进程崩溃"：直接重跑同一个 cycle
+    second = memory_commit.commit_memory(
+        session_id="p2-crash", cycle_id="cycle-crash", result=result, trace_id="t",
+    )
+    assert second.get("skipped") == "already_committed"
+    state_after_second = state.read_state("p2-crash")
+    belief_after_second = memory_store.get_belief("p2-crash", "测试主题")
+    assert state_after_second["valence"] == pytest.approx(state_after_first["valence"])
+    assert state_after_second["version"] == state_after_first["version"]
+    assert belief_after_second["confidence"] == belief_after_first["confidence"]
+    assert belief_after_second["version"] == belief_after_first["version"]
+    assert memory_store.count_episodes("p2-crash") == episodes_after_first
+
+
+# ── 修正 5：L2 能看到表情包名字 ───────────────────────────────────────────────
+def test_mind_p2_l2_sees_sticker_names():
+    from app.services.mind.deliberation import build_deliberation_messages
+    from app.services.mind.schemas import L1Appraisal
+
+    messages = build_deliberation_messages(
+        wm_text="【当前情境】测试", l1=L1Appraisal(), message="你好",
+        self_card="SELF", leak_cap=0.5, sticker_names={"喵", "咬你~", "晚安"},
+    )
+    joined = messages[1]["content"]
+    assert "【可用表情包】" in joined
+    assert "喵" in joined and "咬你~" in joined and "晚安" in joined
+
+    none_messages = build_deliberation_messages(
+        wm_text="【当前情境】测试", l1=L1Appraisal(), message="你好",
+        self_card="SELF", leak_cap=0.5, sticker_names=set(),
+    )
+    assert "【可用表情包】\n无" in none_messages[1]["content"]
+
+
+# ── 修正 6：自我卡只出现在 system 里一次 ──────────────────────────────────────
+def test_mind_p2_self_card_appears_once(mind_db, fake_mind_env, monkeypatch):
+    calls = []
+    _patch_providers(
+        monkeypatch,
+        l1=_l1_payload(depth="normal"),
+        think=_l2_payload(say_points=["嗯"]),
+        expr="嗯",
+        recorder=calls,
+    )
+    run_chat_turn("p2-selfcard", "你好", trace_id="tp2selfcard")
+    think_kwargs = next(kwargs for purpose, kwargs in calls if purpose == "mind_think")
+    messages = think_kwargs["messages"]
+    system_text = "".join(
+        block.get("text", "") for block in messages[0]["content"]
+    )
+    user_text = messages[1]["content"]
+    assert "抑制基线" in system_text, "自我卡在 system 里"
+    assert "抑制基线" not in user_text, "工作记忆文本不再渲染自我卡槽位"
+
+
+# ── 修正 7：未命中的退化排序结果不做回忆增强 ──────────────────────────────────
+def test_mind_p2_no_hit_no_boost(mind_db, fake_mind_env):
+    episode_id = memory_store.insert_episode(
+        "p2-noboost", "c1", 0, summary="完全无关的一段内容",
+        importance=0.5, strength=0.5,
+    )
+    selected = retrieve_episodes(
+        "p2-noboost", ["量子物理"], "今天天气", limit=3, apply_recall_boost=True,
+    )
+    assert any(item["id"] == episode_id for item in selected), "无命中时退化取回"
+    stored = memory_store.get_episode("p2-noboost", episode_id)
+    assert stored["recall_count"] == 0
+    assert stored["strength"] == pytest.approx(0.5)
+    assert stored["last_recalled_at"] is None
+
+
+def test_mind_p2_query_dedup_and_cap():
+    from app.services.mind.memory.retrieval import _build_query
+
+    # 去重：cue 与消息产生相同词
+    query = _build_query(["吃饭"], "吃饭了吗")
+    terms = query.split(" OR ")
+    assert len(terms) == len(set(terms))
+    assert terms[0] == '"吃饭"', "cues 排在最前"
+
+    # 上限 64：cues 在前，消息在后
+    long_message = "".join(f"词{index:02d}" for index in range(100))
+    capped = _build_query(["开头词"], long_message)
+    assert len(capped.split(" OR ")) == 64
+    assert capped.startswith('"开头"'), "cue 的首个二元组排在最前"
+
+
+# ── 修正 4b：情绪版本冲突 → 整个事务回滚并重试 ────────────────────────────────
+def test_mind_p2_commit_version_conflict_rolls_back(mind_db, fake_mind_env, monkeypatch):
+    from app.services.mind.memory import commit as commit_mod
+
+    result = L2Result.from_dict(
+        json.loads(_l2_payload(
+            memory_notes=[{"summary": "冲突事件", "participants": ["user"], "tags": []}],
+            belief_updates=[{"subject": "冲突主题", "content": "x",
+                             "confidence": 0.5, "evidence": []}],
+            state_delta={"valence": 0.2, "arousal": 0.1},
+        )),
+        leak_cap=1.0, max_messages=4,
+    )
+    real = state.apply_affect_delta_in_conn
+    calls = {"n": 0, "inner_counts": []}
+
+    def flaky(conn, session_id, valence, arousal):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # 第一轮：事务里 episode/belief 已写，模拟情绪版本冲突 → 返回 None
+            calls["inner_counts"].append(conn.execute(
+                "SELECT COUNT(*) AS n FROM mind_episode WHERE cycle_id='cy-conflict'"
+            ).fetchone()["n"])
+            return None
+        return real(conn, session_id, valence, arousal)
+
+    monkeypatch.setattr(commit_mod.state, "apply_affect_delta_in_conn", flaky)
+    commit_mod.commit_memory(
+        session_id="p2-conflict", cycle_id="cy-conflict", result=result,
+    )
+    assert calls["n"] == 2, "冲突后要重试一次"
+    assert calls["inner_counts"][0] == 1, "第一轮事务内确实插了 episode"
+    assert memory_store.count_episodes("p2-conflict") == 1, "回滚后重试，只留一条"
+    assert memory_store.get_belief("p2-conflict", "冲突主题") is not None
+    assert state.read_state("p2-conflict")["valence"] > 0
+    row = fetch_one("SELECT memory_committed FROM mind_cycle WHERE cycle_id='cy-conflict'")
+    assert row["memory_committed"] == 1
+
+    # 冲突耗尽：返回 skipped=conflict 且不落任何 episode
+    exhausted = L2Result.from_dict(
+        json.loads(_l2_payload(
+            memory_notes=[{"summary": "永远冲突", "participants": ["user"], "tags": []}],
+            state_delta={"valence": 0.1, "arousal": 0.0},
+        )),
+        leak_cap=1.0, max_messages=4,
+    )
+    monkeypatch.setattr(
+        commit_mod.state, "apply_affect_delta_in_conn",
+        lambda conn, session_id, v, a: None,
+    )
+    out = commit_mod.commit_memory(
+        session_id="p2-conflict2", cycle_id="cy-conflict2", result=exhausted,
+    )
+    assert out.get("skipped") == "conflict"
+    assert memory_store.count_episodes("p2-conflict2") == 0
+    row2 = fetch_one("SELECT memory_committed FROM mind_cycle WHERE cycle_id='cy-conflict2'")
+    assert row2 is None or row2["memory_committed"] == 0

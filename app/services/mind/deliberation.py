@@ -281,6 +281,7 @@ def build_deliberation_messages(
     message: str,
     self_card: str,
     leak_cap: float,
+    sticker_names: set[str] | None = None,
     extra_errors: list[str] | None = None,
 ) -> list[dict]:
     error_block = ""
@@ -288,6 +289,10 @@ def build_deliberation_messages(
         error_block = "\n\n【上次输出被检查拦下，请修正】\n" + "\n".join(
             f"- {item}" for item in extra_errors
         )
+    if sticker_names:
+        sticker_block = "、".join(sorted(n for n in sticker_names if n))[:2000]
+    else:
+        sticker_block = "无"
     prompt = f"""你是 Neno 的深思层（L2）与自我层（L3）。先想清楚，再决定怎么表现。
 
 【工作记忆】
@@ -296,6 +301,9 @@ def build_deliberation_messages(
 【L1 直觉】
 {json.dumps(l1.to_dict(), ensure_ascii=False)}
 
+【可用表情包】
+{sticker_block}
+
 【当前消息】
 {message[:800]}
 
@@ -303,14 +311,14 @@ def build_deliberation_messages(
 只输出一个 JSON 对象，结构为 {{"l2": {{...}}, "l3": {{...}}}}，不要任何其他内容。
 - l2.interpretation：对用户意图的揣测；l2.feeling：想清楚后的感受。
 - l2.decision.reply 恒为 true；l2.decision.world_action 恒为 false（世界未接入）。
-- l2.intents：你打算做的事，只能是你自己的提议；不能是已完成行动，主语不能是用户或 NPC。
+- l2.intents：你打算做的事，只能是提议；action 用第一人称动词短语、不带主语（例："去买奶茶"）。
 - l2.state_delta：本人情绪变化，各分量在 ±0.3 内。
 - l2.memory_notes：≤3 条，"她视角"的经历摘要。
-- l2.belief_updates：≤3 条；evidence 是已存在的经历 id 列表。
+- l2.belief_updates：≤3 条；evidence 只能填工作记忆里出现的 #id 数字（如 #3 就填 3）。
 - l3.say_points：≤4 条说话要点；l3.hidden：≤3 条不直接说出口的。
 - l3.leak：真实想法泄漏强度，0–{leak_cap:.2f}。
 - l3.tone：语气词；l3.length：short|medium|long；l3.n_messages：1–{max(1, int(config.MIND_E3_MAX_MESSAGES))}。
-- l3.hesitate：是否犹豫；l3.sticker：只从表情包表里选名字，没有合适的用 null。{error_block}"""
+- l3.hesitate：是否犹豫；l3.sticker：只从【可用表情包】里选名字，没有合适的用 null。{error_block}"""
     system_block: dict[str, Any] = {"type": "text", "text": self_card}
     system_block["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
     return [
@@ -452,6 +460,7 @@ def run_deliberation(
         message=message,
         self_card=self_card,
         leak_cap=leak_cap,
+        sticker_names=sticker_names,
         extra_errors=extra_errors,
     )
     extra = {

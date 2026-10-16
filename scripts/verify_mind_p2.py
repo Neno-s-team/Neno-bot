@@ -60,7 +60,7 @@ def run():
         from app.storage import db, operations as ops
         from app.services import chat_service
         from app import config
-        from app.services.mind import consistency, cycle
+        from app.services.mind import consistency, cycle, state
         from app.services.mind.memory import store as memory_store
         from app.services.mind.memory import tokenize, wm_builder
         from app.services.mind.memory.retrieval import retrieve_episodes
@@ -76,7 +76,7 @@ def run():
         config.MIND_EXPR_MODEL = "fake-expr"
         config.MIND_THINK_MODEL = "fake-think"
         config.MIND_THINK_EXTRA_BODY = {"reasoning": {"effort": "medium"}}
-        config.MIND_THINK_MAX_TOKENS = 4000
+        config.MIND_THINK_MAX_TOKENS = 8000
         config.MIND_FAST_SKIP_L2 = True
         config.MIND_WM_MAX_CHARS = 6000
         config.MIND_WM_EPISODES = 5
@@ -231,7 +231,9 @@ def run():
             "verify-p2-wm", l1=FakeL1(), message="你好", history=history,
             self_card="SELF_CARD_MARK",
         )
-        assert "SELF_CARD_MARK" in wm["text"]
+        # 给 L2 的文本不含自我卡（她在 system 里）；槽位保留在 wm_json
+        assert "SELF_CARD_MARK" not in wm["text"]
+        assert "SELF_CARD_MARK" in wm["self_card"]
         assert wm["trimmed"], "预算很小时必须裁剪"
         assert 2 <= len(wm["episodes"]) < 5
         checks.append("working memory trims by slot priority, self card intact")
@@ -258,7 +260,73 @@ def run():
         bad_intent = L2Result(intents=[Intent(action="已经去过公园")])
         ok2, errors2, _ = consistency.check_result("verify-p2", bad_intent)
         assert not ok2 and any("完成态" in item for item in errors2)
+        # 修正轮 2：note 里的完成态不判失败；外来主语只看 action 开头
+        fine_intent = L2Result(intents=[Intent(action="去睡觉", note="已经很晚了")])
+        ok_ok, errors_ok, _ = consistency.check_result("verify-p2", fine_intent)
+        assert ok_ok and not errors_ok
+        foreign_intent = L2Result(intents=[Intent(action="你去买")])
+        ok_f, errors_f, _ = consistency.check_result("verify-p2", foreign_intent)
+        assert not ok_f and any("主语" in item for item in errors_f)
         checks.append("consistency catches hidden leak and completed-state intents")
+
+        # ── 8b. 修正轮 1：时间线只查"当前时刻"的说法 ─────────────────────────
+        past_mention = L2Result(say_points=["说说今天早上的事"])
+        assert consistency.check_time_line(past_mention, hour=22) == []
+        assert consistency.check_time_line(L2Result(say_points=["早安"]), hour=22)
+        assert consistency.check_time_line(L2Result(say_points=["现在下午了"]), hour=1)
+        checks.append("time-line only checks current-moment claims and greetings")
+
+        # ── 8c. 修正轮 3：经历带 #id，evidence 用 #id → 通过 ───────────────────
+        id_episode = memory_store.insert_episode(
+            "verify-p2-id", "cid", 0, summary="一起吃饭", participants=["user"],
+            importance=0.8, strength=1.0,
+        )
+        memory_store.upsert_belief("verify-p2-id", "小雨", "同学", 0.9, [])
+
+        class _IdL1:
+            cues = ["吃饭"]
+
+        wm_id = wm_builder.build_working_memory(
+            "verify-p2-id", l1=_IdL1(), message="吃饭吗", history=[], self_card="",
+        )
+        assert f"#{id_episode}" in wm_id["text"]
+        from app.services.mind.deliberation import BeliefUpdate
+        ok_ev, errors_ev, _ = consistency.check_result(
+            "verify-p2-id",
+            L2Result(belief_updates=[
+                BeliefUpdate(subject="小雨", content="同学", confidence=1.0,
+                             evidence=[id_episode]),
+            ]),
+        )
+        assert ok_ev and not errors_ev
+        checks.append("episode #id visible in WM; evidence by #id passes")
+
+        # ── 8d. 修正轮 4：提交幂等（崩溃重跑）────────────────────────────────
+        crash_result = L2Result.from_dict(
+            json.loads(_l2_payload(
+                memory_notes=[{"summary": "崩溃重跑事件", "participants": ["user"], "tags": []}],
+                belief_updates=[{"subject": "崩溃主题", "content": "内容",
+                                 "confidence": 0.9, "evidence": []}],
+                state_delta={"valence": 0.3, "arousal": 0.2},
+            )),
+            leak_cap=1.0, max_messages=4,
+        )
+        memory_commit.commit_memory(
+            session_id="verify-p2-crash", cycle_id="cy-crash", result=crash_result,
+        )
+        state_first = state.read_state("verify-p2-crash")
+        belief_first = memory_store.get_belief("verify-p2-crash", "崩溃主题")
+        # 首插 confidence 截到 MIND_BELIEF_INIT_MAX
+        assert abs(belief_first["confidence"]
+                   - min(0.9, config.MIND_BELIEF_INIT_MAX)) < 1e-9
+        replay = memory_commit.commit_memory(
+            session_id="verify-p2-crash", cycle_id="cy-crash", result=crash_result,
+        )
+        assert replay.get("skipped") == "already_committed"
+        assert state.read_state("verify-p2-crash")["version"] == state_first["version"]
+        assert memory_store.get_belief("verify-p2-crash", "崩溃主题")["version"] == belief_first["version"]
+        assert memory_store.count_episodes("verify-p2-crash") == 1
+        checks.append("memory commit replays after simulated crash without changes")
 
         # ── 9. 老库升级 ───────────────────────────────────────────────────────
         import sqlite3

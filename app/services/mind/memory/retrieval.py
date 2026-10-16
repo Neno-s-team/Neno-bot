@@ -7,7 +7,28 @@ from typing import Any
 
 from app import config
 from app.services.mind.memory import store as memory_store
-from app.services.mind.memory.tokenize import to_query_text
+from app.services.mind.memory.tokenize import to_index_text
+
+# 查询词上限：cues 在前、消息在后，去重后最多 64 个（每词两字/单词）
+_MAX_QUERY_TERMS = 64
+
+
+def _build_query(cues: list[str], message: str) -> str:
+    parts: list[str] = []
+    for cue in cues or []:
+        text = str(cue).strip()
+        if text:
+            parts.append(text)
+    if str(message or "").strip():
+        parts.append(str(message))
+    index_text = to_index_text(" ".join(parts))
+    seen: list[str] = []
+    for term in index_text.split(" "):
+        if term and term not in seen:
+            seen.append(term)
+        if len(seen) >= _MAX_QUERY_TERMS:
+            break
+    return " OR ".join('"%s"' % term.replace('"', '""') for term in seen)
 
 
 def _recency_factor(ts: float, now: float) -> float:
@@ -80,14 +101,13 @@ def retrieve_episodes(
     limit: int | None = None,
     apply_recall_boost: bool = True,
 ) -> list[dict[str, Any]]:
-    """取前 N 段经历；只对真正入选的经历做回忆增强（续跑回放不增强）。"""
+    """取前 N 段经历；只对 FTS 命中的入选经历做回忆增强（退化排序不增强，续跑回放不增强）。"""
     resolved_limit = limit if limit is not None else max(1, int(config.MIND_WM_EPISODES))
     now = time.time()
-    query_parts = [str(cue) for cue in (cues or []) if str(cue).strip()]
-    query_parts.append(str(message or ""))
-    query = to_query_text(" ".join(query_parts))
+    query = _build_query(cues, message)
 
     candidates = memory_store.search_episodes(session_id, query, limit=30) if query else []
+    from_fts = bool(candidates)
     if candidates:
         selected = _score_candidates(candidates, now)[:resolved_limit]
     else:
@@ -103,7 +123,7 @@ def retrieve_episodes(
         fallback.sort(key=lambda entry: entry["score"], reverse=True)
         selected = fallback[:resolved_limit]
 
-    if not apply_recall_boost:
+    if not apply_recall_boost or not from_fts:
         return selected
     for item in selected:
         new_strength = min(1.0, item["eff_strength"] + 0.1)
@@ -128,9 +148,7 @@ def retrieve_beliefs(
 ) -> list[dict[str, Any]]:
     """认识：FTS 命中按 confidence 排序；无命中时退化为高可信度优先。"""
     resolved_limit = limit if limit is not None else max(1, int(config.MIND_WM_BELIEFS))
-    query_parts = [str(cue) for cue in (cues or []) if str(cue).strip()]
-    query_parts.append(str(message or ""))
-    query = to_query_text(" ".join(query_parts))
+    query = _build_query(cues, message)
 
     hits = memory_store.search_beliefs(session_id, query, limit=30) if query else []
     if hits:

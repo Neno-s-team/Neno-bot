@@ -103,7 +103,7 @@ MIND_THINK_MODEL = os.getenv("MIND_THINK_MODEL", "").strip()
 MIND_THINK_EXTRA_BODY = json.loads(
     os.getenv("MIND_THINK_EXTRA_BODY", "").strip() or '{"reasoning": {"effort": "medium"}}'
 )
-MIND_THINK_MAX_TOKENS = _env_int("MIND_THINK_MAX_TOKENS", 4000)
+MIND_THINK_MAX_TOKENS = _env_int("MIND_THINK_MAX_TOKENS", 8000)
 # L1 判定 depth=fast 时跳过 L2（省钱）
 MIND_FAST_SKIP_L2 = _env_bool("MIND_FAST_SKIP_L2", True)
 # 工作记忆预算与槽位条数
@@ -120,3 +120,5 @@ MIND_RETRIEVAL_WEIGHTS = json.loads(
 )
 # 记忆范围；P2 只实现 session
 MIND_MEMORY_SCOPE = os.getenv("MIND_MEMORY_SCOPE", "session").strip() or "session"
+# 认识首插可信度上限：min(模型值, 该值)
+MIND_BELIEF_INIT_MAX = _env_float("MIND_BELIEF_INIT_MAX", 0.6)

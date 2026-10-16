@@ -79,7 +79,7 @@ def _render_episode(episode: dict[str, Any]) -> str:
     valence = float(episode.get("valence") or 0.0)
     arousal = float(episode.get("arousal") or 0.0)
     return (
-        f"- [{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{episode['summary']}"
+        f"- #{episode['id']} [{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{episode['summary']}"
     )
 
 
@@ -137,7 +137,9 @@ def build_working_memory(
         "self_card": self_card,
     }
     trimmed = _trim_to_budget(memory)
-    text = render_working_memory(memory)
+    # 给 L2 的渲染文本不带自我卡（自我卡已在 system 里，避免出现两次）；
+    # wm_json 里保留槽位，回放/其他用途可完整渲染。
+    text = render_working_memory(memory, include_self_card=False)
     return {
         "situation": situation,
         "concerns": memory["concerns"],
@@ -157,11 +159,11 @@ def _budget() -> int:
 def _trim_to_budget(memory: dict[str, Any]) -> list[str]:
     """裁剪顺序：经历 → 认识 → 最近原话（各保留最少 2 条），最后截短 summary。"""
     trimmed: list[str] = []
-    if len(render_working_memory(memory)) <= _budget():
+    if len(render_working_memory(memory, include_self_card=False)) <= _budget():
         return trimmed
 
     def over() -> bool:
-        return len(render_working_memory(memory)) > _budget()
+        return len(render_working_memory(memory, include_self_card=False)) > _budget()
 
     # ① 减少经历条数，最少 2
     while over() and len(memory["episodes"]) > 2:
@@ -193,7 +195,7 @@ def _trim_to_budget(memory: dict[str, Any]) -> list[str]:
     return trimmed
 
 
-def render_working_memory(memory: dict[str, Any]) -> str:
+def render_working_memory(memory: dict[str, Any], *, include_self_card: bool = True) -> str:
     sections: list[str] = []
     sections.append("【当前情境】\n" + _render_situation(memory["situation"]))
     concerns = memory.get("concerns") or []
@@ -209,6 +211,6 @@ def render_working_memory(memory: dict[str, Any]) -> str:
     if recent:
         lines = [f"{item['role']}：{item['content']}" for item in recent]
         sections.append("【最近原话】\n" + "\n".join(lines))
-    if memory.get("self_card"):
+    if include_self_card and memory.get("self_card"):
         sections.append("【自我卡】\n" + memory["self_card"])
     return "\n\n".join(sections)

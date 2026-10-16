@@ -418,7 +418,6 @@ def run_cycle(
                 result=l2,
                 trace_id=trace_id,
             )
-            update_cycle(cycle_id, memory_committed=1)
         except Exception as exc:
             log_event(
                 "mind", "memory_commit_failed", trace_id=trace_id,
