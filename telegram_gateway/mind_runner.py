@@ -60,6 +60,8 @@ class MindRunner:
         self._retract_task: asyncio.Task | None = None
         self._presence_task: asyncio.Task | None = None
         self._presence_until = 0.0
+        # 正在等 TDLib 发送结果的项：回执由等待方处理，receipt() 不插手
+        self._inflight: set[int] = set()
 
     def _lock(self, chat_id: int) -> asyncio.Lock:
         lock = self._chat_locks.get(chat_id)
@@ -240,9 +242,10 @@ class MindRunner:
             else:
                 self.outbox.mark_failed(delivery_id, f"unknown kind: {kind}")
                 await self._ack(delivery_id, "failed", error=f"unknown kind: {kind}")
-        except ChatFloodWait:
+        except ChatFloodWait as exc:
             # 尚未确认交给 TDLib：退回 pending，暂停结束后由独立循环重新执行
             self.outbox.mark_pending(delivery_id, error="chat flood wait")
+            self._pause_until[chat_id] = time.time() + float(exc.retry_after)
             raise
         except _ChatPaused:
             raise
@@ -287,6 +290,9 @@ class MindRunner:
         if row is None:
             return
         delivery_id = int(row["delivery_id"])
+        if delivery_id in self._inflight:
+            # _do_text/_do_sticker 正在 wait_message_send_result，结果由它们处理
+            return
         message = update.get("message") or {}
         chat_id = int(message.get("chat_id") or 0)
         if kind == "updateMessageSendSucceeded":
@@ -330,22 +336,75 @@ class MindRunner:
                 {"@type": "getMessage", "chat_id": chat_id, "message_id": int(message_id)},
                 timeout=30,
             )
-        except Exception as exc:
-            logging.warning("mind reconcile getMessage failed delivery=%s error=%s",
-                            delivery_id, type(exc).__name__)
-            return
-        sending_state = str((response.get("sending_state") or {}).get("@type") or "")
-        if sending_state == "messageSendingStateFailed":
-            self.outbox.mark_failed(delivery_id, "confirmed failed by getMessage")
-            await self._ack(delivery_id, "failed", error="confirmed failed by getMessage")
-            return
-        if sending_state:
-            return  # 仍在 sending/pending，下一轮再查
-        if response.get("is_outgoing") is not True:
-            return
-        if self._message_matches(kind, response):
-            self.outbox.mark_sent(delivery_id, final_id=response.get("id"))
+            message = response if str(response.get("@type") or "") != "error" else None
+        except Exception:
+            message = None
+        if message is not None and message.get("id"):
+            sending_state = str((message.get("sending_state") or {}).get("@type") or "")
+            if sending_state == "messageSendingStateFailed":
+                self.outbox.mark_failed(delivery_id, "confirmed failed by getMessage")
+                await self._ack(delivery_id, "failed", error="confirmed failed by getMessage")
+                return
+            if sending_state:
+                return  # 仍在 sending/pending，下一轮再查
+            if message.get("is_outgoing") is not True:
+                return
+            if self._message_matches(kind, message):
+                self.outbox.mark_sent(delivery_id, final_id=message.get("id"))
+                await self._ack(delivery_id, "sent")
+                return
+        # getMessage 报错 / local_id 已失效：按提交时间+内容在历史里兜底匹配
+        matched = await self._match_history(chat_id, local)
+        if matched is not None:
+            self.outbox.mark_sent(delivery_id, final_id=matched)
             await self._ack(delivery_id, "sent")
+
+    async def _match_history(self, chat_id: int, local: dict[str, Any]) -> int | None:
+        kind = str(local.get("kind") or "")
+        payload = json.loads(local.get("payload_json") or "{}")
+        submitted_at = float(local.get("submitted_at") or 0.0)
+        if submitted_at <= 0:
+            return None
+        floor = submitted_at - 30
+        try:
+            response = await self.gateway.tdlib.request({
+                "@type": "getChatHistory",
+                "chat_id": chat_id,
+                "from_message_id": 0,
+                "offset": 0,
+                "limit": 30,
+            }, timeout=30)
+        except Exception as exc:
+            logging.warning("mind reconcile getChatHistory failed delivery=%s error=%s",
+                            local.get("delivery_id"), type(exc).__name__)
+            return None
+        taken = self.outbox.final_ids()
+        expected = ""
+        if kind == "text":
+            chunks = text_chunks(str(payload.get("text") or ""))
+            expected = chunks[-1]
+        for message in (response.get("messages") or []):
+            try:
+                message_id = int(message.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if message_id in taken:
+                continue
+            if message.get("is_outgoing") is not True:
+                continue
+            if int(message.get("date") or 0) < floor:
+                continue
+            if message.get("sending_state"):
+                continue
+            if not self._message_matches(kind, message):
+                continue
+            if kind == "text":
+                content = message.get("content") or {}
+                text = ((content.get("text") or {}).get("text") or "")
+                if str(text) != expected:
+                    continue
+            return message_id
+        return None
 
     @staticmethod
     def _message_matches(kind: str, message: dict[str, Any]) -> bool:
@@ -452,12 +511,15 @@ class MindRunner:
             local_id = int(response.get("id") or 0)
             self.outbox.set_local_id(delivery_id, local_id)
             self.outbox.mark_uncertain(delivery_id, local_id=local_id)
+            self._inflight.add(delivery_id)
             try:
                 status = await self.gateway.tdlib.wait_message_send_result(local_id, timeout=8)
             except asyncio.TimeoutError:
                 logging.warning("mind text uncertain chat=%s delivery=%s local_id=%s",
                                 chat_id, delivery_id, local_id)
                 return
+            finally:
+                self._inflight.discard(delivery_id)
             self._apply_send_result(delivery_id, status)
             if str(status.get("@type") or "") == "updateMessageSendFailed":
                 return
@@ -472,6 +534,11 @@ class MindRunner:
             self.outbox.mark_sent(delivery_id, final_id=message.get("id"))
         elif status_type == "updateMessageSendFailed":
             error = status.get("error") or {}
+            flood = _flood_from_error(error)
+            if flood is not None:
+                # 限流：退回 pending，暂停会话，结束后重新执行
+                self.outbox.mark_pending(delivery_id, error="chat flood wait")
+                raise flood
             self.outbox.mark_failed(delivery_id, json.dumps(error)[:250])
             self._schedule_ack(delivery_id, "failed", error=str(error.get("message") or "")[:200])
 
@@ -508,13 +575,17 @@ class MindRunner:
                 return
         local_id = int(response.get("id") or 0)
         self.outbox.mark_uncertain(delivery_id, local_id=local_id)
+        self._inflight.add(delivery_id)
         try:
             status = await self.gateway.tdlib.wait_message_send_result(local_id, timeout=8)
         except asyncio.TimeoutError:
             logging.warning("mind sticker uncertain chat=%s delivery=%s", chat_id, delivery_id)
             return
+        finally:
+            self._inflight.discard(delivery_id)
         self._apply_send_result(delivery_id, status)
         if str(status.get("@type") or "") == "updateMessageSendFailed":
             return
         self.outbox.mark_sent(delivery_id)
         await self._ack(delivery_id, "sent")
+

@@ -55,8 +55,7 @@ def _merge_pending_job_into_batch(session_id: str, trace_ids: list[str]) -> list
     merged = list(trace_ids)
     for job in store.list_pending_deferred(session_id):
         job_traces = [str(item) for item in json.loads(job["trace_ids_json"] or "[]")]
-        overlapping = [item for item in job_traces if item in merged]
-        # 只有与新消息同会话的 pending 作业才合批（当前函数本来就是按 session 查询）
+        # pending 合批重想：取消作业、trace 改回 opened、并入本批
         store.update_deferred(job["id"], status="cancelled")
         for item in job_traces:
             record = store.get_perception_by_trace(item)
@@ -218,18 +217,19 @@ def run_reply_job(deferred_id: int) -> str | None:
     if job.get("reason") == "quick_reply":
         # 短回 done 之后再补深想作业（等级 >=3）
         deep_due = deferred.compute_due_at(clock.now(), min_level=3)
-        deferred.enqueue(job["session_id"], trace_ids, deep_due, reason="quick_reply_then_think")
-        deep_job = store.get_pending_deferred(job["session_id"])
-        if deep_job and deep_job["reason"] == "quick_reply_then_think":
-            # 深想作业放宽到 decided：短回已完成，深想重新接管这批 trace
-            perception_ids = []
-            for trace_id in trace_ids:
-                record = store.get_perception_by_trace(trace_id)
-                if record is not None and not record["retracted"]:
-                    perception_ids.append(int(record["id"]))
-            store.queue_perceptions(
-                perception_ids, int(deep_job["id"]), allow_from=("opened", "decided")
-            )
+        deep_job = deferred.enqueue(
+            job["session_id"], trace_ids, deep_due, reason="quick_reply_then_think"
+        )
+        # 深想作业放宽到 decided：短回已完成，深想重新接管这批 trace。
+        # 直接用 enqueue 返回的作业 id，不查 pending（同会话可能已有别的 pending 作业）。
+        perception_ids = []
+        for trace_id in trace_ids:
+            record = store.get_perception_by_trace(trace_id)
+            if record is not None and not record["retracted"]:
+                perception_ids.append(int(record["id"]))
+        store.queue_perceptions(
+            perception_ids, int(deep_job["id"]), allow_from=("opened", "decided")
+        )
     return cycle_id
 
 

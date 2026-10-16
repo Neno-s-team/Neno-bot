@@ -701,3 +701,121 @@ def test_send_receipt_updates_mind_outbox_and_acks(tmp_path, monkeypatch):
     assert runner._pause_until.get(42, 0.0) > time.time(), "会话被暂停"
     assert all(a["id"] != 97 for a in core.acks), "429 不 ack"
 
+
+
+# ───────────────────── P3 收尾：inflight / 429 等待结果 / 历史匹配 ─────────────────────
+
+
+class FloodedSendResultTdlib(FakeTdlib):
+    """sendMessage 成功，但等待发送结果返回 429 失败；第二次重发成功。"""
+
+    def __init__(self):
+        super().__init__()
+        self.result_calls = 0
+
+    async def request(self, payload, timeout=None):
+        self.requests.append(payload)
+        if payload.get("@type") == "sendMessage":
+            local_id = len(self.requests)
+            return {"@type": "message", "id": local_id}
+        return {"@type": "ok"}
+
+    async def wait_message_send_result(self, message_id, timeout=None):
+        self.result_calls += 1
+        if self.result_calls == 1:
+            return {"@type": "updateMessageSendFailed", "old_message_id": message_id,
+                    "error": {"code": 429, "message": "Too Many Requests: retry after 5"}}
+        return {"@type": "updateMessageSendSucceeded", "old_message_id": message_id,
+                "message": {"id": message_id, "chat_id": 42}}
+
+
+def test_inflight_429_waits_then_pending_and_resend(tmp_path, monkeypatch):
+    """等待结果期间收到 429 发送失败 → pending、不 ack、暂停；重发后 sent。"""
+    tdlib = FloodedSendResultTdlib()
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    from telegram_gateway.mind_runner import ChatFloodWait
+    item = _text_item(300, "限流重试")
+    try:
+        asyncio.run(runner._execute(42, item))
+    except ChatFloodWait:
+        pass
+    local = runner.outbox.get(300)
+    assert local["state"] == "pending" and local["acked"] == 0
+    assert runner._pause_until.get(42, 0.0) > time.time(), "会话暂停"
+    assert all(a["id"] != 300 for a in core.acks), "429 不 ack"
+    # observer 在等待期间也不插手（inflight 已移除，但该回执由等待方处理过了）
+    runner._pause_until.clear()
+    asyncio.run(runner._execute(42, item))
+    local = runner.outbox.get(300)
+    assert local["state"] == "sent" and local["acked"] == 1
+    sent_acks = [a for a in core.acks if a["id"] == 300 and a["status"] == "sent"]
+    assert len(sent_acks) == 1, "成功只收到 1 次 ack"
+
+
+class HistoryTdlib(FakeTdlib):
+    def __init__(self, messages):
+        super().__init__()
+        self.messages = messages
+        self.getMessage_raises = True
+
+    async def request(self, payload, timeout=None):
+        self.requests.append(payload)
+        if payload.get("@type") == "getMessage" and self.getMessage_raises:
+            from telegram_gateway.tdlib_client import TdlibError
+            raise TdlibError({"@type": "error", "code": 400, "message": "message not found"})
+        if payload.get("@type") == "getChatHistory":
+            return {"@type": "messages", "messages": self.messages}
+        return await super().request(payload, timeout)
+
+
+def test_reconcile_history_match_text(tmp_path, monkeypatch):
+    """local_id 失效、历史里能找到同文本消息 → sent 并 ack。"""
+    messages = [
+        {"@type": "message", "id": 800, "is_outgoing": True, "date": int(time.time()),
+         "content": {"@type": "messageText", "text": {"text": "历史里找到我"}}},
+    ]
+    tdlib = HistoryTdlib(messages)
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    runner.outbox.begin(301, "tg:42", "text", payload_json='{"text": "历史里找到我"}')
+    runner.outbox.mark_submitting(301)
+    runner.outbox.mark_uncertain(301, local_id=999)
+    asyncio.run(runner._execute(42, _text_item(301, "历史里找到我")))
+    local = runner.outbox.get(301)
+    assert local["state"] == "sent" and local["final_id"] == 800 and local["acked"] == 1
+
+
+def test_reconcile_history_skips_taken_final_id(tmp_path, monkeypatch):
+    """历史里同文本消息已被其他行 final_id 占用 → 不匹配，维持 uncertain。"""
+    messages = [
+        {"@type": "message", "id": 801, "is_outgoing": True, "date": int(time.time()),
+         "content": {"@type": "messageText", "text": {"text": "被占用"}}},
+    ]
+    tdlib = HistoryTdlib(messages)
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    # 另一行已把 801 认走
+    runner.outbox.begin(302, "tg:42", "text", payload_json='{"text": "被占用"}')
+    runner.outbox.mark_submitting(302)
+    runner.outbox.mark_uncertain(302, local_id=998)
+    runner.outbox.mark_sent(302, final_id=801)
+    # 目标行进入核对
+    runner.outbox.begin(303, "tg:42", "text", payload_json='{"text": "被占用"}')
+    runner.outbox.mark_submitting(303)
+    runner.outbox.mark_uncertain(303, local_id=997)
+    asyncio.run(runner._execute(42, _text_item(303, "被占用")))
+    local = runner.outbox.get(303)
+    assert local["state"] == "uncertain", "同文本消息被占用，不匹配"
+    assert core.acks == [], "不 ack"
+
+
+def test_receipt_skips_inflight(tmp_path, monkeypatch):
+    """inflight 期间 observer 回执不插手（避免双写/抢先 ack）。"""
+    tdlib = FakeTdlib()
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    runner._inflight.add(310)
+    runner.receipt({"@type": "updateMessageSendSucceeded", "old_message_id": 650,
+                    "message": {"id": 950, "chat_id": 42}})
+    assert core.acks == []

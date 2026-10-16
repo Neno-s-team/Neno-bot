@@ -1008,3 +1008,39 @@ def test_on_new_message_keeps_unrelated_deep_job(mind_env, fake_provider):
     _force_opened(session, "t2")
     orchestration.on_new_message(session, "t2")
     assert store.get_deferred(deep_id)["status"] == "pending", "深想作业不动"
+
+
+def test_deep_job_binds_traces_with_other_pending_job(mind_env, fake_provider, monkeypatch):
+    """短回完成时已存在另一条 pending 作业 → 深想作业仍正确绑定本批 trace。
+
+    旧实现用 get_pending_deferred(session) 找刚入队的深想作业，同会话已有
+    别的 pending 作业（如另一批的 quick_reply_then_think）时会认错（P3 收尾第 3 条）。
+    """
+    session = "s-deepbind"
+    _force_opened(session, "t1")
+    fake_provider.l1_reply_will = "now"
+    walk = datetime(2026, 10, 12, 12, 20).timestamp()
+    mind_env["clock"]["t"] = walk
+    monkeypatch.setattr("app.services.mind.schedule.segment_at",
+                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                                        "muted": False, "start": None, "end": None,
+                                        "world": "schedule"})
+    orchestration.handle_opened(session, ["t1"])
+    quick_job = store.get_pending_deferred(session)
+    assert quick_job and quick_job["reason"] == "quick_reply"
+    # 短回执行前，同会话出现另一条 pending 深想作业（另一批）
+    unrelated_id = store.create_deferred(
+        session, ["t-unrelated"], walk + 600, "quick_reply_then_think")
+    mind_scheduler.process_deferred(session, quick_job["id"])
+    deep_jobs = [dict(j) for j in fetch_all(
+        "SELECT * FROM mind_deferred WHERE session_id=? AND reason='quick_reply_then_think' AND id<>?",
+        (session, unrelated_id))]
+    assert deep_jobs, "短回 done 后产生新深想作业"
+    deep = deep_jobs[-1]
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "queued" and rec["deferred_id"] == deep["id"], \
+        "深想作业绑定本批 trace，不受无关 pending 作业影响"
+    # 无关作业保持原样
+    still = store.get_deferred(unrelated_id)
+    assert still["status"] == "pending"
+    assert json.loads(still["trace_ids_json"]) == ["t-unrelated"]

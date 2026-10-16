@@ -22,11 +22,14 @@ class MindOutbox:
               delivery_id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, kind TEXT NOT NULL,
               state TEXT NOT NULL DEFAULT 'pending', local_id INTEGER, final_id INTEGER,
               error TEXT, acked INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,
-              payload_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL, updated_at REAL NOT NULL);
+              payload_json TEXT NOT NULL DEFAULT '{}', submitted_at REAL,
+              created_at REAL NOT NULL, updated_at REAL NOT NULL);
             """)
             columns = {row["name"] for row in c.execute("PRAGMA table_info(mind_outbox)").fetchall()}
             if "payload_json" not in columns:
                 c.execute("ALTER TABLE mind_outbox ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
+            if "submitted_at" not in columns:
+                c.execute("ALTER TABLE mind_outbox ADD COLUMN submitted_at REAL")
 
     def begin(self, delivery_id: int, session_id: str, kind: str,
               payload_json: str = "{}") -> dict[str, Any] | None:
@@ -74,8 +77,9 @@ class MindOutbox:
     def mark_submitting(self, delivery_id: int) -> None:
         # 在交给 TDLib 之前落账；崩溃恢复时 submitting 按 uncertain 处理
         self.store.write(
-            "UPDATE mind_outbox SET state='submitting', attempts=attempts+1, updated_at=? WHERE delivery_id=?",
-            (time.time(), delivery_id),
+            """UPDATE mind_outbox SET state='submitting', attempts=attempts+1,
+               submitted_at=?, updated_at=? WHERE delivery_id=?""",
+            (time.time(), time.time(), delivery_id),
         )
 
     def set_local_id(self, delivery_id: int, local_id: int) -> None:
@@ -101,6 +105,12 @@ class MindOutbox:
         return self.store.all(
             "SELECT * FROM mind_outbox WHERE acked=0 AND state='pending' AND attempts>0 ORDER BY delivery_id"
         )
+
+    def final_ids(self) -> set[int]:
+        rows = self.store.all(
+            "SELECT final_id FROM mind_outbox WHERE final_id IS NOT NULL"
+        )
+        return {int(row["final_id"]) for row in rows}
 
     def mark_failed(self, delivery_id: int, error: str) -> None:
         self.store.write(
