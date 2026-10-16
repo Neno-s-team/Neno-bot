@@ -171,13 +171,14 @@ def run_chat_turn(
         log_event("chat", "model_request_start", trace_id=trace_id)
         if config.MIND_ENABLED:
             from app.services.mind.cycle import run_cycle
+            clean_message, injected = split_injected_context(message)
             reply = run_cycle(
                 session_id=session_id,
-                message=message,
+                message=clean_message,
                 history=history,
                 messages=messages,
                 trace_id=trace_id,
-                injected_context=split_injected_context(message)[0],
+                injected_context=injected,
             )
         else:
             reply = generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)

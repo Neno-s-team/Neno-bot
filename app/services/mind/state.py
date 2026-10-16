@@ -4,8 +4,9 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from app.config import MIND_AFFECT_HALF_LIFE_MINUTES, MIND_TIMEZONE
+from app import config
 from app.services.mind.store import get_mind_state, upsert_mind_state
+from app.storage.db import execute_write
 
 try:
     from zoneinfo import ZoneInfo
@@ -34,8 +35,8 @@ def read_state(session_id: str) -> dict[str, Any]:
     elapsed_minutes = (time.time() - raw["updated_at"]) / 60.0
     return {
         "session_id": raw["session_id"],
-        "valence": _decay(raw["valence"], elapsed_minutes, MIND_AFFECT_HALF_LIFE_MINUTES),
-        "arousal": _decay(raw["arousal"], elapsed_minutes, MIND_AFFECT_HALF_LIFE_MINUTES),
+        "valence": _decay(raw["valence"], elapsed_minutes, config.MIND_AFFECT_HALF_LIFE_MINUTES),
+        "arousal": _decay(raw["arousal"], elapsed_minutes, config.MIND_AFFECT_HALF_LIFE_MINUTES),
         "updated_at": raw["updated_at"],
         "version": raw["version"],
     }
@@ -60,13 +61,13 @@ def compute_inhibition(arousal: float = 0.0, base: float | None = None) -> float
     """抑制力 = clamp(base - night_factor - arousal_factor)"""
     base = base if base is not None else 0.7
     if ZoneInfo is not None:
-        tz = ZoneInfo(MIND_TIMEZONE)
+        tz = ZoneInfo(config.MIND_TIMEZONE)
     else:
         tz = timezone.utc
     now = datetime.now(tz)
     hour = now.hour
     night_factor = 0.15 if 23 <= hour or hour < 5 else 0.0
-    arousal_factor = arousal * 0.2
+    arousal_factor = max(arousal, 0.0) * 0.2
     return max(0.0, min(1.0, base - night_factor - arousal_factor))
 
 
@@ -74,3 +75,39 @@ def compute_leak(arousal: float = 0.0, base_inhibition: float | None = None) -> 
     """leak 上限 = 1 - inhibition"""
     inhibition = compute_inhibition(arousal, base_inhibition)
     return 1.0 - inhibition
+
+
+def apply_affect_delta_optimistic(
+    session_id: str, valence_delta: float, arousal_delta: float, max_retries: int = 2
+) -> dict[str, Any] | None:
+    """乐观锁更新情绪状态：版本冲突时重读重算，最多重试 max_retries 次。"""
+    for _ in range(max_retries + 1):
+        s = get_mind_state(session_id)
+        if s is None:
+            new_valence = max(-1.0, min(1.0, valence_delta))
+            new_arousal = max(-1.0, min(1.0, arousal_delta))
+            upsert_mind_state(session_id, new_valence, new_arousal, version=1)
+            return {
+                "session_id": session_id,
+                "valence": new_valence,
+                "arousal": new_arousal,
+                "updated_at": time.time(),
+                "version": 1,
+            }
+        new_valence = max(-1.0, min(1.0, s["valence"] + valence_delta))
+        new_arousal = max(-1.0, min(1.0, s["arousal"] + arousal_delta))
+        changed = execute_write(
+            """UPDATE mind_state
+               SET valence=?, arousal=?, updated_at=?, version=version+1
+               WHERE session_id=? AND version=?""",
+            (new_valence, new_arousal, time.time(), session_id, s["version"]),
+        )
+        if changed > 0:
+            return {
+                "session_id": session_id,
+                "valence": new_valence,
+                "arousal": new_arousal,
+                "updated_at": time.time(),
+                "version": s["version"] + 1,
+            }
+    return None

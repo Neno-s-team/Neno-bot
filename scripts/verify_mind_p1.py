@@ -104,13 +104,13 @@ def run():
         # ── E3 渲染 ───────────────────────────────────────────────────────────
         from app.services.mind.expression import run_e3
         raw = "# 标题\n**加粗**\n- 列表项\n```python\ncode\n```\n[表情包：不存在的]\n正常"
-        rendered = run_e3(raw, sticker_table={})
+        rendered = run_e3(raw, sticker_names=set())
         assert "#" not in rendered
         assert "**" not in rendered
         assert "```" not in rendered
         assert "code" not in rendered
-        assert "不存在的" in rendered  # 表情包标记保留（P2 由 L3 决定校验）
-        assert "正常" not in rendered  # 第 5 行被 max_total=4 截断
+        assert "不存在的" not in rendered  # 空表时显式标记被删除
+        assert "正常" in rendered  # 5 行在 max_total=4 限制内
         checks.append("E3: markdown stripped, code block removed, max 4 lines")
 
         # ── usage 计费 ────────────────────────────────────────────────────────
@@ -141,5 +141,8 @@ if __name__ == "__main__":
     logging.disable(logging.CRITICAL)
     checks = run()
     print(json.dumps({"ok": True, "checks": checks}, ensure_ascii=False, indent=2))
+
+
+
 
 

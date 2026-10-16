@@ -157,6 +157,16 @@ def init_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_cycle_session ON mind_cycle(session_id, created_at)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_session_context (
+                session_id TEXT PRIMARY KEY,
+                sticker_table_text TEXT,
+                sticker_names_json TEXT,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
     from app.storage.image_store import init_image_store
     init_image_store()
 

@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.config import MIND_L1_EXTRA_BODY, MIND_L1_MODEL
+from app import config
 from app.services.chat.llm_gateway import request_model_response
 from app.services.mind.schemas import L1Appraisal, L1_JSON_SCHEMA
 from app.utils.logging_utils import log_event
+import re
 
 
 def _build_l1_messages(
@@ -49,18 +50,25 @@ def run_l1(
     session_id: str | None = None,
 ) -> L1Appraisal:
     messages = _build_l1_messages(message, state, self_card, recent_turns)
-    extra = {**MIND_L1_EXTRA_BODY, **L1_JSON_SCHEMA}
+    extra = {
+        **config.MIND_L1_EXTRA_BODY,
+        "response_format": L1_JSON_SCHEMA,
+        "provider": {"require_parameters": True},
+    }
 
     for attempt in range(2):
         try:
             raw = request_model_response(
-                model_name=MIND_L1_MODEL,
+                model_name=config.MIND_L1_MODEL,
                 messages=messages,
                 trace_id=trace_id,
                 session_id=session_id,
                 extra_body=extra,
                 purpose="mind_l1",
             )
+            # 去掉 ```json 围栏
+            raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+            raw = re.sub(r"\s*```$", "", raw)
             data = json.loads(raw)
             appraisal = L1Appraisal.from_dict(data)
             log_event(

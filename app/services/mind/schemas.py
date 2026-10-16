@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
+import re
+
+
+_CATEGORIES = {"分享", "提问", "求安慰", "约行动", "调情", "冲突", "确认", "晚回复"}
+_DEPTHS = {"fast", "normal", "deep"}
+_REPLY_WILLS = {"now", "later", "not"}
 
 
 @dataclass
@@ -23,17 +29,31 @@ class L1Appraisal:
     @classmethod
     def from_dict(cls, data: dict) -> "L1Appraisal":
         affect = data.get("affect_delta", {})
+        category = data.get("category", "分享")
+        if category not in _CATEGORIES:
+            raise ValueError(f"invalid category: {category}")
+        depth = data.get("depth", "normal")
+        if depth not in _DEPTHS:
+            raise ValueError(f"invalid depth: {depth}")
+        reply_will = data.get("reply_will", "now")
+        if reply_will not in _REPLY_WILLS:
+            raise ValueError(f"invalid reply_will: {reply_will}")
+        urgency = max(0.0, min(1.0, float(data.get("urgency", 0.0))))
+        valence = max(-1.0, min(1.0, float(affect.get("valence", 0.0))))
+        arousal = max(-1.0, min(1.0, float(affect.get("arousal", 0.0))))
+        gut = str(data.get("gut", ""))[:80]
+        cues = list(data.get("cues", []))[:5]
         return cls(
-            category=data.get("category", "分享"),
-            gut=data.get("gut", ""),
+            category=category,
+            gut=gut,
             affect_delta=AffectDelta(
-                valence=float(affect.get("valence", 0.0)),
-                arousal=float(affect.get("arousal", 0.0)),
+                valence=valence,
+                arousal=arousal,
             ),
-            urgency=float(data.get("urgency", 0.0)),
-            cues=list(data.get("cues", [])),
-            depth=data.get("depth", "normal"),
-            reply_will=data.get("reply_will", "now"),
+            urgency=urgency,
+            cues=cues,
+            depth=depth,
+            reply_will=reply_will,
         )
 
     def to_dict(self) -> dict:

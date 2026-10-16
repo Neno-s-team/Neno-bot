@@ -3,22 +3,24 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.config import MIND_EXPR_EXTRA_BODY, MIND_EXPR_MODEL, MIND_RECENT_TURNS
+from app import config
 from app.services.chat.llm_gateway import request_model_response
+from app.services.chat.llm_gateway import _strip_leading_role_label
 from app.services.mind.schemas import E1Plan
 from app.utils.logging_utils import log_event
+import json
 
 
 def _build_e2_messages(
     plan: E1Plan,
     style_card: str,
+    sticker_table_text: str,
     recent_turns: list[dict],
     message: str,
-    injected_context: str,
 ) -> list[dict]:
     recent_text = "\n".join(
         f"{item['role']}: {str(item.get('content',''))[:300]}"
-        for item in recent_turns[-MIND_RECENT_TURNS:]
+        for item in recent_turns[-config.MIND_RECENT_TURNS:]
     )
     gut_hint = ""
     if plan.leak > 0.05 and plan.gut:
@@ -37,11 +39,13 @@ def _build_e2_messages(
 当前消息：
 {message[:800]}
 
-{injected_context if injected_context else ''}
-
 请输出多行纯文本，每行一条消息。不要加 markdown 格式。"""
 
-    system_blocks = [{"type": "text", "text": style_card[:1200]}]
+    system_blocks = [
+        {"type": "text", "text": style_card[:1200]},
+    ]
+    if sticker_table_text:
+        system_blocks.append({"type": "text", "text": sticker_table_text[:2000]})
     system_blocks[-1]["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
     return [
         {"role": "system", "content": system_blocks},
@@ -52,22 +56,26 @@ def _build_e2_messages(
 def run_e2(
     plan: E1Plan,
     style_card: str,
+    sticker_table_text: str,
     recent_turns: list[dict],
     message: str,
-    injected_context: str = "",
     *,
     trace_id: str | None = None,
     session_id: str | None = None,
 ) -> str:
-    messages = _build_e2_messages(plan, style_card, recent_turns, message, injected_context)
+    messages = _build_e2_messages(plan, style_card, sticker_table_text, recent_turns, message)
     raw = request_model_response(
-        model_name=MIND_EXPR_MODEL,
+        model_name=config.MIND_EXPR_MODEL,
         messages=messages,
         trace_id=trace_id,
         session_id=session_id,
-        extra_body=MIND_EXPR_EXTRA_BODY,
+        extra_body=config.MIND_EXPR_EXTRA_BODY,
+        timeout=config.LLM_TIMEOUT_SECONDS,
+        max_tokens=config.CHAT_MAX_TOKENS,
+        stop=config.CHAT_STOP_SEQUENCES,
         purpose="mind_expr",
     )
+    raw = _strip_leading_role_label(raw)
     log_event(
         "mind",
         "e2_expression_ok",
@@ -80,59 +88,76 @@ def run_e2(
 
 # ── E3 渲染（纯代码）─────────────────────────────────────────────────────────
 
+# 表情包标记正则与网关一致
+MARK_PATTERN = re.compile(r"\[(表情包[:：]\s*)?([^\]\n]{1,40})\]")
+
+def _replace_sticker_marks(text: str, sticker_names: set[str]) -> str:
+    """显式 [表情包：X] 标记：X 在名字集合里 → 规范成「[表情包：X]」单独占一行；不在 → 删掉。
+    裸 [X] 原样保留。名字集合为空 → 删掉所有显式标记。
+    """
+    if not sticker_names:
+        return re.sub(MARK_PATTERN, "", text)
+
+    def repl(match: re.Match) -> str:
+        explicit = match.group(1) is not None
+        name = match.group(2).strip()
+        if explicit:
+            if name in sticker_names:
+                return f"\n[表情包：{name}]\n"
+            return ""
+        return match.group(0)  # 裸 [X] 保留
+
+    return MARK_PATTERN.sub(repl, text)
+
+
 def _strip_markdown(text: str) -> str:
     """去掉 markdown 标记"""
-    # 先删标题、列表符号，再删代码块（避免代码块内容被后续规则污染）
+    # 先替换表情包标记为占位符，避免 _ 等字符被删
+    text = re.sub(MARK_PATTERN, lambda m: f"\x00{m.group(0)}\x00", text)
     text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"```[\s\S]*?```", "\n", text)
     text = re.sub(r"\*\*|__", "", text)
-    text = re.sub(r"[*_`]", "", text)
+    text = re.sub(r"\*", "", text)
+    # 还原表情包标记
+    text = re.sub(r"\x00(.+?)\x00", lambda m: m.group(1), text)
     return text.strip()
 
 
-def _split_messages(text: str, max_total: int = 4) -> list[str]:
-    """按行拆条；单条超长时在标点处切开；总条数上限 max_total"""
+def _split_messages(text: str, max_total: int = 4, max_single: int = 200) -> list[str]:
+    """按行拆条；单条超长时在标点处切开；超出的行合并进最后一条；总条数上限 max_total"""
     lines = [line.strip() for line in text.split("\n") if line.strip()]
-    # 如果行数本身在限制内，直接按行返回，不做切分
+    # 超长行切开
+    expanded: list[str] = []
+    for line in lines:
+        if len(line) <= max_single:
+            expanded.append(line)
+            continue
+        parts = re.split(r"(?<=。|！|？|\.|\!|\?)\s*", line)
+        expanded.extend(p.strip() for p in parts if p.strip())
+    lines = expanded
     if len(lines) <= max_total:
         return lines
-    # 行数超限：按行拆分，超长行再按标点切开
+    # 超出的行合并进最后一条（用空格连接）
     result: list[str] = []
     for line in lines:
-        if len(result) >= max_total:
-            break
-        if len(line) <= 800:
+        if len(result) < max_total - 1:
             result.append(line)
-            continue
-        parts = re.split(r"(?<=。|！|？|\.|\!|\?)\s+", line)
-        for part in parts:
-            part = part.strip()
-            if not part:
-                continue
-            if len(result) >= max_total:
-                break
-            result.append(part)
+        else:
+            if len(result) == max_total - 1:
+                result.append(line)
+            else:
+                result[-1] += " " + line
     return result
 
 
-def _validate_stickers(messages: list[str], sticker_table: dict[str, Any]) -> list[str]:
-    """表情包标记 [表情包：名字] 的名字必须在 sticker_table 里，否则删掉"""
-    if not sticker_table:
-        return messages
-    allowed = set(sticker_table.keys()) if isinstance(sticker_table, dict) else set()
-    result: list[str] = []
-    for msg in messages:
-        def repl(match: re.Match) -> str:
-            name = match.group(1)
-            return match.group(0) if name in allowed else ""
-        msg = re.sub(r"\[表情包：([^\]]+)\]", repl, msg)
-        result.append(msg)
-    return result
-
-
-def run_e3(text: str, sticker_table: dict[str, Any] | None = None) -> str:
+def run_e3(text: str, sticker_names: set[str] | None = None) -> str:
+    sticker_names = sticker_names or set()
+    text = _replace_sticker_marks(text, sticker_names)
     text = _strip_markdown(text)
-    messages = _split_messages(text)
-    messages = _validate_stickers(messages, sticker_table or {})
+    messages = _split_messages(text, max_total=config.MIND_E3_MAX_MESSAGES)
+    # 去掉空行
+    messages = [msg for msg in messages if msg.strip()]
+    if not messages:
+        raise ValueError("E3 produced empty messages")
     return "\n".join(messages)
