@@ -92,11 +92,12 @@ def run_e2(
 MARK_PATTERN = re.compile(r"\[(表情包[:：]\s*)?([^\]\n]{1,40})\]")
 
 def _replace_sticker_marks(text: str, sticker_names: set[str]) -> str:
-    """显式 [表情包：X] 标记：X 在名字集合里 → 规范成「[表情包：X]」单独占一行；不在 → 删掉。
-    裸 [X] 原样保留。名字集合为空 → 删掉所有显式标记。
-    """
+    """处理表情包标记；裸 [X] 始终原样保留。"""
     if not sticker_names:
-        return re.sub(MARK_PATTERN, "", text)
+        return MARK_PATTERN.sub(
+            lambda m: "" if m.group(1) is not None else m.group(0),
+            text,
+        )
 
     def repl(match: re.Match) -> str:
         explicit = match.group(1) is not None
@@ -155,7 +156,11 @@ def run_e3(text: str, sticker_names: set[str] | None = None) -> str:
     sticker_names = sticker_names or set()
     text = _replace_sticker_marks(text, sticker_names)
     text = _strip_markdown(text)
-    messages = _split_messages(text, max_total=config.MIND_E3_MAX_MESSAGES)
+    messages = _split_messages(
+        text,
+        max_total=config.MIND_E3_MAX_MESSAGES,
+        max_single=config.MIND_E3_MAX_SINGLE_CHARS,
+    )
     # 去掉空行
     messages = [msg for msg in messages if msg.strip()]
     if not messages:

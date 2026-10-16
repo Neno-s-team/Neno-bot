@@ -3,12 +3,13 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from app.storage.db import fetch_one, fetch_all, execute_write, get_conn
+from app.storage.db import fetch_one, fetch_all, execute_write
 
 
 def init_mind_tables():
-    """兼容入口，实际建表在 db.init_db 里"""
+    """兼容入口，实际建表在 db.init_db 里。"""
     from app.storage.db import init_db
+
     init_db()
 
 
@@ -28,54 +29,29 @@ def get_mind_state(session_id: str) -> dict[str, Any] | None:
     }
 
 
-def upsert_mind_state(session_id: str, valence: float, arousal: float, version: int = 0) -> None:
-    now = time.time()
-    execute_write(
+def insert_mind_state(session_id: str, valence: float, arousal: float) -> int:
+    """首写：已存在则不覆盖；返回受影响行数（1=插入成功，0=已存在）。"""
+    return execute_write(
         """INSERT INTO mind_state(session_id, valence, arousal, updated_at, version)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET
-             valence=excluded.valence,
-             arousal=excluded.arousal,
-             updated_at=excluded.updated_at,
-             version=excluded.version""",
-        (session_id, valence, arousal, now, version),
+           VALUES (?, ?, ?, ?, 1)
+           ON CONFLICT(session_id) DO NOTHING""",
+        (session_id, valence, arousal, time.time()),
     )
 
 
-def apply_affect_delta_optimistic(
-    session_id: str, valence_delta: float, arousal_delta: float, max_retries: int = 2
-) -> dict[str, Any] | None:
-    """乐观锁更新情绪状态：版本冲突时重读重算，最多重试 max_retries 次。"""
-    for _ in range(max_retries + 1):
-        s = get_mind_state(session_id)
-        if s is None:
-            new_valence = max(-1.0, min(1.0, valence_delta))
-            new_arousal = max(-1.0, min(1.0, arousal_delta))
-            upsert_mind_state(session_id, new_valence, new_arousal, version=1)
-            return {
-                "session_id": session_id,
-                "valence": new_valence,
-                "arousal": new_arousal,
-                "updated_at": time.time(),
-                "version": 1,
-            }
-        new_valence = max(-1.0, min(1.0, s["valence"] + valence_delta))
-        new_arousal = max(-1.0, min(1.0, s["arousal"] + arousal_delta))
-        changed = execute_write(
-            """UPDATE mind_state
-               SET valence=?, arousal=?, updated_at=?, version=version+1
-               WHERE session_id=? AND version=?""",
-            (new_valence, new_arousal, time.time(), session_id, s["version"]),
-        )
-        if changed:
-            return {
-                "session_id": session_id,
-                "valence": new_valence,
-                "arousal": new_arousal,
-                "updated_at": time.time(),
-                "version": s["version"] + 1,
-            }
-    return None
+def update_mind_state_versioned(
+    session_id: str,
+    valence: float,
+    arousal: float,
+    expected_version: int,
+) -> int:
+    """乐观锁更新：版本不匹配时返回 0。"""
+    return execute_write(
+        """UPDATE mind_state
+           SET valence=?, arousal=?, updated_at=?, version=version+1
+           WHERE session_id=? AND version=?""",
+        (valence, arousal, time.time(), session_id, expected_version),
+    )
 
 
 def get_mind_session_context(session_id: str) -> dict[str, Any] | None:
@@ -105,36 +81,6 @@ def upsert_mind_session_context(
              sticker_names_json=excluded.sticker_names_json,
              updated_at=excluded.updated_at""",
         (session_id, sticker_table_text, sticker_names_json, now),
-    )
-
-
-def get_mind_state(session_id: str) -> dict[str, Any] | None:
-    row = fetch_one(
-        "SELECT session_id, valence, arousal, updated_at, version FROM mind_state WHERE session_id = ?",
-        (session_id,),
-    )
-    if row is None:
-        return None
-    return {
-        "session_id": row["session_id"],
-        "valence": float(row["valence"]),
-        "arousal": float(row["arousal"]),
-        "updated_at": float(row["updated_at"]),
-        "version": int(row["version"]),
-    }
-
-
-def upsert_mind_state(session_id: str, valence: float, arousal: float, version: int = 0) -> None:
-    now = time.time()
-    execute_write(
-        """INSERT INTO mind_state(session_id, valence, arousal, updated_at, version)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET
-             valence=excluded.valence,
-             arousal=excluded.arousal,
-             updated_at=excluded.updated_at,
-             version=excluded.version""",
-        (session_id, valence, arousal, now, version),
     )
 
 

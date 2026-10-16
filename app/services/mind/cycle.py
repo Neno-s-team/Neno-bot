@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from app import config
@@ -16,7 +17,6 @@ from app.services.mind.store import (
     upsert_mind_session_context,
 )
 from app.utils.logging_utils import log_event
-import json
 
 
 def _derive_cycle_id(session_id: str, trace_id: str) -> str:
@@ -40,13 +40,17 @@ def _load_style_card() -> str:
 
 
 def _parse_inhibition_base(self_card: str) -> float:
-    """从自我卡解析「抑制基线: 0.7」，失败用 0.7"""
+    """从自我卡解析抑制基线；支持「:」和「：」，失败用 0.7。"""
     for line in self_card.split("\n"):
-        if "抑制基线" in line and ":" in line:
-            try:
-                return float(line.split(":")[1].strip())
-            except (ValueError, IndexError):
-                pass
+        if "抑制基线" not in line:
+            continue
+        match = re.search(r"抑制基线\s*[:：]\s*([^\s]+)", line)
+        if not match:
+            continue
+        try:
+            return max(0.0, min(1.0, float(match.group(1))))
+        except ValueError:
+            continue
     return 0.7
 
 
@@ -80,13 +84,13 @@ def _build_e1_plan(l1: L1Appraisal) -> E1Plan:
 
 
 def _compute_tone(valence: float, arousal: float) -> str:
-    """valence/arousal → 5 档中文语气词"""
-    if valence < -0.5:
-        return "低落"
-    if arousal > 0.6:
-        return "兴奋"
-    if arousal < -0.3:
+    """valence/arousal → 5 档中文语气词。"""
+    if valence < -0.2 and arousal > 0.4:
         return "烦躁"
+    if valence < -0.2:
+        return "低落"
+    if arousal > 0.6 and valence >= -0.2:
+        return "兴奋"
     if valence > 0.3:
         return "轻快"
     return "平静"
@@ -133,6 +137,7 @@ def run_cycle(
 
     # ── 表情包表：本轮带注入就覆盖保存；本轮没带就读上次保存的 ─────────────────
     sticker_table_text = ""
+    sticker_names: set[str] = set()
     if injected_context:
         sticker_names = _parse_sticker_names(injected_context)
         if sticker_names:
@@ -160,7 +165,7 @@ def run_cycle(
             )
             l1_json = json.dumps(l1.to_dict(), ensure_ascii=False)
             update_cycle(cycle_id, l1_json=l1_json)
-            state.apply_affect_delta_optimistic(session_id, l1.affect_delta.valence, l1.affect_delta.arousal)
+            state.apply_affect_delta(session_id, l1.affect_delta.valence, l1.affect_delta.arousal)
             mind_state = state.read_state(session_id)
         except Exception as exc:
             log_event(
@@ -216,8 +221,20 @@ def run_cycle(
 
     # ── E3 渲染 ───────────────────────────────────────────────────────────────
     if existing.get("final_text") is None:
-        final_text = expression.run_e3(expr_text, sticker_names=sticker_names)
-        update_cycle(cycle_id, final_text=final_text, status="completed")
+        try:
+            final_text = expression.run_e3(expr_text, sticker_names=sticker_names)
+            update_cycle(cycle_id, final_text=final_text, status="completed")
+        except Exception as exc:
+            log_event(
+                "mind",
+                "cycle_failed",
+                trace_id=trace_id,
+                session_id=session_id,
+                error_type=type(exc).__name__,
+                reason="E3 failed",
+            )
+            update_cycle(cycle_id, status="failed", error=f"E3: {type(exc).__name__}")
+            return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
     else:
         final_text = existing["final_text"]
         update_cycle(cycle_id, status="completed")

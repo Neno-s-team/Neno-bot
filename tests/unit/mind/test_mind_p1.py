@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -31,6 +32,8 @@ def fake_mind_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "MIND_TIMEZONE", "Asia/Shanghai")
     monkeypatch.setattr(config, "MIND_SELF_CARD_PATH", "prompts/mind/self_card.md")
     monkeypatch.setattr(config, "MIND_STYLE_CARD_PATH", "prompts/mind/style_card.md")
+    monkeypatch.setattr(config, "MIND_E3_MAX_MESSAGES", 4)
+    monkeypatch.setattr(config, "MIND_E3_MAX_SINGLE_CHARS", 200)
 
 
 def _fake_l1_response():
@@ -365,13 +368,10 @@ def test_mind_e3_sticker_marks():
     # 合法标记保留
     result = expression.run_e3("[表情包：喵]", sticker_names={"喵"})
     assert "[表情包：喵]" in result
-    # 非法显式标记删除（但会抛 ValueError，由 cycle 处理）
-    try:
-        expression.run_e3("[表情包：不存在的]", sticker_names={"喵"})
-    except ValueError:
-        pass  # 预期
-    else:
-        raise AssertionError("应该抛 ValueError")
+    # 非法显式标记删除后全空 → 由 cycle 回退；这里直接检查文本层行为
+    result2 = expression.run_e3("[表情包：不存在的]\n好的", sticker_names={"喵"})
+    assert "不存在的" not in result2
+    assert "好的" in result2
     # 裸 [X] 保留
     result3 = expression.run_e3("[某个文本]", sticker_names={"喵"})
     assert "[某个文本]" in result3
@@ -460,7 +460,7 @@ def test_mind_optimistic_lock(mind_db, fake_mind_env, monkeypatch):
     from app.storage.db import execute_write
 
     # 先初始化一条记录
-    mind_state.apply_affect_delta_optimistic("s18", 0.1, 0.2)
+    mind_state.apply_affect_delta("s18", 0.1, 0.2)
     s1 = mind_state.read_state("s18")
     assert s1["version"] == 1
 
@@ -470,8 +470,170 @@ def test_mind_optimistic_lock(mind_db, fake_mind_env, monkeypatch):
     execute_write("UPDATE mind_state SET version=99 WHERE session_id='s18'")
 
     # 乐观锁应该重试并最终成功
-    result = mind_state.apply_affect_delta_optimistic("s18", 0.1, 0.2)
+    result = mind_state.apply_affect_delta("s18", 0.1, 0.2)
     assert result is not None
     assert result["version"] == 100  # 99 + 1
+
+
+# ── 第二轮修正：无上下文时的空集合安全 ─────────────────────────────────────────
+def test_mind_no_context_still_completes(mind_db, fake_mind_env, monkeypatch):
+    l1_calls = {"count": 0}
+
+    def fake_request(**kwargs):
+        if kwargs.get("purpose") == "mind_l1":
+            l1_calls["count"] += 1
+            return _fake_l1_response()
+        if kwargs.get("purpose") == "mind_expr":
+            return _fake_expr_response()
+        raise AssertionError()
+
+    monkeypatch.setattr("app.services.mind.appraisal.request_model_response", fake_request)
+    monkeypatch.setattr("app.services.mind.expression.request_model_response", fake_request)
+
+    result = run_chat_turn("s-noctx", "你好", trace_id="t-noctx")
+    assert result["reply"] == "收到啦\n今天怎么样"
+    cycle_row = fetch_one("SELECT * FROM mind_cycle WHERE session_id='s-noctx'")
+    assert cycle_row["status"] == "completed"
+
+
+# ── 第二轮修正：E3 全空走回退 ──────────────────────────────────────────────────
+def test_mind_e3_empty_falls_back(mind_db, fake_mind_env, monkeypatch):
+    old_calls = {"count": 0}
+
+    def fake_request(**kwargs):
+        if kwargs.get("purpose") == "mind_l1":
+            return _fake_l1_response()
+        if kwargs.get("purpose") == "mind_expr":
+            return "[表情包：不存在]"
+        raise AssertionError()
+
+    def fake_old(messages, **kwargs):
+        old_calls["count"] += 1
+        return "兜底回复"
+
+    monkeypatch.setattr("app.services.mind.appraisal.request_model_response", fake_request)
+    monkeypatch.setattr("app.services.mind.expression.request_model_response", fake_request)
+    monkeypatch.setattr(llm_gateway, "generate_chat_reply", fake_old)
+
+    result = run_chat_turn("s-e3empty", "你好", trace_id="t-e3empty")
+    assert result["reply"] == "兜底回复"
+    assert old_calls["count"] == 1
+    cycle_row = fetch_one("SELECT * FROM mind_cycle WHERE session_id='s-e3empty'")
+    assert cycle_row["status"] == "failed"
+    assert cycle_row["error"].startswith("E3")
+
+
+# ── 第二轮修正：E2 失败后续跑（保留原来的完成后重放测试）───────────────────────
+def test_mind_resume_after_e2_exception(mind_db, fake_mind_env, monkeypatch):
+    l1_calls = {"count": 0}
+    e2_calls = {"count": 0}
+    mode = {"e2": "fail"}
+    messages = [{"role": "user", "content": "同一条消息"}]
+
+    def fake_request(**kwargs):
+        if kwargs.get("purpose") == "mind_l1":
+            l1_calls["count"] += 1
+            return _fake_l1_response()
+        if kwargs.get("purpose") == "mind_expr":
+            e2_calls["count"] += 1
+            if mode["e2"] == "fail":
+                raise RuntimeError("E2 exploded")
+            return "恢复后的回复"
+        raise AssertionError()
+
+    def fake_old(messages, **kwargs):
+        return "兜底"
+
+    monkeypatch.setattr("app.services.mind.appraisal.request_model_response", fake_request)
+    monkeypatch.setattr("app.services.mind.expression.request_model_response", fake_request)
+    monkeypatch.setattr(llm_gateway, "generate_chat_reply", fake_old)
+
+    # 直接调 run_cycle：turn 层幂等会缓存已落库回复，续跑语义只在 cycle 层验证
+    result1 = cycle.run_cycle(
+        "s-resume", "同一条消息", [], messages,
+        trace_id="t-resume", injected_context="",
+    )
+    assert result1 == "兜底"
+    assert l1_calls["count"] == 1
+    assert e2_calls["count"] == 1
+
+    mode["e2"] = "ok"
+    l1_calls["count"] = 0
+    e2_calls["count"] = 0
+    result2 = cycle.run_cycle(
+        "s-resume", "同一条消息", [], messages,
+        trace_id="t-resume", injected_context="",
+    )
+    assert l1_calls["count"] == 0
+    assert e2_calls["count"] == 1
+    assert result2 == "恢复后的回复"
+    cycle_row = fetch_one("SELECT * FROM mind_cycle WHERE session_id='s-resume'")
+    assert cycle_row["status"] == "completed"
+
+
+# ── 第二轮修正：衰减参与写入 ──────────────────────────────────────────────────
+def test_mind_affect_decay_before_write(mind_db, fake_mind_env):
+    from app.storage.db import execute_write
+
+    store.insert_mind_state("s-decay", 0.8, 0.0)
+    execute_write(
+        "UPDATE mind_state SET updated_at=? WHERE session_id='s-decay'",
+        (time.time() - 360 * 60,),
+    )
+    result = state.apply_affect_delta("s-decay", 0.0, 0.0)
+    assert result is not None
+    assert abs(result["valence"] - 0.2) <= 0.02
+
+
+# ── 第二轮修正：乐观锁真实冲突 ────────────────────────────────────────────────
+def test_mind_optimistic_lock_real_conflict(mind_db, fake_mind_env, monkeypatch):
+    from app.storage.db import execute_write
+
+    store.insert_mind_state("s-conflict", 0.1, 0.1)
+    initial = store.get_mind_state("s-conflict")
+    initial_version = initial["version"]
+    calls = {"count": 0}
+
+    original_get = store.get_mind_state
+
+    def get_with_conflict(session_id):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            # 第一次读取后立即发生外部并发写
+            execute_write(
+                "UPDATE mind_state SET version=version+1 WHERE session_id=?",
+                (session_id,),
+            )
+            # 仍然返回过期快照；后续 UPDATE 用这个旧 version 会失败
+            return initial
+        return original_get(session_id)
+
+    monkeypatch.setattr(state.store, "get_mind_state", get_with_conflict)
+    result = state.apply_affect_delta("s-conflict", 0.2, 0.2)
+    assert result is not None
+    assert result["version"] == initial_version + 2
+    assert calls["count"] >= 2
+
+
+# ── 第二轮修正：语气 5 档映射 ─────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "valence,arousal,expected",
+    [
+        (-0.5, 0.5, "烦躁"),
+        (-0.5, 0.0, "低落"),
+        (0.0, 0.7, "兴奋"),
+        (0.5, 0.0, "轻快"),
+        (0.0, 0.0, "平静"),
+    ],
+)
+def test_mind_tone_mapping(valence, arousal, expected, mind_db, fake_mind_env):
+    assert cycle._compute_tone(valence, arousal) == expected
+
+
+# ── 第二轮修正：空名字集合的 E3 标记处理 ──────────────────────────────────────
+def test_mind_e3_empty_names_keeps_bare_marks():
+    result = expression.run_e3("[doge] [表情包：猫]", sticker_names=set())
+    assert "[doge]" in result
+    assert "表情包：猫" not in result
 
 

@@ -37,6 +37,8 @@ def run():
         config.MIND_RECENT_TURNS = 6
         config.MIND_AFFECT_HALF_LIFE_MINUTES = 180
         config.MIND_TIMEZONE = "Asia/Shanghai"
+        config.MIND_E3_MAX_MESSAGES = 4
+        config.MIND_E3_MAX_SINGLE_CHARS = 200
 
         def fake_request(**kwargs):
             purpose = kwargs.get("purpose", "")
@@ -112,6 +114,43 @@ def run():
         assert "不存在的" not in rendered  # 空表时显式标记被删除
         assert "正常" in rendered  # 5 行在 max_total=4 限制内
         checks.append("E3: markdown stripped, code block removed, max 4 lines")
+
+        # ── 第二轮修正：E3 回退 / 空表裸标记 / 衰减写入 / 语气映射 ─────────────
+        from app.services.mind import cycle as mind_cycle
+        from app.services.mind import state as mind_state
+        from app.storage.db import execute_write
+        import time as time_mod
+
+        with (
+            patch("app.services.mind.appraisal.request_model_response", fake_request),
+            patch("app.services.mind.expression.request_model_response", lambda **kwargs: "[表情包：不存在]"),
+            patch("app.services.chat.llm_gateway.generate_chat_reply", fake_old),
+        ):
+            fallback = chat_service.run_chat_turn("verify-e3", "你好", trace_id="v-e3")
+            assert fallback["reply"] == "兜底回复"
+            row = db.fetch_one("SELECT * FROM mind_cycle WHERE trigger_ref='v-e3'")
+            assert row["status"] == "failed" and row["error"].startswith("E3")
+        checks.append("E3 empty output falls back and marks failed")
+
+        empty_names = run_e3("[doge] [表情包：猫]", sticker_names=set())
+        assert "[doge]" in empty_names and "表情包：猫" not in empty_names
+        checks.append("empty sticker names keep bare marks and remove explicit marks")
+
+        store.insert_mind_state("decay", 0.8, 0.0)
+        execute_write("UPDATE mind_state SET updated_at=? WHERE session_id='decay'", (time_mod.time() - 360 * 60,))
+        decayed = mind_state.apply_affect_delta("decay", 0.0, 0.0)
+        assert abs(decayed["valence"] - 0.2) <= 0.02
+        checks.append("affect delta applies decay before optimistic write")
+
+        tone_cases = [
+            (-0.5, 0.5, "烦躁"),
+            (-0.5, 0.0, "低落"),
+            (0.0, 0.7, "兴奋"),
+            (0.5, 0.0, "轻快"),
+            (0.0, 0.0, "平静"),
+        ]
+        assert all(mind_cycle._compute_tone(v, a) == expected for v, a, expected in tone_cases)
+        checks.append("tone mapping has five expected buckets")
 
         # ── usage 计费 ────────────────────────────────────────────────────────
         from app.services import usage
