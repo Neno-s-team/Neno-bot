@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,29 @@ class TelegramGateway:
         self._sticker_injector = StickerTableInjector(self.stickers, mode="always")
         from telegram_gateway.delivery import Delivery
         self.delivery = Delivery(self)
+        # 网关侧补列：inbox.retract_state（P3b 撤回持久化重试）
+        with self.delivery.store.connect() as c:
+            columns = {row["name"] for row in c.execute("PRAGMA table_info(inbox)").fetchall()}
+            if "retract_state" not in columns:
+                c.execute("ALTER TABLE inbox ADD COLUMN retract_state TEXT")
         self.tdlib.send_status_observer = self.delivery.receipt
         self._delivery_task = None
+        self._mind_task = None
+        self._mind_runner = None
+        if getattr(config, "mind_async", False):
+            from telegram_gateway.mind_runner import MindRunner
+            self._mind_runner = MindRunner(self)
 
     async def close(self) -> None:
         self.delivery.stopping = True
+        if self._mind_runner is not None:
+            await self._mind_runner.stop()
+        if self._mind_task:
+            self._mind_task.cancel()
+            try:
+                await self._mind_task
+            except asyncio.CancelledError:
+                pass
         if self._delivery_task:
             self._delivery_task.cancel()
             try:
@@ -84,9 +103,16 @@ class TelegramGateway:
 
     async def run_updates(self) -> None:
         self._delivery_task = asyncio.create_task(self.delivery.run(), name='durable-telegram-delivery')
+        if self._mind_runner is not None:
+            self._mind_task = asyncio.create_task(self._mind_runner.run(), name='mind-delivery-runner')
         async for update in self.tdlib.updates():
             state_type = str(update.get("@type") or "")
             if state_type == "updateAuthorizationState":
+                continue
+            if state_type == "updateDeleteMessages":
+                raw_chat_id = int(update.get("chat_id") or 0)
+                if accepts_chat(raw_chat_id, self.config.allowed_chat_ids):
+                    await self._handle_retract_update(update, raw_chat_id)
                 continue
             message = parse_update(update)
             if message is None:
@@ -101,6 +127,53 @@ class TelegramGateway:
             if not accepts_chat(message.chat_id, self.config.allowed_chat_ids):
                 continue
             self.delivery.accept(message)
+
+    async def _handle_retract_update(self, update: dict[str, Any], chat_id: int) -> None:
+        """updateDeleteMessages：只处理永久删除且非缓存事件的入站撤回。"""
+        if update.get("is_permanent") is not True or update.get("from_cache") is not False:
+            return
+        for message_id in update.get("message_ids") or []:
+            row = self.delivery.store.one(
+                "SELECT key, trace_id, state FROM inbox WHERE chat_id=? AND message_id=?",
+                (chat_id, int(message_id)),
+            )
+            if row is None:
+                continue
+            if self._mind_runner is None:
+                # 同步模式：只记日志，不调 core
+                logging.info("retract ignored (sync mode) chat=%s message_id=%s", chat_id, message_id)
+                continue
+            trace_id = row.get("trace_id")
+            if not trace_id and row.get("state") == "generating":
+                # 交给 core 的调用正在进行：等拿到 trace 后补撤
+                self.delivery.store.write(
+                    "UPDATE inbox SET retract_state='pending' WHERE key=?",
+                    (row["key"],),
+                )
+                logging.info("retract pending (generating) chat=%s message_id=%s", chat_id, message_id)
+                continue
+            if not trace_id:
+                # 还没交给 core：直接取消，不调 core
+                self.delivery.store.write(
+                    "UPDATE inbox SET state='cancelled', retract_state='cancelled', updated_at=? WHERE key=?",
+                    (time.time(), row["key"]),
+                )
+                logging.info("retract cancelled before core chat=%s message_id=%s", chat_id, message_id)
+                continue
+            try:
+                await self.core.mind_retract(str(trace_id))
+                self.delivery.store.write(
+                    "UPDATE inbox SET retract_state='done', updated_at=? WHERE key=?",
+                    (time.time(), row["key"]),
+                )
+            except Exception as exc:
+                # 失败持久化为待重试
+                self.delivery.store.write(
+                    "UPDATE inbox SET retract_state='retry', error=?, updated_at=? WHERE key=?",
+                    (str(exc)[:250], time.time(), row["key"]),
+                )
+                logging.warning("retract retry scheduled chat=%s message_id=%s error=%s",
+                                chat_id, message_id, type(exc).__name__)
 
     async def _handle_message(self, message: InboundMessage) -> None:
         key = (message.chat_id, message.message_id)

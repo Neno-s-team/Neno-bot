@@ -71,8 +71,18 @@ class Delivery:
                        'attachments': attachments, 'request_id': row['key']}
             self.store.write("UPDATE inbox SET payload=?,state='generating',updated_at=? WHERE key=? AND state<>'cancelled'", (json.dumps(payload, ensure_ascii=False), time.time(), row['key']))
         result = await self.gateway.core.chat(**payload)
+        if result.get('status') == 'accepted':
+            # 异步模式：core 已受理，投递由 mind 轮询执行器接管；不规划旧 outbox
+            self.store.write("UPDATE inbox SET trace_id=?,state='done',error=NULL,updated_at=? WHERE key=? AND state<>'cancelled'",
+                             (result.get('trace_id'), time.time(), row['key']))
+            await self._retract_if_pending(row['key'], result.get('trace_id'))
+            for attachment in payload['attachments']:
+                if attachment.get('media_path'):
+                    Path(attachment['media_path']).unlink(missing_ok=True)
+            return
         self.store.write("UPDATE inbox SET reply=?,trace_id=?,state='ready',error=NULL,updated_at=? WHERE key=? AND state<>'cancelled'",
                          (result['reply'], result.get('trace_id'), time.time(), row['key']))
+        await self._retract_if_pending(row['key'], result.get('trace_id'))
         # Core has copied originals into the durable media store at this point.
         for attachment in payload['attachments']:
             if attachment.get('media_path'):
@@ -199,3 +209,16 @@ class Delivery:
                                      ('needs_attention' if attempts >= 10 else 'retryable', attempts, str(exc)[:250], time.time() + min(300, 15 * 2 ** min(attempts, 5)), time.time(), row['key']))
                     logging.warning('Delivery deferred key=%s error=%s', row['key'], type(exc).__name__)
             await asyncio.sleep(delay)
+
+    async def _retract_if_pending(self, key, trace_id):
+        """generating 中被标记撤回的消息：拿到 trace_id 后立刻补调 retract。"""
+        row = self.store.one('SELECT retract_state FROM inbox WHERE key=?', (key,))
+        if not row or row.get('retract_state') != 'pending' or not trace_id:
+            return
+        try:
+            await self.gateway.core.mind_retract(str(trace_id))
+            self.store.write("UPDATE inbox SET retract_state='done',updated_at=? WHERE key=?",
+                             (time.time(), key))
+        except Exception as exc:
+            self.store.write("UPDATE inbox SET retract_state='retry',error=?,updated_at=? WHERE key=?",
+                             (str(exc)[:250], time.time(), key))

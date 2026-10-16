@@ -62,6 +62,10 @@ class GatewayConfig:
     max_media_bytes: int
     download_timeout_seconds: float
     sticker_pack_dir: Path
+    mind_async: bool
+    mind_poll_seconds: float
+    mind_max_concurrency: int
+    mind_presence: bool
 
     def tdlib_parameters_request(self) -> dict[str, object]:
         """Build the TDLib request shape; the database key is sent separately."""
@@ -123,4 +127,8 @@ class GatewayConfig:
             sticker_pack_dir=_configured_path(
                 "NENO_STICKER_PACK_DIR", root / "data" / "stickers" / "current", root
             ),
+            mind_async=os.getenv("NENO_MIND_ASYNC", "false").strip().lower() in ("1", "true", "yes", "on"),
+            mind_poll_seconds=float(os.getenv("NENO_MIND_POLL_SEC", "1")),
+            mind_max_concurrency=int(os.getenv("NENO_MIND_MAX_CONCURRENCY", "4")),
+            mind_presence=os.getenv("NENO_MIND_PRESENCE", "false").strip().lower() in ("1", "true", "yes", "on"),
         )

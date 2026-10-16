@@ -96,3 +96,16 @@ FastAPI lifespan 里启动（`MIND_ENABLED and MIND_ASYNC_DELIVERY`），每 `MI
 
 - 网关按 `GET /mind/deliveries/due` 轮询，收到 `typing` 调用 `sendChatAction`，收到 `mark_read` 调用 `viewMessages`，收到 `text`/`sticker` 真正发送；成功或失败后调 `/ack`。
 - 撤回由网关调用 `/mind/retract`；未读消息直接撤销，已读消息进入下一轮工作记忆。
+
+## 网关接入（P3b 已实现）
+
+- 网关开关：`NENO_MIND_ASYNC=false`（与 core 的 `MIND_ASYNC_DELIVERY` 保持一致）。false 时网关行为与旧同步链路完全一致。
+- `NENO_MIND_POLL_SEC=1`：轮询周期。`NENO_MIND_MAX_CONCURRENCY=4`：不同会话并发上限；同一会话严格串行。
+- 网关本地 `mind_outbox` 表以 `delivery_id` 为主键幂等：同一项 core 租约过期后重发不会重复 sendMessage，只按本地状态推进或补 ack。
+- text：`payload.text` 原样一条消息发送，超 4096 分块。确认语义沿用现有 outbox：Succeeded → ack sent；明确失败 → ack failed；结果不确定 → 本地 `uncertain`，确认前不 ack、不重发。
+- mark_read：`payload.trace_ids` 在 inbox 映射到 message_id 后调 `viewMessages`（force_read）。映射缺失时兜底取该聊天最新入站消息并记 warning。
+- typing：每 4 秒 `sendChatAction(chatActionTyping)`，持续 `payload.duration` 秒。
+- sticker：`payload.name` 查 StickerTable，失败退回图片；名字未知 → ack failed("unknown sticker")。
+- 429：该会话暂停 retry_after 秒，不 ack failed；本地记录保持，暂停结束后继续。
+- 撤回：`updateDeleteMessages`（is_permanent=true 且 from_cache=false）→ 未交给 core 直接取消；已有 trace 调 `/mind/retract`（失败持久化 `inbox.retract_state='retry'`）；generating 中先标 pending，拿到 trace 后补撤。同步模式只记日志。
+- presence：`NENO_MIND_PRESENCE=true` 时启动 offline；动作前 online；最后一个动作 60 秒后 offline。网关无其他 openChat/viewMessages 调用。
