@@ -96,3 +96,27 @@ MIND_AFFECT_HALF_LIFE_MINUTES = _env_int("MIND_AFFECT_HALF_LIFE_MINUTES", 180)
 MIND_TIMEZONE = os.getenv("MIND_TIMEZONE", "Asia/Shanghai").strip()
 MIND_E3_MAX_MESSAGES = _env_int("MIND_E3_MAX_MESSAGES", 4)
 MIND_E3_MAX_SINGLE_CHARS = _env_int("MIND_E3_MAX_SINGLE_CHARS", 200)
+
+# ── 多层大脑 P2（L2 深思 + L3 自我 + 工作记忆 + 记忆存储） ────────────────────
+# L2 模型；留空 = 复用聊天主模型。开思考，JSON Schema 约束输出。
+MIND_THINK_MODEL = os.getenv("MIND_THINK_MODEL", "").strip()
+MIND_THINK_EXTRA_BODY = json.loads(
+    os.getenv("MIND_THINK_EXTRA_BODY", "").strip() or '{"reasoning": {"effort": "medium"}}'
+)
+MIND_THINK_MAX_TOKENS = _env_int("MIND_THINK_MAX_TOKENS", 4000)
+# L1 判定 depth=fast 时跳过 L2（省钱）
+MIND_FAST_SKIP_L2 = _env_bool("MIND_FAST_SKIP_L2", True)
+# 工作记忆预算与槽位条数
+MIND_WM_MAX_CHARS = _env_int("MIND_WM_MAX_CHARS", 6000)
+MIND_WM_EPISODES = _env_int("MIND_WM_EPISODES", 5)
+MIND_WM_BELIEFS = _env_int("MIND_WM_BELIEFS", 5)
+# 记忆衰减半衰期（天）：recency 用检索新近度，memory 用记忆强度
+MIND_RECENCY_HALF_LIFE_DAYS = _env_float("MIND_RECENCY_HALF_LIFE_DAYS", 7.0)
+MIND_MEMORY_HALF_LIFE_DAYS = _env_float("MIND_MEMORY_HALF_LIFE_DAYS", 14.0)
+# 检索权重：rel 相关性 / rec 新近 / imp 重要性 / emo 情绪强度 / str 记忆强度
+MIND_RETRIEVAL_WEIGHTS = json.loads(
+    os.getenv("MIND_RETRIEVAL_WEIGHTS", "").strip()
+    or '{"rel": 1, "rec": 1, "imp": 1, "emo": 1, "str": 1}'
+)
+# 记忆范围；P2 只实现 session
+MIND_MEMORY_SCOPE = os.getenv("MIND_MEMORY_SCOPE", "session").strip() or "session"

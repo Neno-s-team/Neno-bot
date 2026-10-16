@@ -7,7 +7,16 @@ from typing import Any
 
 from app import config
 from app.services.chat import llm_gateway as _llm_gateway
-from app.services.mind import appraisal, expression, state, store
+from app.services.mind import (
+    appraisal,
+    consistency,
+    deliberation,
+    expression,
+    state,
+)
+from app.services.mind.memory import commit as memory_commit
+from app.services.mind.memory import wm_builder
+from app.services.mind.deliberation import L2Result
 from app.services.mind.schemas import E1Plan, L1Appraisal
 from app.services.mind.store import (
     create_cycle,
@@ -108,6 +117,116 @@ def _parse_sticker_names(injected_context: str) -> set[str]:
     return {name.strip() for name in names_text.split("、") if name.strip()}
 
 
+def _build_e1_plan_from_l3(l1: L1Appraisal, l3: L2Result) -> E1Plan:
+    """有 L3 时直接用 L3 的输出构造 E1；gut 永远来自 L1。"""
+    return E1Plan(
+        say_points=[item[:200] for item in l3.say_points],
+        gut=l1.gut,
+        leak=l3.leak,
+        length=l3.length,
+        n_messages=min(max(1, l3.n_messages), max(1, int(config.MIND_E3_MAX_MESSAGES))),
+        tone=l3.tone,
+    )
+
+
+def _run_l2(
+    *,
+    session_id: str,
+    cycle_id: str,
+    l1: L1Appraisal,
+    message: str,
+    history: list[dict],
+    self_card: str,
+    mind_state: dict[str, Any],
+    inhibition_base: float,
+    sticker_names: set[str],
+    wm_json: str | None,
+    existing: dict[str, Any],
+    trace_id: str | None,
+) -> tuple[L2Result | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """L2/L3 + 一致性检查。返回 (结果, wm, 失败信息)。
+
+    返回 (None, wm, failure) 表示应走保守路径：失败信息含 degraded/check_json/attempts。
+    """
+    wm: dict[str, Any] | None = None
+    if wm_json:
+        wm = json.loads(wm_json)
+    else:
+        wm = wm_builder.build_working_memory(
+            session_id, l1=l1, message=message, history=history, self_card=self_card,
+        )
+        update_cycle(cycle_id, wm_json=json.dumps(wm, ensure_ascii=False, default=str))
+
+    leak_cap = state.compute_leak(
+        arousal=mind_state["arousal"], base_inhibition=inhibition_base
+    )
+    attempts = int(existing.get("l2_attempts") or 0)
+    checks: list[dict[str, Any]] = []
+    if existing.get("check_json"):
+        try:
+            loaded = json.loads(existing["check_json"])
+            checks = loaded if isinstance(loaded, list) else []
+        except ValueError:
+            checks = []
+    # 续跑时把上次检查的错误带回重试请求
+    errors: list[str] = list(checks[-1]["errors"]) if checks and not checks[-1].get("ok") else []
+    last_error = ""
+    result: L2Result | None = None
+
+    while attempts < 2:
+        attempts += 1
+        update_cycle(cycle_id, l2_attempts=attempts)
+        try:
+            result, model_name = deliberation.run_deliberation(
+                wm_text=wm["text"],
+                l1=l1,
+                message=message,
+                self_card=self_card,
+                leak_cap=leak_cap,
+                sticker_names=sticker_names,
+                extra_errors=errors or None,
+                trace_id=trace_id,
+                session_id=session_id,
+            )
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            log_event(
+                "mind", "l2_failed", trace_id=trace_id, session_id=session_id,
+                attempt=attempts, error_type=type(exc).__name__,
+            )
+            if attempts >= 2:
+                break
+            errors = [f"上次输出无法解析：{type(exc).__name__}"]
+            continue
+
+        ok, errors, warnings = consistency.check_result(
+            session_id, result, trace_id=trace_id
+        )
+        checks.append({"attempt": attempts, "ok": ok, "errors": errors, "warnings": warnings})
+        update_cycle(cycle_id, check_json=json.dumps(checks, ensure_ascii=False))
+        if ok:
+            update_cycle(
+                cycle_id,
+                l2_json=json.dumps(result.to_dict(), ensure_ascii=False),
+            )
+            return result, wm, None
+        log_event(
+            "mind", "l2_check_failed", trace_id=trace_id, session_id=session_id,
+            attempt=attempts, error_count=len(errors),
+        )
+        if attempts >= 2:
+            last_error = "check: " + "; ".join(errors)
+            break
+
+    failure = {
+        "degraded": "L2",
+        "check_json": json.dumps(checks, ensure_ascii=False),
+        "attempts": attempts,
+        "error": last_error,
+    }
+    return None, wm, failure
+
+
 def run_cycle(
     session_id: str,
     message: str,
@@ -181,11 +300,57 @@ def run_cycle(
     else:
         l1 = L1Appraisal.from_dict(json.loads(existing["l1_json"]))
 
+    # ── L2 深思 + L3 自我 + 一致性检查 ─────────────────────────────────────────
+    l2: L2Result | None = None
+    wm: dict[str, Any] | None = None
+    degraded: str | None = None
+    if existing.get("l2_json"):
+        l2 = L2Result.from_dict(
+            json.loads(existing["l2_json"]),
+            leak_cap=None,  # 回放已存结果，不重算上限
+            max_messages=int(config.MIND_E3_MAX_MESSAGES),
+            sticker_names=None,
+        )
+    else:
+        skip_l2 = l1.depth == "fast" and config.MIND_FAST_SKIP_L2
+        stored_wm = existing.get("wm_json")
+        if skip_l2:
+            log_event("mind", "l2_skipped_fast", trace_id=trace_id, session_id=session_id)
+        elif existing.get("degraded") == "L2":
+            # 续跑：上一轮 L2 已连续失败两次，沿用降级结果，不再重复调用
+            degraded = "L2"
+            log_event(
+                "mind", "l2_degraded_resumed", trace_id=trace_id,
+                session_id=session_id,
+            )
+        else:
+            l2, wm, failure = _run_l2(
+                session_id=session_id,
+                cycle_id=cycle_id,
+                l1=l1,
+                message=message,
+                history=history,
+                self_card=self_card,
+                mind_state=mind_state,
+                inhibition_base=inhibition_base,
+                sticker_names=sticker_names,
+                wm_json=stored_wm,
+                existing=existing,
+                trace_id=trace_id,
+            )
+            if failure is not None:
+                degraded = failure["degraded"]
+                # 失败细节留在 check_json；completed 的 cycle 不写 error 字段
+                update_cycle(cycle_id, degraded=degraded)
+
     # ── E1 规划 ───────────────────────────────────────────────────────────────
     if not existing.get("plan_json"):
-        plan = _build_e1_plan(l1)
-        plan.leak = state.compute_leak(arousal=mind_state["arousal"], base_inhibition=inhibition_base)
-        plan.tone = _compute_tone(mind_state["valence"], mind_state["arousal"])
+        if l2 is not None:
+            plan = _build_e1_plan_from_l3(l1, l2)
+        else:
+            plan = _build_e1_plan(l1)
+            plan.leak = state.compute_leak(arousal=mind_state["arousal"], base_inhibition=inhibition_base)
+            plan.tone = _compute_tone(mind_state["valence"], mind_state["arousal"])
         plan_json = json.dumps(plan.to_dict(), ensure_ascii=False)
         update_cycle(cycle_id, plan_json=plan_json)
     else:
@@ -201,6 +366,8 @@ def run_cycle(
                 sticker_table_text=sticker_table_text,
                 recent_turns=recent_turns,
                 message=message,  # clean_message
+                hidden=l2.hidden if l2 is not None else None,
+                sticker_hint=l2.sticker if l2 is not None else None,
                 trace_id=trace_id,
                 session_id=session_id,
             )
@@ -238,5 +405,24 @@ def run_cycle(
     else:
         final_text = existing["final_text"]
         update_cycle(cycle_id, status="completed")
+
+    # ── 提交记忆 ──────────────────────────────────────────────────────────────
+    # 只在 E3 成功、L2 有效（非降级）、且未提交过时执行
+    latest = get_cycle(cycle_id) or existing
+    committed = int(latest.get("memory_committed") or 0)
+    if l2 is not None and not degraded and not committed:
+        try:
+            memory_commit.commit_memory(
+                session_id=session_id,
+                cycle_id=cycle_id,
+                result=l2,
+                trace_id=trace_id,
+            )
+            update_cycle(cycle_id, memory_committed=1)
+        except Exception as exc:
+            log_event(
+                "mind", "memory_commit_failed", trace_id=trace_id,
+                session_id=session_id, error_type=type(exc).__name__,
+            )
 
     return final_text

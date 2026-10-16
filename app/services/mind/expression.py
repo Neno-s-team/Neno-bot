@@ -17,6 +17,9 @@ def _build_e2_messages(
     sticker_table_text: str,
     recent_turns: list[dict],
     message: str,
+    *,
+    hidden: list[str] | None = None,
+    sticker_hint: str | None = None,
 ) -> list[dict]:
     recent_text = "\n".join(
         f"{item['role']}: {str(item.get('content',''))[:300]}"
@@ -25,13 +28,27 @@ def _build_e2_messages(
     gut_hint = ""
     if plan.leak > 0.05 and plan.gut:
         gut_hint = f"\n注意：你的真实想法是「{plan.gut}」，可以按 leak={plan.leak:.2f} 的强度不经意地漏一点进回复里。"
+    hidden_hint = ""
+    if hidden:
+        hidden_hint = (
+            f"\n没打算直说的话（不要说出口，最多按 leak={plan.leak:.2f} 的强度含蓄流露）："
+            + "；".join(hidden)
+        )
+    say_points_line = ""
+    if plan.say_points:
+        say_points_line = "\n- 说话要点（按顺序自然表达，不要逐条复述）：" + "；".join(plan.say_points)
+    sticker_line = ""
+    if sticker_hint:
+        sticker_line = (
+            f"\n如果你想发表情包，可以单独占一行输出 [表情包：{sticker_hint}]（名字必须精确）。"
+        )
 
     prompt = f"""根据以下规划写出真人口语回复。
 
-规划：
+规划：{say_points_line}
 - 条数：{plan.n_messages} 条
 - 长度：{plan.length}
-- 语气：{plan.tone}{gut_hint}
+- 语气：{plan.tone}{gut_hint}{hidden_hint}{sticker_line}
 
 最近原话：
 {recent_text}
@@ -60,10 +77,15 @@ def run_e2(
     recent_turns: list[dict],
     message: str,
     *,
+    hidden: list[str] | None = None,
+    sticker_hint: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
 ) -> str:
-    messages = _build_e2_messages(plan, style_card, sticker_table_text, recent_turns, message)
+    messages = _build_e2_messages(
+        plan, style_card, sticker_table_text, recent_turns, message,
+        hidden=hidden, sticker_hint=sticker_hint,
+    )
     raw = request_model_response(
         model_name=config.MIND_EXPR_MODEL,
         messages=messages,

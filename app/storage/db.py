@@ -154,6 +154,20 @@ def init_db():
             )
             """
         )
+        # P2 加列：老库直接 ALTER TABLE 升级
+        cycle_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mind_cycle)").fetchall()
+        }
+        for column, ddl in (
+            ("l2_json", "l2_json TEXT"),
+            ("wm_json", "wm_json TEXT"),
+            ("check_json", "check_json TEXT"),
+            ("l2_attempts", "l2_attempts INTEGER NOT NULL DEFAULT 0"),
+            ("memory_committed", "memory_committed INTEGER NOT NULL DEFAULT 0"),
+            ("degraded", "degraded TEXT"),
+        ):
+            if column not in cycle_columns:
+                conn.execute(f"ALTER TABLE mind_cycle ADD COLUMN {ddl}")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_cycle_session ON mind_cycle(session_id, created_at)"
         )
@@ -164,6 +178,62 @@ def init_db():
                 sticker_table_text TEXT,
                 sticker_names_json TEXT,
                 updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        # P2 记忆：情景记忆 + 语义记忆 + FTS5 索引（contentless，rowid = 主表 id）
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_episode (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                cycle_id TEXT NOT NULL,
+                note_idx INTEGER NOT NULL DEFAULT 0,
+                ts REAL NOT NULL DEFAULT 0.0,
+                participants_json TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                valence REAL NOT NULL DEFAULT 0.0,
+                arousal REAL NOT NULL DEFAULT 0.0,
+                importance REAL NOT NULL DEFAULT 0.0,
+                strength REAL NOT NULL DEFAULT 1.0,
+                recall_count INTEGER NOT NULL DEFAULT 0,
+                last_recalled_at REAL,
+                refs_json TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL DEFAULT 0.0,
+                UNIQUE(cycle_id, note_idx)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_episode_session ON mind_episode(session_id, ts)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_belief (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0.0,
+                evidence_json TEXT NOT NULL DEFAULT '[]',
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                version INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(session_id, subject)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS mind_episode_fts USING fts5(
+                idx_text, tags, tokenize='unicode61', content=''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS mind_belief_fts USING fts5(
+                idx_text, tokenize='unicode61', content=''
             )
             """
         )

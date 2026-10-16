@@ -99,11 +99,6 @@ def apply_affect_delta(
     )
     return None
 
-
-# 兼容旧调用名；全仓库只保留 apply_affect_delta 一个实现。
-apply_affect_delta_optimistic = apply_affect_delta
-
-
 def compute_inhibition(arousal: float = 0.0, base: float | None = None) -> float:
     """抑制力 = clamp(base − night_factor − max(arousal, 0) * 0.2)。"""
     resolved_base = 0.7 if base is None else base
