@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 
 from app import config
@@ -44,6 +45,42 @@ def process_glance(session_id: str, trace_id: str) -> None:
                 orchestration.handle_opened(session_id, trace_ids)
 
 
+def recover_stuck_opened() -> int:
+    """opened 卡住（seen_at 早于 grace 且无 pending/running 作业）→ 重跑 handle_opened。"""
+    from app.services.mind import orchestration
+
+    ts = clock.now()
+    grace = max(0.0, float(getattr(config, "MIND_OPENED_GRACE_SEC", 30)))
+    rows = store.stuck_opened_perceptions(ts, grace)
+    recovered = 0
+    by_session: dict[str, list[str]] = {}
+    for row in rows:
+        by_session.setdefault(row["session_id"], []).append(str(row["trace_id"]))
+    for session_id, trace_ids in by_session.items():
+        records = [store.get_perception_by_trace(item) for item in trace_ids]
+        ids = [int(r["id"]) for r in records if r is not None]
+        max_attempts = max(1, int(config.MIND_JOB_MAX_ATTEMPTS))
+        over_limit = [r for r in records
+                      if r is not None and int(r.get("attempts") or 0) >= max_attempts]
+        if over_limit:
+            for r in over_limit:
+                store.update_perception(int(r["id"]), status="failed")
+            log_event("mind", "mind_job_failed", session_id=session_id,
+                      attempts=max_attempts, traces=json.dumps(trace_ids),
+                      reason="opened_grace_exceeded")
+            continue
+        store.increment_perception_attempts(ids)
+        try:
+            with _lock(session_id):
+                orchestration.handle_opened(session_id, trace_ids)
+            recovered += len(trace_ids)
+        except Exception as exc:
+            # attempts 计数已加；超限后下个 tick 标 failed
+            log_event("mind", "opened_recovery_failed", session_id=session_id,
+                      error_type=type(exc).__name__, trace_count=len(trace_ids))
+    return recovered
+
+
 def _open_batch(session_id: str) -> list[str]:
     """取出该 session 全部 opened 未决策的 trace（真人一次看到全部未读）。"""
     rows = fetch_all(
@@ -67,9 +104,7 @@ def process_deferred(session_id: str, deferred_id: int) -> None:
             attempts = int(job.get("attempts") or 0)
             if attempts >= max(1, int(config.MIND_JOB_MAX_ATTEMPTS)):
                 store.update_deferred(deferred_id, status="failed")
-                log_event("mind", "mind_job_failed", session_id=session_id,
-                          candidate_id=deferred_id, attempts=attempts,
-                          error_type=type(exc).__name__)
+                _fail_job_perceptions(deferred_id, session_id)
             else:
                 # 退回 pending，租约过期后由下一个 tick 重领
                 store.update_deferred(deferred_id, status="pending", lease_until=None)
@@ -83,6 +118,7 @@ def process_due_batch(limit: int = 50) -> dict[str, int]:
     ts = clock.now()
     done = {"glances": 0, "deferred": 0}
     recover_stale_jobs()
+    recover_stuck_opened()
     for record in store.due_perceptions(ts, limit=limit):
         try:
             process_glance(record["session_id"], record["trace_id"])
@@ -98,6 +134,15 @@ def process_due_batch(limit: int = 50) -> dict[str, int]:
             log_event("mind", "scheduler_deferred_failed",
                       session_id=record["session_id"], error_type=type(exc).__name__)
     return done
+
+
+def _fail_job_perceptions(deferred_id: int, session_id: str) -> None:
+    """作业最终 failed：把 queue 中的 perception 一并标 failed。"""
+    job = store.get_deferred(deferred_id) or {}
+    trace_ids = [str(item) for item in json.loads(job.get("trace_ids_json") or "[]")]
+    store.fail_queued_perceptions(deferred_id)
+    log_event("mind", "mind_job_failed", session_id=session_id,
+              candidate_id=deferred_id, traces=json.dumps(trace_ids))
 
 
 def _try_run_batch() -> None:
@@ -142,8 +187,7 @@ def recover_stale_jobs() -> None:
         attempts = int(record.get("attempts") or 0)
         if attempts >= max_attempts:
             store.update_deferred(record["id"], status="failed")
-            log_event("mind", "mind_job_failed", session_id=record["session_id"],
-                      candidate_id=record["id"], attempts=attempts, reason="lease_expired")
+            _fail_job_perceptions(int(record["id"]), record["session_id"])
         elif (record["lease_until"] or 0) < ts:
             store.update_deferred(record["id"], status="pending", lease_until=None)
             log_event("mind", "scheduler_deferred_recovered",

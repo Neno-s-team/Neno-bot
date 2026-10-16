@@ -62,6 +62,28 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 
 ## 调度器
 
+### 感知状态机
+
+`mind_perception.status`：`pending → previewed → opened → queued → decided / failed / retracted / cancelled`
+
+- `queued`：决策完成、已绑定 `deferred_id`（回复作业）。
+- `decided`：作业执行成功。
+- `failed`：作业重试耗尽（`MIND_JOB_MAX_ATTEMPTS`），或 opened 卡住重决策超限。
+- `retracted` / `cancelled`：撤回（前者是已读后的撤回，后者是未读直接撤）。
+
+### 作业合批规则
+
+- **pending 合批重想**：新消息被点开时，如果该会话有 `status='pending'` 的回复作业：旧作业置 `cancelled`，其 trace 改回 `opened`，与新消息合成一批重新跑一次 L1，写一个新作业。
+- **running 不打扰**：旧作业已经是 `running`（正在生成回复）时，新消息单独决策、单独成作业，不动旧作业。
+- `deferred.enqueue` / `enqueue_job` 不再按 reason 合并不同批次；合批只在 `handle_opened` 层完成。
+
+### 投递认领与撤回
+
+- `due_deliveries` 用一条 `UPDATE ... WHERE id IN (SELECT ...) RETURNING *`（SQLite < 3.35 退回 `BEGIN IMMEDIATE` + 条件 UPDATE）完成原子认领。
+- `cancel_remaining_deliveries` 只取消 `status='pending'` 的 text/sticker/typing；`claimed` 已交给网关，撤不回。
+- `cycle_has_sent_text` 把 `claimed` 状态的 text/sticker 也算作"已发出"。
+- ack sent 时如果行已是 cancelled，仍改成 sent 并写 messages（以实际发送为准），记日志 `delivery_sent_after_cancel`。
+
 FastAPI lifespan 里启动（`MIND_ENABLED and MIND_ASYNC_DELIVERY`），每 `MIND_SCHEDULER_TICK_SEC` 秒扫描：
 
 1. `mind_perception` 到期 → L0 → 回复决策；

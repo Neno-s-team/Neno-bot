@@ -146,3 +146,5 @@ MIND_LEASE_SEC = _env_int("MIND_LEASE_SEC", 120)
 MIND_DELIVERY_LEASE_SEC = _env_int("MIND_DELIVERY_LEASE_SEC", 60)
 # mind_deferred 作业重试上限；超过后 status=failed
 MIND_JOB_MAX_ATTEMPTS = _env_int("MIND_JOB_MAX_ATTEMPTS", 3)
+# opened 卡住多久后由调度器恢复重决策（秒）
+MIND_OPENED_GRACE_SEC = _env_int("MIND_OPENED_GRACE_SEC", 30)

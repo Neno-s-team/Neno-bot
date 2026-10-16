@@ -181,7 +181,7 @@ def test_class_preview_then_reply_after_class(mind_env, fake_provider, monkeypat
     # 下课后等级 >=2：preview → opened 由调度器续上
     mind_scheduler.process_glance(session, "t1")
     rec = store.get_perception_by_trace("t1")
-    assert rec["seen"] == "opened" and rec["status"] == "opened"
+    assert rec["seen"] == "opened" and rec["status"] == "queued"  # 状态机：入队后 queued
     mark_reads = [r for r in _deliveries(session) if r["kind"] == "mark_read"]
     assert mark_reads, "点开时应生成 mark_read（锚 seen_at）"
     assert mark_reads[0]["send_at"] == rec["seen_at"]
@@ -384,16 +384,29 @@ def test_new_message_cancels_unsent_cycle(mind_env, fake_provider):
     assert _pending(session)
     rows = _deliveries(session)
     before = {r["id"] for r in rows}
+    claimed = set()
+    if before:
+        # 先认领第一条 typing，验证 claimed 不被取消
+        first = next(r for r in rows if r["kind"] == "typing")
+        store.execute_write(
+            "UPDATE mind_delivery SET status='claimed', lease_until=? WHERE id=?",
+            (mind_env["clock"]["t"] + 999, first["id"]),
+        )
+        claimed.add(first["id"])
+        before -= claimed
     add_message(session, "user", "第二条", trace_id="t2")
     perception.create_perception(session, "t2")
     store.update_perception(store.get_perception_by_trace("t2")["id"], seen="opened", status="pending")
     orchestration.on_new_message(session, "t2")
     rows = _deliveries(session)
-    assert all(r["status"] == "cancelled" for r in rows if r["id"] in before)
+    assert all(r["status"] == "cancelled" for r in rows if r["id"] in before), \
+        "pending 的 text/typing 被取消"
+    assert all(r["status"] == "claimed" for r in rows if r["id"] in claimed), \
+        "claimed 已交给网关，不撤"
     # 旧 trace 并入新消息的感知批次（t1 拉回 opened），没有 due=now 的第二周期
     rec1 = store.get_perception_by_trace("t1")
     assert rec1["status"] == "opened"
-    assert store.get_pending_deferred(session) is None
+    assert not store.list_pending_deferred(session)
 
 
 def test_new_message_keeps_partially_sent_cycle(mind_env, fake_provider):
@@ -746,3 +759,175 @@ def test_text_failed_cancels_rest(mind_env, fake_provider):
     rows = _deliveries(session)
     assert all(r["status"] != "pending" for r in rows if r["kind"] in ("text", "sticker", "typing"))
     assert marks[0]["status"] in ("pending", "claimed"), "mark_read 保留"
+
+
+# ── 二轮修正 ──────────────────────────────────────────────────────────────
+
+
+# 修正1) queued 状态机 + pending 合批重想 / running 不打扰
+def test_queued_status_and_pending_merge(mind_env, fake_provider, monkeypatch):
+    session = "s-queued"
+    _force_opened(session, "t1")
+    before_l1 = fake_provider.calls["mind_l1"]
+    orchestration.handle_opened(session, ["t1"])
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "queued" and rec["deferred_id"] is not None
+    old_job = store.get_deferred(rec["deferred_id"])
+    assert old_job["status"] == "pending"
+
+    # 新消息点开：pending 作业取消、trace 改回 opened、合批重想
+    _force_opened(session, "t2")
+    fake_provider.l1_reply_will = "later"
+    orchestration.handle_opened(session, ["t2"])
+    assert store.get_deferred(old_job["id"])["status"] == "cancelled"
+    new_jobs = [j for j in store.list_pending_deferred(session)]
+    assert len(new_jobs) == 1, "合批后只有一个作业"
+    merged_traces = json.loads(new_jobs[0]["trace_ids_json"])
+    assert set(merged_traces) == {"t1", "t2"}
+    # L1：第一次决策 1 + 合批重想 1 = 2
+    assert fake_provider.calls["mind_l1"] - before_l1 == 2
+
+
+def test_running_job_not_disturbed(mind_env, fake_provider, monkeypatch):
+    session = "s-running"
+    _force_opened(session, "t1")
+    orchestration.handle_opened(session, ["t1"])
+    rec = store.get_perception_by_trace("t1")
+    job = store.get_deferred(rec["deferred_id"])
+    # 模拟作业 running（租约内）
+    store.update_deferred(job["id"], status="running",
+                          lease_until=mind_env["clock"]["t"] + 999)
+    _force_opened(session, "t2")
+    orchestration.handle_opened(session, ["t2"])
+    assert store.get_deferred(job["id"])["status"] == "running", "running 不打扰"
+    new_jobs = [j for j in store.list_pending_deferred(session) if j["id"] != job["id"]]
+    assert len(new_jobs) == 1
+    assert json.loads(new_jobs[0]["trace_ids_json"]) == ["t2"], "第二个作业只含新 trace"
+
+
+# 修正2) 卡住 opened 恢复
+def test_stuck_opened_recovered_after_grace(mind_env, fake_provider, monkeypatch):
+    session = "s-stuck"
+    _force_opened(session, "t1")
+    calls = {"n": 0}
+    orig = orchestration.handle_opened
+
+    def flaky(sess, traces):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("l1 boom")
+        return orig(sess, traces)
+
+    monkeypatch.setattr("app.services.mind.orchestration.handle_opened", flaky)
+    # 第一次：抛异常，opened 卡住
+    try:
+        orchestration.handle_opened(session, ["t1"])
+    except RuntimeError:
+        pass
+    assert store.get_perception_by_trace("t1")["status"] == "opened"
+    # 推进超过 grace → 调度器恢复
+    monkeypatch.setattr(config, "MIND_OPENED_GRACE_SEC", 30)
+    mind_env["clock"]["t"] += 31
+    mind_scheduler.recover_stuck_opened()
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "queued", "恢复后入队"
+    assert calls["n"] == 2
+
+
+def test_retracted_new_message_old_trace_recovered(mind_env, fake_provider):
+    session = "s-rstuck"
+    _force_opened(session, "t1")
+    # 打断：t1 改回 opened
+    store.update_perception(store.get_perception_by_trace("t1")["id"], status="opened")
+    # 新消息未读即被撤回
+    _force_opened(session, "t2")
+    from app.routers.mind import retract, RetractRequest
+
+    retract(RetractRequest(trace_id="t2"))
+    # 旧 trace 卡在 opened，推进 grace 后恢复
+    mind_env["clock"]["t"] += 31
+    mind_scheduler.recover_stuck_opened()
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "queued", "撤回新消息后旧 trace 最终被恢复"
+
+
+# 修正3) 认领原子 + claimed 不撤 + cancelled 后 ack sent
+def test_concurrent_due_claim_atomic(mind_env):
+    session = "s-claim2"
+    store.insert_delivery({
+        "session_id": session, "cycle_id": "cc", "seq": 0,
+        "kind": "text", "payload": {"text": "hi"},
+        "send_at": mind_env["clock"]["t"],
+    })
+    mind_env["clock"]["t"] += 1
+    first = store.due_deliveries(session, mind_env["clock"]["t"])
+    second = store.due_deliveries(session, mind_env["clock"]["t"])
+    assert first and not any(item["id"] == first[0]["id"] for item in second)
+
+
+def test_ack_sent_after_cancel_writes_history(mind_env):
+    from app.routers.mind import DeliveryAckRequest, deliveries_ack
+
+    session = "s-sentcancel"
+    store.insert_delivery({
+        "session_id": session, "cycle_id": "sc", "seq": 0,
+        "kind": "text", "payload": {"text": "已经发出去了"},
+        "send_at": mind_env["clock"]["t"],
+    })
+    row = store.get_delivery(1)
+    store.cancel_remaining_deliveries("sc")
+    result = deliveries_ack(row["id"], DeliveryAckRequest(status="sent"))
+    assert result["ok"]
+    assistants = fetch_all(
+        "SELECT * FROM messages WHERE session_id=? AND role='assistant'", (session,))
+    assert any("已经发出去了" in r["content"] for r in assistants)
+
+
+# 修正4) 撤回内容不进周期
+def test_retract_removes_trace_from_pending_job(mind_env, fake_provider):
+    session = "s-rjob"
+    _force_opened(session, "t1")
+    _force_opened(session, "t2")
+    from app.routers.mind import retract, RetractRequest
+
+    perception2 = store.get_perception_by_trace("t2")
+    store.update_perception(perception2["id"], seen="none")
+    # 两条一起入队
+    fake_provider.l1_reply_will = "later"
+    orchestration.handle_opened(session, ["t1", "t2"])
+    jobs = store.list_pending_deferred(session)
+    assert jobs and set(json.loads(jobs[0]["trace_ids_json"])) == {"t1", "t2"}
+    retract(RetractRequest(trace_id="t2"))
+    job = store.get_deferred(jobs[0]["id"])
+    assert json.loads(job["trace_ids_json"]) == ["t1"], "撤回的 trace 从作业移除"
+    # 周期输入不含撤回原文
+    cycle_id = orchestration.run_reply_job(job["id"])
+    row = store.get_cycle(cycle_id)
+    assert row is not None
+
+
+def test_retract_all_traces_cancels_job(mind_env, fake_provider):
+    session = "s-rall"
+    _force_opened(session, "t1")
+    from app.routers.mind import retract, RetractRequest
+
+    orchestration.handle_opened(session, ["t1"])
+    job = store.list_pending_deferred(session)[0]
+    retract(RetractRequest(trace_id="t1"))
+    assert store.get_deferred(job["id"])["status"] == "cancelled"
+    assert not [r for r in _deliveries(session) if r["kind"] == "text"], "全撤回不产生 text"
+
+
+# 修正5) 只取消相关作业，深想作业不动
+def test_on_new_message_keeps_unrelated_deep_job(mind_env, fake_provider):
+    session = "s-deepkeep"
+    _force_opened(session, "t1")
+    _force_opened(session, "t2")
+    # 造一个 unrelated pending 作业（模拟 quick_reply_then_think）
+    deep_id = store.create_deferred(session, ["t9"], mind_env["clock"]["t"] + 100,
+                                    "quick_reply_then_think")
+    # 另一个周期针对 t1
+    cycle_id = orchestration.run_async_cycle(session, ["t1"], trigger_type="message")
+    _force_opened(session, "t2")
+    orchestration.on_new_message(session, "t2")
+    assert store.get_deferred(deep_id)["status"] == "pending", "深想作业不动"

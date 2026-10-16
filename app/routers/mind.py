@@ -60,6 +60,10 @@ def deliveries_ack(delivery_id: int, req: DeliveryAckRequest):
         row = store.get_delivery(delivery_id) or {}
         return {"ok": True, "id": delivery_id, "status": row.get("status"), "duplicate": True}
     if req.status == "sent":
+        if row.get("status") == "cancelled":
+            # 取消晚于网关实际发送：以实际发送为准
+            log_event("mind", "delivery_sent_after_cancel", session_id=row["session_id"],
+                      cycle_id=row["cycle_id"], candidate_id=delivery_id)
         kind = row["kind"]
         if kind in ("text", "sticker"):
             from app.storage.db import add_message
@@ -102,6 +106,8 @@ def retract(req: RetractRequest):
     if record["seen"] == "none":
         # 还没看到：直接撤销，不进周期
         store.update_perception(record["id"], retracted=1, retracted_seen="none", status="cancelled")
+        # 未读撤销同样从 pending 作业里移除（可能已合批）
+        store.remove_trace_from_pending_jobs(record["session_id"], req.trace_id)
         return {"ok": True, "trace_id": req.trace_id, "retracted": True, "seen": "none"}
     store.update_perception(
         record["id"],
@@ -109,5 +115,7 @@ def retract(req: RetractRequest):
         retracted_seen=record["seen"],
         status="retracted",
     )
+    # pending 作业里也去掉这条：移空就取消（周期输入不再包含撤回原文）
+    store.remove_trace_from_pending_jobs(record["session_id"], req.trace_id)
     orchestration.rebuild_after_retract(record["session_id"], req.trace_id)
     return {"ok": True, "trace_id": req.trace_id, "retracted": True, "seen": record["seen"]}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from app.storage.db import fetch_one, fetch_all, execute_write
@@ -203,6 +204,7 @@ def update_perception(
     retracted_seen: str | None = None,
     deferred_id: int | None = None,
     status: str | None = None,
+    attempts: int | None = None,
 ) -> None:
     fields = []
     params: list[Any] = []
@@ -215,6 +217,7 @@ def update_perception(
         ("retracted_seen", retracted_seen),
         ("deferred_id", deferred_id),
         ("status", status),
+        ("attempts", attempts),
     ):
         if value is not None:
             fields.append(f"{key} = ?")
@@ -226,6 +229,67 @@ def update_perception(
     execute_write(
         f"UPDATE mind_perception SET {', '.join(fields)} WHERE id = ?",
         (*params, perception_id),
+    )
+
+
+def queue_perceptions(perception_ids: list[int], deferred_id: int) -> None:
+    """opened → queued（带 deferred_id），只在仍是 opened 时生效。"""
+    if not perception_ids:
+        return
+    placeholders = ",".join("?" for _ in perception_ids)
+    execute_write(
+        f"""UPDATE mind_perception
+            SET status='queued', deferred_id=?, updated_at=?
+            WHERE id IN ({placeholders}) AND status='opened' AND retracted=0""",
+        (deferred_id, clock.now(), *perception_ids),
+    )
+
+
+def decide_queued_perceptions(deferred_id: int) -> None:
+    """作业成功后：只把本作业 queue 的 perception 置 decided（不碰并发改回的 opened）。"""
+    execute_write(
+        """UPDATE mind_perception
+           SET status='decided', updated_at=?
+           WHERE deferred_id=? AND status='queued' AND retracted=0""",
+        (clock.now(), deferred_id),
+    )
+
+
+def fail_queued_perceptions(deferred_id: int) -> None:
+    execute_write(
+        """UPDATE mind_perception
+           SET status='failed', updated_at=?
+           WHERE deferred_id=? AND status='queued'""",
+        (clock.now(), deferred_id),
+    )
+
+
+def stuck_opened_perceptions(ts: float, grace_sec: float) -> list[dict[str, Any]]:
+    """opened 但 seen_at 早于 grace、且没有 pending/running 作业 → 需要重跑 handle_opened。"""
+    rows = fetch_all(
+        """SELECT p.* FROM mind_perception p
+           WHERE p.status='opened' AND p.retracted=0 AND p.seen_at < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM mind_deferred d
+               WHERE d.session_id=p.session_id AND d.status IN ('pending','running')
+                 AND EXISTS (
+                   SELECT 1 FROM json_each(d.trace_ids_json) j
+                   WHERE j.value=p.trace_id
+                 )
+             )
+           ORDER BY p.received_at ASC""",
+        (ts - max(0.0, grace_sec),),
+    )
+    return [dict(row) for row in rows]
+
+
+def increment_perception_attempts(perception_ids: list[int]) -> None:
+    if not perception_ids:
+        return
+    placeholders = ",".join("?" for _ in perception_ids)
+    execute_write(
+        f"UPDATE mind_perception SET attempts=attempts+1, updated_at=? WHERE id IN ({placeholders})",
+        (clock.now(), *perception_ids),
     )
 
 
@@ -280,6 +344,15 @@ def get_pending_deferred(session_id: str) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
+def list_pending_deferred(session_id: str) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        "SELECT * FROM mind_deferred WHERE session_id = ? AND status = 'pending'"
+        " ORDER BY enqueued_at ASC",
+        (session_id,),
+    )
+    return [dict(row) for row in rows]
+
+
 def create_deferred(
     session_id: str,
     trace_ids: list[str],
@@ -288,29 +361,58 @@ def create_deferred(
     payload: dict[str, Any] | None = None,
 ) -> int:
     now = clock.now()
-    cursor = fetch_one("SELECT MAX(id) AS max_id FROM mind_deferred")
-    next_id = int(cursor["max_id"] or 0) + 1
-    execute_write(
+    from app.storage.db import get_conn
+
+    with get_conn() as conn:
+        cursor = conn.execute(
         """INSERT INTO mind_deferred(
-               id, session_id, trace_ids_json, enqueued_at, due_at, reason, payload_json,
+               session_id, trace_ids_json, enqueued_at, due_at, reason, payload_json,
                status, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
-        (next_id, session_id, json.dumps(trace_ids, ensure_ascii=False),
-         now, due_at, reason,
-         json.dumps(payload or {}, ensure_ascii=False), now, now),
-    )
-    return next_id
+           ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+            (session_id, json.dumps(trace_ids, ensure_ascii=False),
+             now, due_at, reason,
+             json.dumps(payload or {}, ensure_ascii=False), now, now),
+        )
+        return int(cursor.lastrowid)
 
 
 def merge_deferred(deferred_id: int, trace_ids: list[str], due_at: float) -> None:
-    from app.services.mind import clock
-
     execute_write(
         """UPDATE mind_deferred
            SET trace_ids_json = ?, due_at = MIN(due_at, ?), updated_at = ?
            WHERE id = ? AND status = 'pending'""",
         (json.dumps(trace_ids, ensure_ascii=False), due_at, clock.now(), deferred_id),
     )
+
+
+def remove_trace_from_pending_jobs(session_id: str, trace_id: str) -> None:
+    """从所有 pending 作业里移除 trace；移空的作业置 cancelled。"""
+    from app.storage.db import get_conn
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, trace_ids_json FROM mind_deferred"
+            " WHERE session_id=? AND status='pending'",
+            (session_id,),
+        ).fetchall()
+        for row in rows:
+            try:
+                trace_ids = [str(item) for item in json.loads(row["trace_ids_json"] or "[]")]
+            except ValueError:
+                continue
+            if trace_id not in trace_ids:
+                continue
+            remaining = [item for item in trace_ids if item != trace_id]
+            if remaining:
+                conn.execute(
+                    "UPDATE mind_deferred SET trace_ids_json=?, updated_at=? WHERE id=?",
+                    (json.dumps(remaining, ensure_ascii=False), clock.now(), row["id"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE mind_deferred SET status='cancelled', updated_at=? WHERE id=?",
+                    (clock.now(), row["id"]),
+                )
 
 
 def get_deferred(deferred_id: int) -> dict[str, Any] | None:
@@ -406,33 +508,54 @@ def due_deliveries(session_id: str, ts: float, limit: int = 50) -> list[dict[str
     from app.storage.db import get_conn
 
     lease_until = ts + max(1, int(config.MIND_DELIVERY_LEASE_SEC))
-    # 一次原子 UPDATE 同时覆盖 pending 与租约过期的 claimed，再读回本调用认领的行
+    # RETURNING 一条语句完成（SQLite >= 3.35）；失败则退回 BEGIN IMMEDIATE 事务
     with get_conn() as conn:
-        claimed_ids = [
-            int(row["id"]) for row in conn.execute(
-                f"""SELECT id FROM mind_delivery
-                    WHERE session_id = ? AND send_at <= ?
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = conn.execute(
+                f"""UPDATE mind_delivery
+                    SET status = 'claimed', lease_until = ?, updated_at = ?
+                    WHERE id IN (
+                      SELECT id FROM mind_delivery
+                      WHERE session_id = ? AND send_at <= ?
+                        AND (status = 'pending' OR (status = 'claimed' AND lease_until < ?))
+                      ORDER BY send_at ASC, seq ASC LIMIT ?
+                    )
                       AND (status = 'pending' OR (status = 'claimed' AND lease_until < ?))
-                    ORDER BY send_at ASC, seq ASC LIMIT ?""",
-                (session_id, ts, ts, limit),
-            ).fetchall()
-        ]
-        if not claimed_ids:
-            return []
-        placeholders = ",".join("?" for _ in claimed_ids)
-        conn.execute(
-            f"""UPDATE mind_delivery
-                SET status = 'claimed', lease_until = ?, updated_at = ?
-                WHERE id IN ({placeholders})""",
-            (lease_until, ts, *claimed_ids),
-        )
-    claimed = fetch_all(
-        f"""SELECT * FROM mind_delivery
-            WHERE id IN ({placeholders}) AND status = 'claimed' AND lease_until = ?
-            ORDER BY send_at ASC, seq ASC""",
-        (*claimed_ids, lease_until),
-    )
-    return [dict(row) for row in claimed]
+                    RETURNING *""",
+                (lease_until, ts, session_id, ts, ts, limit, ts),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            # SQLite < 3.35 无 RETURNING：同事务内 SELECT + 条件 UPDATE
+            ids = [
+                int(row["id"]) for row in conn.execute(
+                    """SELECT id FROM mind_delivery
+                       WHERE session_id = ? AND send_at <= ?
+                         AND (status = 'pending' OR (status = 'claimed' AND lease_until < ?))
+                       ORDER BY send_at ASC, seq ASC LIMIT ?""",
+                    (session_id, ts, ts, limit),
+                ).fetchall()
+            ]
+            if not ids:
+                conn.execute("COMMIT")
+                return []
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                f"""UPDATE mind_delivery
+                    SET status='claimed', lease_until=?, updated_at=?
+                    WHERE id IN ({placeholders})
+                      AND (status='pending' OR (status='claimed' AND lease_until < ?))""",
+                (lease_until, ts, *ids, ts),
+            )
+            rows = [dict(row) for row in conn.execute(
+                f"""SELECT * FROM mind_delivery
+                    WHERE id IN ({placeholders}) AND status='claimed' AND lease_until=?
+                    ORDER BY send_at ASC, seq ASC""",
+                (*ids, lease_until),
+            ).fetchall()]
+        conn.execute("COMMIT")
+        return rows
 
 
 def get_delivery(delivery_id: int) -> dict[str, Any] | None:
@@ -444,7 +567,7 @@ def ack_delivery(delivery_id: int, status: str, *, error: str | None = None) -> 
     now = clock.now()
     rowcount = execute_write(
         """UPDATE mind_delivery SET status = ?, acked_at = ?, error = ?, updated_at = ?
-           WHERE id = ? AND status IN ('pending', 'claimed')""",
+           WHERE id = ? AND status IN ('pending', 'claimed', 'cancelled')""",
         (status, now, error, now, delivery_id),
     )
     return rowcount == 1
@@ -454,16 +577,18 @@ def cancel_remaining_deliveries(cycle_id: str) -> int:
     """只取消 text/sticker/typing；mark_read 不随打断或撤回取消。"""
     return execute_write(
         """UPDATE mind_delivery SET status = 'cancelled', updated_at = ?
-           WHERE cycle_id = ? AND status IN ('pending', 'claimed')
+           WHERE cycle_id = ? AND status = 'pending'
              AND kind IN ('text', 'sticker', 'typing')""",
         (clock.now(), cycle_id),
     )
 
 
 def cycle_has_sent_text(cycle_id: str) -> bool:
+    """sent/claimed 的 text/sticker 都算"已发出"：claimed 已交给网关，撤不回。"""
     row = fetch_one(
         """SELECT COUNT(*) AS count FROM mind_delivery
-           WHERE cycle_id = ? AND status = 'sent' AND kind IN ('text', 'sticker')""",
+           WHERE cycle_id = ? AND status IN ('sent', 'claimed')
+             AND kind IN ('text', 'sticker')""",
         (cycle_id,),
     )
     return bool(row and int(row["count"] or 0) > 0)

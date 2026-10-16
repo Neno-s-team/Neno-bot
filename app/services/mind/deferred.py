@@ -1,4 +1,4 @@
-"""待想队列：同一 session 同时只有一条 pending，新消息合并进去。"""
+"""待想队列：作业各自独立；pending 合批由 handle_opened 负责。"""
 
 from __future__ import annotations
 
@@ -14,15 +14,7 @@ def enqueue(
     due_at: float,
     reason: str,
 ) -> dict[str, Any]:
-    """入队；已有 pending 且 reason 相同则合并，否则另立一条（如短回 done 后的深想）。"""
-    existing = store.get_pending_deferred(session_id)
-    if existing is not None and existing.get("reason") == reason:
-        merged = list(json.loads(existing["trace_ids_json"] or "[]"))
-        for trace_id in trace_ids:
-            if trace_id not in merged:
-                merged.append(trace_id)
-        store.merge_deferred(existing["id"], merged, due_at)
-        return store.get_deferred(existing["id"]) or {}
+    """入队。不同批次不再按 reason 合并；合批在 handle_opened 层完成。"""
     deferred_id = store.create_deferred(session_id, trace_ids, due_at, reason)
     return store.get_deferred(deferred_id) or {}
 
@@ -34,20 +26,7 @@ def enqueue_job(
     reason: str,
     payload: dict | None = None,
 ) -> dict:
-    """带 payload 的回复作业（决策结果 + E1 约束）。
-
-    合并进已有 pending 时保留原 payload（第一次决策的 L1 仍然可用），
-    新增 trace 只是扩充输入批。
-    """
-    existing = store.get_pending_deferred(session_id)
-    if existing is not None and existing.get("reason") == reason:
-        merged = list(json.loads(existing["trace_ids_json"] or "[]"))
-        for trace_id in trace_ids:
-            if trace_id not in merged:
-                merged.append(trace_id)
-        # due_at 只能提前不能推后；payload 保留首次决策结果
-        store.merge_deferred(existing["id"], merged, due_at)
-        return store.get_deferred(existing["id"]) or {}
+    """带 payload 的回复作业（决策结果 + E1 约束）。不合并；合批在 handle_opened 层。"""
     deferred_id = store.create_deferred(
         session_id, trace_ids, due_at, reason, payload=payload
     )

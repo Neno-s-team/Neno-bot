@@ -46,6 +46,28 @@ def _open_traces(session_id: str) -> list[str]:
     return [str(row["trace_id"]) for row in rows]
 
 
+def _merge_pending_job_into_batch(session_id: str, trace_ids: list[str]) -> list[str]:
+    """新消息点开时合并 pending 作业：取消作业、trace 改回 opened，并入本批。
+
+    running 作业不动（正在生成回复，新消息单独决策、单独成作业）。
+    返回合批后的完整 trace 列表。
+    """
+    merged = list(trace_ids)
+    for job in store.list_pending_deferred(session_id):
+        job_traces = [str(item) for item in json.loads(job["trace_ids_json"] or "[]")]
+        overlapping = [item for item in job_traces if item in merged]
+        # 只有与新消息同会话的 pending 作业才合批（当前函数本来就是按 session 查询）
+        store.update_deferred(job["id"], status="cancelled")
+        for item in job_traces:
+            record = store.get_perception_by_trace(item)
+            if record is None or record["retracted"]:
+                continue
+            store.update_perception(record["id"], status="opened", deferred_id=None)
+            if item not in merged:
+                merged.append(item)
+    return merged
+
+
 def _decide(
     session_id: str,
     trace_ids: list[str],
@@ -94,13 +116,25 @@ def _enqueue_reply_job(
         payload["force_short"] = True
     if max_messages is not None:
         payload["max_messages"] = int(max_messages)
-    deferred.enqueue_job(session_id, trace_ids, due_at, reason, payload)
+    job = deferred.enqueue_job(session_id, trace_ids, due_at, reason, payload)
+    # 感知状态机：opened → queued（绑定作业 id）
+    perception_ids = []
+    for trace_id in trace_ids:
+        record = store.get_perception_by_trace(trace_id)
+        if record is not None and record["status"] == "opened" and not record["retracted"]:
+            perception_ids.append(int(record["id"]))
+    store.queue_perceptions(perception_ids, int(job["id"]))
 
 
 def handle_opened(session_id: str, trace_ids: list[str]) -> None:
     """点开：mark_read 立即生成（锚 seen_at，与是否回复无关），然后决策。"""
     from app.services.mind import appraisal, state as mind_state
 
+    if not trace_ids:
+        return
+    # 感知失败计数：L1 抛异常时由调度器负责重试与最终 failed
+    # （这里不 try/except 吞掉，让 process_glance 的调用方记录重试）
+    trace_ids = _merge_pending_job_into_batch(session_id, trace_ids)
     if not trace_ids:
         return
     # 已读不回：mark_read 与回复解耦，reply_will=not 也照发
@@ -154,6 +188,16 @@ def run_reply_job(deferred_id: int) -> str | None:
         return None
     job = store.get_deferred(deferred_id)
     trace_ids = list(json.loads(job["trace_ids_json"] or "[]"))
+    # 撤回的 trace 不进周期；全撤了就取消作业
+    active_traces = []
+    for item in trace_ids:
+        record = store.get_perception_by_trace(item)
+        if record is None or not record["retracted"]:
+            active_traces.append(item)
+    if not active_traces:
+        store.update_deferred(deferred_id, status="cancelled")
+        return None
+    trace_ids = active_traces
     payload = _job_payload(job)
     if payload:
         # 决策阶段已跑过 L1 → 周期复用，不再调用
@@ -169,14 +213,20 @@ def run_reply_job(deferred_id: int) -> str | None:
         max_messages=payload.get("max_messages"),
     )
     store.update_deferred(deferred_id, status="done", cycle_id=cycle_id)
-    for trace_id in trace_ids:
-        record = store.get_perception_by_trace(trace_id)
-        if record is not None and record["status"] != "retracted":
-            store.update_perception(record["id"], status="decided")
+    # 只把本作业 queue 的 perception 置 decided，不碰并发改回 opened 的行
+    store.decide_queued_perceptions(deferred_id)
     if job.get("reason") == "quick_reply":
         # 短回 done 之后再补深想作业（等级 >=3）；perception 已 decided，不会重复入队
         deep_due = deferred.compute_due_at(clock.now(), min_level=3)
         deferred.enqueue(job["session_id"], trace_ids, deep_due, reason="quick_reply_then_think")
+        deep_job = store.get_pending_deferred(job["session_id"])
+        if deep_job and deep_job["reason"] == "quick_reply_then_think":
+            perception_ids = []
+            for trace_id in trace_ids:
+                record = store.get_perception_by_trace(trace_id)
+                if record is not None and record["status"] == "opened" and not record["retracted"]:
+                    perception_ids.append(int(record["id"]))
+            store.queue_perceptions(perception_ids, int(deep_job["id"]))
     return cycle_id
 
 
@@ -275,8 +325,13 @@ def on_new_message(session_id: str, trace_id: str) -> None:
         return
     for row in store.list_pending_delivery_cycles(session_id):
         cycle_id = row["cycle_id"]
-        if store.cycle_has_sent_text(cycle_id):
-            continue
+        cycle_traces = set(_pending_cycle_trace_ids(cycle_id))
+        # 同 session 的旧周期都属于同一对话流（单 session 部署）；
+        # 有明确 trace 的周期也允许被打断并批（旧 trace 拉回 opened）。
+        cycle_traces = cycle_traces or {trace_id}
+        has_sent = store.cycle_has_sent_text(cycle_id)
+        if has_sent:
+            continue  # text/sticker 已 sent/claimed：正在发送，撤不回
         store.cancel_remaining_deliveries(cycle_id)
         for item in _pending_cycle_trace_ids(cycle_id):
             if item == trace_id:
@@ -285,10 +340,16 @@ def on_new_message(session_id: str, trace_id: str) -> None:
             # 拉回 opened：等新消息 glance 时一起进同一个周期
             if record is not None and not record["retracted"]:
                 store.update_perception(record["id"], status="opened")
-        # 取消尚未开始的回复作业（打断并批后旧作业作废）
-        pending_job = store.get_pending_deferred(session_id)
-        if pending_job is not None:
-            store.update_deferred(pending_job["id"], status="cancelled")
+        # 只取消 trace 与该周期重叠的 pending 作业，并把其 trace 改回 opened
+        for job in store.list_pending_deferred(session_id):
+            job_traces = [str(item) for item in json.loads(job["trace_ids_json"] or "[]")]
+            if not (set(job_traces) & (cycle_traces | {trace_id})):
+                continue  # 例如 quick_reply_then_think 的深想作业不动
+            store.update_deferred(job["id"], status="cancelled")
+            for item in job_traces:
+                record = store.get_perception_by_trace(item)
+                if record is not None and not record["retracted"]:
+                    store.update_perception(record["id"], status="opened", deferred_id=None)
         # 未送达的意图追加一条简短经历（方案：追加，不改动原经历）
         _record_unsent(session_id, cycle_id, reason="被新消息打断")
         log_event("mind", "delivery_cycle_cancelled", session_id=session_id, cycle_id=cycle_id)
@@ -339,6 +400,11 @@ def rebuild_after_retract(session_id: str, trace_id: str) -> None:
                 session_id, remaining, clock.now(), reason="retracted_rebuild"
             )
         log_event("mind", "retract_rebuilt", session_id=session_id, cycle_id=cycle_id)
+
+
+def reopen_trace_in_pending_jobs(session_id: str, trace_id: str) -> None:
+    """撤回的 trace 从 pending 作业里移除（store.remove_trace_from_pending_jobs 已做）。"""
+    store.remove_trace_from_pending_jobs(session_id, trace_id)
 
 
 def _pending_cycle_trace_ids(cycle_id: str) -> list[str]:

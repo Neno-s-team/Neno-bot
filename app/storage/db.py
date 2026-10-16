@@ -254,11 +254,17 @@ def init_db():
                 retracted_seen TEXT,
                 deferred_id INTEGER,
                 status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL DEFAULT 0.0,
                 updated_at REAL NOT NULL DEFAULT 0.0
             )
             """
         )
+        perception_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mind_perception)").fetchall()
+        }
+        if "attempts" not in perception_columns:
+            conn.execute("ALTER TABLE mind_perception ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_perception_glance"
             " ON mind_perception(status, glance_at)"
