@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from typing import Any
 
 from app import config
+from app.services.mind import clock
 from app.services.mind import store
 from app.utils.logging_utils import log_event
 
@@ -23,7 +23,7 @@ def _decay(value: float, elapsed_minutes: float, half_life_minutes: float) -> fl
 
 def _decay_raw(raw: dict[str, Any]) -> tuple[float, float]:
     """按 raw.updated_at 衰减，供读和写共用同一条逻辑。"""
-    elapsed_minutes = (time.time() - raw["updated_at"]) / 60.0
+    elapsed_minutes = (clock.now() - raw["updated_at"]) / 60.0
     half_life = config.MIND_AFFECT_HALF_LIFE_MINUTES
     return (
         _decay(raw["valence"], elapsed_minutes, half_life),
@@ -61,7 +61,7 @@ def read_state(session_id: str) -> dict[str, Any]:
             "session_id": session_id,
             "valence": 0.0,
             "arousal": 0.0,
-            "updated_at": time.time(),
+            "updated_at": clock.now(),
             "version": 0,
         }
     valence, arousal = _decay_raw(raw)
@@ -92,7 +92,7 @@ def apply_affect_delta(
                     "session_id": session_id,
                     "valence": new_valence,
                     "arousal": new_arousal,
-                    "updated_at": time.time(),
+                    "updated_at": clock.now(),
                     "version": 1,
                 }
             continue  # 首写撞已存在行，下一轮走 UPDATE 分支
@@ -105,7 +105,7 @@ def apply_affect_delta(
                 "session_id": session_id,
                 "valence": new_valence,
                 "arousal": new_arousal,
-                "updated_at": time.time(),
+                "updated_at": clock.now(),
                 "version": raw["version"] + 1,
             }
 
@@ -136,7 +136,7 @@ def apply_affect_delta_in_conn(
     ).fetchone()
     raw = dict(row) if row is not None else None
     new_valence, new_arousal = _compute_next(raw, valence_delta, arousal_delta)
-    now = time.time()
+    now = clock.now()
     if raw is None:
         cursor = conn.execute(
             """INSERT INTO mind_state(session_id, valence, arousal, updated_at, version)

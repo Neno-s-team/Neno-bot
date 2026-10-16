@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Any
 
 from app import config
+from app.services.mind import clock
 from app.services.mind.memory import retrieval
+from app.storage.db import fetch_all
 
 try:
     from zoneinfo import ZoneInfo
@@ -19,7 +21,7 @@ _WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 
 def _local_now() -> datetime:
     if ZoneInfo is not None:
-        return datetime.now(ZoneInfo(config.MIND_TIMEZONE))
+        return clock.local_now()
     return datetime.now()
 
 
@@ -41,7 +43,7 @@ def period_word(hour: int) -> str:
 
 
 def _seconds_since_last_user_message(history: list[dict]) -> float | None:
-    now = time.time()
+    now = clock.now()
     for item in reversed(history):
         if item.get("role") != "user":
             continue
@@ -66,7 +68,23 @@ def _render_situation(situation: dict[str, Any]) -> str:
     if gap is not None:
         lines.append(f"距上一条用户消息：{int(gap // 60)} 分钟")
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
+    for notice in situation.get("retracted") or []:
+        lines.append(notice)
     return "\n".join(lines)
+
+
+def retracted_notices(session_id: str, *, after_ts: float = 0.0) -> list[str]:
+    """已撤回且被看到过的感知记录 → 当前情境里的一句提示。"""
+    rows = fetch_all(
+        """SELECT trace_id, retracted_seen, preview_text FROM mind_perception
+           WHERE session_id = ? AND retracted = 1 AND seen != 'none' AND updated_at >= ?""",
+        (session_id, after_ts),
+    )
+    notices: list[str] = []
+    for row in rows:
+        preview = (row["preview_text"] or "")[:30]
+        notices.append(f"对方撤回了一条消息（你看到过：{preview}）")
+    return notices
 
 
 def _render_episode(episode: dict[str, Any]) -> str:
@@ -95,9 +113,10 @@ def build_working_memory(
     history: list[dict],
     self_card: str,
     now: float | None = None,
+    retracted: list[str] | None = None,
 ) -> dict[str, Any]:
     """拼装工作记忆包；返回 dict + 渲染文本 + 裁剪记录。"""
-    current = now if now is not None else time.time()
+    current = now if now is not None else clock.now()
     local = _local_now()
     situation = {
         "local_time": local.strftime("%Y-%m-%d %H:%M"),
@@ -108,6 +127,13 @@ def build_working_memory(
         "interrupt_level": 3,
         "world": "unavailable",
     }
+    if retracted is not None:
+        situation["retracted"] = retracted
+    # 已撤回且被看到过的消息：即使调用方没传，也补进当前情境
+    if not situation.get("retracted"):
+        notices = retracted_notices(session_id)
+        if notices:
+            situation["retracted"] = notices
     cues = [str(cue) for cue in (getattr(l1, "cues", None) or [])]
     episodes = retrieval.retrieve_episodes(
         session_id,

@@ -93,6 +93,12 @@ def run_chat_turn(
         message_len=len(message or ""),
     )
 
+    async_mode = bool(getattr(config, "MIND_ASYNC_DELIVERY", False)) and bool(config.MIND_ENABLED)
+    if async_mode:
+        return _run_chat_turn_async(
+            session_id, message, trace_id=trace_id, source=source,
+            message_type=message_type, user_records=user_records,
+        )
     try:
         from app.storage import db
         from app.storage.operations import operations
@@ -237,3 +243,63 @@ def run_chat_turn(
             latency_ms=int((time.perf_counter() - turn_started) * 1000),
         )
         raise
+
+
+def _run_chat_turn_async(
+    session_id: str,
+    message: str,
+    *,
+    trace_id: str,
+    source: str,
+    message_type: str,
+    user_records: list[dict[str, Any]] | None,
+) -> dict:
+    """P3a 异步入口：落库 user 消息 + 建感知记录，立即返回 accepted。"""
+    from app.storage import db
+    from app.storage.operations import operations
+    from app.services.mind import orchestration, perception as mind_perception
+
+    trace_ids: list[str] = []
+    with operations().session_guard(session_id, operations().generation(session_id), trace_id):
+        if user_records:
+            for index, record in enumerate(user_records):
+                record_trace = (record.get("metadata") or {}).get("source_trace_id") or trace_id
+                if record_trace not in trace_ids:
+                    trace_ids.append(record_trace)
+                existing = db.fetch_all(
+                    "SELECT id FROM messages WHERE session_id=? AND trace_id=? AND role='user'",
+                    (session_id, record_trace),
+                )
+                if existing:
+                    continue
+                add_message(
+                    session_id,
+                    "user",
+                    split_injected_context(str(record.get("content") or ""))[1],
+                    trace_id=record_trace,
+                    message_type=str(record.get("message_type") or "text"),
+                    source=str(record.get("source") or source),
+                    metadata=record.get("metadata"),
+                )
+        else:
+            trace_ids.append(trace_id)
+            add_message(
+                session_id,
+                "user",
+                split_injected_context(message)[1],
+                trace_id=trace_id,
+                message_type=message_type,
+                source=source,
+                metadata={"source": source, "message_type": message_type, "trace_id": trace_id},
+            )
+
+    for item_trace in trace_ids:
+        mind_perception.create_perception(session_id, item_trace)
+        orchestration.on_new_message(session_id, item_trace)
+
+    return {
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "status": "accepted",
+        "latency_ms": 0,
+    }

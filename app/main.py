@@ -25,9 +25,14 @@ async def lifespan(_: FastAPI):
     maintenance_stop = asyncio.Event()
     maintenance_task = asyncio.create_task(worker(maintenance_stop), name='chat-maintenance')
     await start_world(_, DB_PATH)
+    from app.services.mind import scheduler as mind_scheduler
+
+    if config.MIND_ENABLED and getattr(config, "MIND_ASYNC_DELIVERY", False):
+        mind_scheduler.start()
     try:
         yield
     finally:
+        mind_scheduler.stop()
         maintenance_stop.set()
         await maintenance_task
         await stop_world(_)
@@ -47,5 +52,7 @@ app.include_router(system.router)
 app.include_router(operations_router.router)
 app.include_router(session.router)
 app.include_router(chat.router)
+from app.routers import mind as mind_router
 
+app.include_router(mind_router.router)
 app.include_router(world_router.router)

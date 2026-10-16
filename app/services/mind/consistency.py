@@ -46,10 +46,9 @@ _FOREIGN_SUBJECTS = ("用户", "你", "对方")
 
 def _local_hour() -> int:
     from datetime import datetime
+    from app.services.mind import clock
 
-    if ZoneInfo is not None:
-        return datetime.now(ZoneInfo(config.MIND_TIMEZONE)).hour
-    return datetime.now().hour
+    return clock.local_now().hour
 
 
 def check_time_line(result: L2Result, *, hour: int | None = None) -> list[str]:

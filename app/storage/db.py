@@ -237,6 +237,76 @@ def init_db():
             )
             """
         )
+        # P3a：感知 / 待想队列 / 投递计划
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_perception (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                trace_id TEXT NOT NULL UNIQUE,
+                received_at REAL NOT NULL DEFAULT 0.0,
+                glance_at REAL NOT NULL DEFAULT 0.0,
+                seen TEXT NOT NULL DEFAULT 'none',
+                seen_at REAL,
+                preview_text TEXT,
+                l1_preview_json TEXT,
+                retracted INTEGER NOT NULL DEFAULT 0,
+                retracted_seen TEXT,
+                deferred_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_perception_glance"
+            " ON mind_perception(status, glance_at)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_deferred (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                trace_ids_json TEXT NOT NULL DEFAULT '[]',
+                enqueued_at REAL NOT NULL DEFAULT 0.0,
+                due_at REAL NOT NULL DEFAULT 0.0,
+                reason TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                lease_until REAL,
+                cycle_id TEXT,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_deferred_due"
+            " ON mind_deferred(status, due_at)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_delivery (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                cycle_id TEXT NOT NULL,
+                seq INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                send_at REAL NOT NULL DEFAULT 0.0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                acked_at REAL,
+                error TEXT,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                UNIQUE(cycle_id, seq)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_delivery_due"
+            " ON mind_delivery(session_id, status, send_at)"
+        )
     from app.storage.image_store import init_image_store
     init_image_store()
 

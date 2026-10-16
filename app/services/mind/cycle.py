@@ -235,18 +235,26 @@ def run_cycle(
     *,
     trace_id: str | None = None,
     injected_context: str = "",
+    trigger_type: str = "message",
+    trigger_ref: str | None = None,
+    skip_l2: bool = False,
+    plan_patch: dict[str, Any] | None = None,
 ) -> str:
     if not config.MIND_ENABLED:
         raise RuntimeError("run_cycle called while MIND_ENABLED is false")
     if not config.MIND_L1_MODEL:
         log_event("mind", "mind_l1_model_missing", trace_id=trace_id, session_id=session_id)
         return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+    if not messages:
+        from app.services.chat_service import build_chat_messages
 
-    cycle_id = _derive_cycle_id(session_id, trace_id or "")
+        messages = build_chat_messages(history, message)
+
+    cycle_id = _derive_cycle_id(session_id, trigger_ref or trace_id or "")
     existing = get_cycle(cycle_id)
 
     if existing is None:
-        create_cycle(cycle_id, session_id, trigger_type="message", trigger_ref=trace_id)
+        create_cycle(cycle_id, session_id, trigger_type=trigger_type, trigger_ref=trigger_ref or trace_id)
         existing = get_cycle(cycle_id)
 
     self_card = _load_self_card()
@@ -275,7 +283,7 @@ def run_cycle(
         try:
             recent_turns = [item for item in history if item.get("role") in ("user", "assistant")]
             l1 = appraisal.run_l1(
-                message=message,  # clean_message（无注入块）
+                message=message,
                 state=mind_state,
                 self_card=self_card[:600],
                 recent_turns=recent_turns,
@@ -312,7 +320,7 @@ def run_cycle(
             sticker_names=None,
         )
     else:
-        skip_l2 = l1.depth == "fast" and config.MIND_FAST_SKIP_L2
+        skip_l2 = skip_l2 or (l1.depth == "fast" and config.MIND_FAST_SKIP_L2)
         stored_wm = existing.get("wm_json")
         if skip_l2:
             log_event("mind", "l2_skipped_fast", trace_id=trace_id, session_id=session_id)
@@ -351,6 +359,10 @@ def run_cycle(
             plan = _build_e1_plan(l1)
             plan.leak = state.compute_leak(arousal=mind_state["arousal"], base_inhibition=inhibition_base)
             plan.tone = _compute_tone(mind_state["valence"], mind_state["arousal"])
+        if plan_patch:
+            for key, value in plan_patch.items():
+                if hasattr(plan, key) and value is not None:
+                    setattr(plan, key, value)
         plan_json = json.dumps(plan.to_dict(), ensure_ascii=False)
         update_cycle(cycle_id, plan_json=plan_json)
     else:
@@ -365,7 +377,7 @@ def run_cycle(
                 style_card=style_card,
                 sticker_table_text=sticker_table_text,
                 recent_turns=recent_turns,
-                message=message,  # clean_message
+                message=message,
                 hidden=l2.hidden if l2 is not None else None,
                 sticker_hint=l2.sticker if l2 is not None else None,
                 trace_id=trace_id,
@@ -424,4 +436,8 @@ def run_cycle(
                 session_id=session_id, error_type=type(exc).__name__,
             )
 
-    return final_text
+    if final_text.strip():
+        return final_text
+    # reply_will=not：不回复（cycle 正常完成），回退路径不会被执行到
+    log_event("mind", "decision_not_reply", trace_id=trace_id, session_id=session_id, cycle_id=cycle_id)
+    return ""

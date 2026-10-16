@@ -122,3 +122,23 @@ MIND_RETRIEVAL_WEIGHTS = json.loads(
 MIND_MEMORY_SCOPE = os.getenv("MIND_MEMORY_SCOPE", "session").strip() or "session"
 # 认识首插可信度上限：min(模型值, 该值)
 MIND_BELIEF_INIT_MAX = _env_float("MIND_BELIEF_INIT_MAX", 0.6)
+
+# ── 多层大脑 P3a（L0 感知/课表/待想队列/投递/调度器） ────────────────────────
+# false 时 /chat 行为与 P2 完全一致，L0 不参与
+MIND_ASYNC_DELIVERY = _env_bool("MIND_ASYNC_DELIVERY", False)
+MIND_SCHEDULE_PATH = os.getenv("MIND_SCHEDULE_PATH", "prompts/mind/schedule.json").strip()
+MIND_L0_LAMBDA_PER_MIN = json.loads(
+    os.getenv(
+        "MIND_L0_LAMBDA_PER_MIN", ""
+    ).strip() or '{"0": 0, "1": 0.025, "2": 0.12, "3": 0.35, "4": 3.0}'
+)
+MIND_PREVIEW_CHARS = _env_int("MIND_PREVIEW_CHARS", 30)
+MIND_PREEMPT_URGENCY = _env_float("MIND_PREEMPT_URGENCY", 0.8)
+MIND_FOCUS_WINDOW_MIN = _env_int("MIND_FOCUS_WINDOW_MIN", 5)
+MIND_TYPING_CPS = _env_float("MIND_TYPING_CPS", 5.0)
+MIND_MSG_GAP_SEC = json.loads(os.getenv("MIND_MSG_GAP_SEC", "").strip() or "[1, 4]")
+MIND_HESITATE_PAUSE_SEC = json.loads(
+    os.getenv("MIND_HESITATE_PAUSE_SEC", "").strip() or "[5, 20]"
+)
+MIND_SCHEDULER_TICK_SEC = _env_float("MIND_SCHEDULER_TICK_SEC", 2.0)
+MIND_LEASE_SEC = _env_int("MIND_LEASE_SEC", 120)
