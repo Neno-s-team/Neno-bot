@@ -76,7 +76,13 @@ def _decide(
 ) -> None:
     """回复决策。只写 mind_deferred 作业，不直接跑周期；由调度器领取执行。"""
     if l1.reply_will == "not":
-        log_event("mind", "decision_not_reply", trace_id=trace_ids[0], session_id=session_id)
+        # 不回也是一种决策：perception 直接 decided，卡住恢复不会再调 L1
+        for trace_id in trace_ids:
+            record = store.get_perception_by_trace(trace_id)
+            if record is not None and not record["retracted"]:
+                store.update_perception(record["id"], status="decided")
+        log_event("mind", "decision_not_reply", trace_id=trace_ids[0],
+                  session_id=session_id, traces=json.dumps(trace_ids))
         return
     if level == 2:
         if l1.depth == "fast":
@@ -117,13 +123,7 @@ def _enqueue_reply_job(
     if max_messages is not None:
         payload["max_messages"] = int(max_messages)
     job = deferred.enqueue_job(session_id, trace_ids, due_at, reason, payload)
-    # 感知状态机：opened → queued（绑定作业 id）
-    perception_ids = []
-    for trace_id in trace_ids:
-        record = store.get_perception_by_trace(trace_id)
-        if record is not None and record["status"] == "opened" and not record["retracted"]:
-            perception_ids.append(int(record["id"]))
-    store.queue_perceptions(perception_ids, int(job["id"]))
+    # enqueue_job 已统一把 perception 置 queued（绑定作业 id）
 
 
 def handle_opened(session_id: str, trace_ids: list[str]) -> None:
@@ -216,17 +216,20 @@ def run_reply_job(deferred_id: int) -> str | None:
     # 只把本作业 queue 的 perception 置 decided，不碰并发改回 opened 的行
     store.decide_queued_perceptions(deferred_id)
     if job.get("reason") == "quick_reply":
-        # 短回 done 之后再补深想作业（等级 >=3）；perception 已 decided，不会重复入队
+        # 短回 done 之后再补深想作业（等级 >=3）
         deep_due = deferred.compute_due_at(clock.now(), min_level=3)
         deferred.enqueue(job["session_id"], trace_ids, deep_due, reason="quick_reply_then_think")
         deep_job = store.get_pending_deferred(job["session_id"])
         if deep_job and deep_job["reason"] == "quick_reply_then_think":
+            # 深想作业放宽到 decided：短回已完成，深想重新接管这批 trace
             perception_ids = []
             for trace_id in trace_ids:
                 record = store.get_perception_by_trace(trace_id)
-                if record is not None and record["status"] == "opened" and not record["retracted"]:
+                if record is not None and not record["retracted"]:
                     perception_ids.append(int(record["id"]))
-            store.queue_perceptions(perception_ids, int(deep_job["id"]))
+            store.queue_perceptions(
+                perception_ids, int(deep_job["id"]), allow_from=("opened", "decided")
+            )
     return cycle_id
 
 

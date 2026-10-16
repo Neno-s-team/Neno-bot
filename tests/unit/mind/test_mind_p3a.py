@@ -761,6 +761,83 @@ def test_text_failed_cancels_rest(mind_env, fake_provider):
     assert marks[0]["status"] in ("pending", "claimed"), "mark_read 保留"
 
 
+# ── 三轮收尾 ──────────────────────────────────────────────────────────────
+
+
+# 修正1) reply_will=not → perception decided，不再被恢复重跑 L1
+def test_not_reply_decided_no_recovery(mind_env, fake_provider, monkeypatch):
+    import logging
+
+    fake_provider.l1_reply_will = "not"
+    session = "s-not2"
+    _force_opened(session, "t1")
+    before = fake_provider.calls["mind_l1"]
+    orchestration.handle_opened(session, ["t1"])
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "decided", "不回也是决策"
+    kinds = [r["kind"] for r in _deliveries(session)]
+    assert "mark_read" in kinds and "text" not in kinds
+    # 过了 grace 也不应重跑 L1，也没有 mind_job_failed
+    mind_env["clock"]["t"] += 31
+    recovered = mind_scheduler.recover_stuck_opened()
+    assert recovered == 0, "decided 不属于 stuck opened"
+    after = fake_provider.calls["mind_l1"]
+    assert after == before + 1, "只有决策时那一次 L1，恢复没有再调"
+
+
+# 修正2) level2_busy 入队 → queued；深想作业失败 → perception failed
+def test_level2_busy_queues_perception(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_L0_LAMBDA_PER_MIN",
+                        {"0": 0, "1": 0.025, "2": 30.0, "3": 0.35, "4": 3.0})
+    fake_provider.l1_reply_will = "later"
+    session = "s-busy"
+    walk = datetime(2026, 10, 12, 12, 20).timestamp()
+    mind_env["clock"]["t"] = walk
+    monkeypatch.setattr("app.services.mind.schedule.segment_at",
+                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                                        "muted": False, "start": None, "end": None,
+                                        "world": "schedule"})
+    _force_opened(session, "t1")
+    orchestration.handle_opened(session, ["t1"])
+    rec = store.get_perception_by_trace("t1")
+    job = store.get_pending_deferred(session)
+    assert job and job["reason"] == "level2_busy"
+    assert rec["status"] == "queued" and rec["deferred_id"] == job["id"]
+
+
+def test_deep_job_failure_fails_perception(mind_env, fake_provider, monkeypatch):
+    monkeypatch.setattr(config, "MIND_JOB_MAX_ATTEMPTS", 1)
+    session = "s-deepfail"
+    _force_opened(session, "t1")
+    fake_provider.l1_reply_will = "now"
+    # 等级 2 快路径：先短回 + 深想
+    walk = datetime(2026, 10, 12, 12, 20).timestamp()
+    mind_env["clock"]["t"] = walk
+    monkeypatch.setattr("app.services.mind.schedule.segment_at",
+                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                                        "muted": False, "start": None, "end": None,
+                                        "world": "schedule"})
+    orchestration.handle_opened(session, ["t1"])
+    quick_job = store.get_pending_deferred(session)
+    assert quick_job and quick_job["reason"] == "quick_reply"
+    mind_scheduler.process_deferred(session, quick_job["id"])
+    deep_jobs = [dict(j) for j in fetch_all(
+        "SELECT * FROM mind_deferred WHERE session_id=? AND reason='quick_reply_then_think'",
+        (session,))]
+    assert deep_jobs, "短回 done 后产生深想作业"
+    deep = deep_jobs[-1]
+    rec = store.get_perception_by_trace("t1")
+    assert rec["status"] == "queued" and rec["deferred_id"] == deep["id"], \
+        "深想作业把 decided 重新置为 queued"
+    # 深想作业失败 → perception failed
+    monkeypatch.setattr("app.services.mind.orchestration.run_async_cycle",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("deep boom")))
+    mind_env["clock"]["t"] = deep["due_at"] + 0.1
+    mind_scheduler.process_deferred(session, deep["id"])
+    assert store.get_deferred(deep["id"])["status"] == "failed"
+    assert store.get_perception_by_trace("t1")["status"] == "failed"
+
+
 # ── 二轮修正 ──────────────────────────────────────────────────────────────
 
 

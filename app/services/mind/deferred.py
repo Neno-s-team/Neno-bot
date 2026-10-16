@@ -16,6 +16,7 @@ def enqueue(
 ) -> dict[str, Any]:
     """入队。不同批次不再按 reason 合并；合批在 handle_opened 层完成。"""
     deferred_id = store.create_deferred(session_id, trace_ids, due_at, reason)
+    _queue_traces(session_id, trace_ids, deferred_id)
     return store.get_deferred(deferred_id) or {}
 
 
@@ -30,7 +31,18 @@ def enqueue_job(
     deferred_id = store.create_deferred(
         session_id, trace_ids, due_at, reason, payload=payload
     )
+    _queue_traces(session_id, trace_ids, deferred_id)
     return store.get_deferred(deferred_id) or {}
+
+
+def _queue_traces(session_id: str, trace_ids: list[str], deferred_id: int) -> None:
+    """入队后统一把 perception 置 queued（opened 才生效；retract 等场景安全跳过）。"""
+    perception_ids = []
+    for trace_id in trace_ids:
+        record = store.get_perception_by_trace(trace_id)
+        if record is not None and record["status"] == "opened" and not record["retracted"]:
+            perception_ids.append(int(record["id"]))
+    store.queue_perceptions(perception_ids, deferred_id)
 
 
 def get_payload(job: dict) -> dict:

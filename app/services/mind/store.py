@@ -232,16 +232,25 @@ def update_perception(
     )
 
 
-def queue_perceptions(perception_ids: list[int], deferred_id: int) -> None:
-    """opened → queued（带 deferred_id），只在仍是 opened 时生效。"""
+def queue_perceptions(
+    perception_ids: list[int],
+    deferred_id: int,
+    allow_from: tuple[str, ...] = ("opened",),
+) -> None:
+    """perception → queued（带 deferred_id）。默认只接受 opened。
+
+    quick_reply_then_think 场景放宽到 decided：短回已完成（decided），
+    深想作业重新接管这批 trace。
+    """
     if not perception_ids:
         return
     placeholders = ",".join("?" for _ in perception_ids)
+    allowed = ",".join("?" for _ in allow_from)
     execute_write(
         f"""UPDATE mind_perception
             SET status='queued', deferred_id=?, updated_at=?
-            WHERE id IN ({placeholders}) AND status='opened' AND retracted=0""",
-        (deferred_id, clock.now(), *perception_ids),
+            WHERE id IN ({placeholders}) AND status IN ({allowed}) AND retracted=0""",
+        (deferred_id, clock.now(), *perception_ids, *allow_from),
     )
 
 
@@ -555,7 +564,8 @@ def due_deliveries(session_id: str, ts: float, limit: int = 50) -> list[dict[str
                 (*ids, lease_until),
             ).fetchall()]
         conn.execute("COMMIT")
-        return rows
+        # RETURNING 不保证顺序；按 (send_at, seq) 排序后再返回
+        return sorted(rows, key=lambda item: (item["send_at"], item["seq"]))
 
 
 def get_delivery(delivery_id: int) -> dict[str, Any] | None:

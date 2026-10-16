@@ -15,11 +15,11 @@
 | `preview_text` | 预览截取的前 `MIND_PREVIEW_CHARS` 字 |
 | `l1_preview_json` | 预览时跑的 L1（抢占判断用） |
 | `retracted` / `retracted_seen` | 撤回标记与撤回时的 seen |
-| `status` | `pending` / `previewed` / `opened` / `decided` / `cancelled` / `retracted` |
+| `status` | `pending` / `previewed` / `opened` / `queued` / `decided` / `failed` / `cancelled` / `retracted` |
 
 ### mind_deferred（待想队列）
 
-同一 session 同时只有一条 `pending`；新消息合并进同一条，`due_at` 只能提前不能推后。出队 = 下一个等级 ≥ min_level 的段开始后再按 λ 抽一次。
+回复作业（reason：`reply_now` / `level2_fast` / `quick_reply` / `level2_busy` / `retracted_rebuild` / `quick_reply_then_think`）。不再按 session 合并；新消息点开时 pending 作业合批重想（见"作业合批规则"）。`due_at` 计算见"时间算法"。
 
 ### mind_delivery（投递计划）
 
@@ -50,7 +50,7 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 ## 接口（`/mind/*`，沿用 `X-Internal-Token` 鉴权）
 
 - `POST /chat`：照常落库 user 消息、建感知记录，返回 `{"status":"accepted","trace_id":...}`；同 trace 重发不重复建记录。
-- `GET /mind/deliveries/due?session_id=&limit=`：返回 `send_at ≤ now` 且 pending 的项，按 `(send_at, seq)` 排序。
+- `GET /mind/deliveries/due?session_id=&limit=`：原子认领后返回（`pending → claimed`，租约 `MIND_DELIVERY_LEASE_SEC`），按 `(send_at, seq)` 排序。
 - `POST /mind/deliveries/{id}/ack {"status":"sent"|"failed"}`：`sent` 才写 assistant 历史（text/sticker 才写）；重复 ack 幂等返回。`failed` 只记录，不重试。
 - `POST /mind/retract {"trace_id":...}`：`seen=none` → 直接撤销（不进周期）；`seen=preview|opened` → 记 `retracted=1`，下一轮工作记忆的"当前情境"写一句撤回提示。
 
@@ -74,6 +74,7 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 ### 作业合批规则
 
 - **pending 合批重想**：新消息被点开时，如果该会话有 `status='pending'` 的回复作业：旧作业置 `cancelled`，其 trace 改回 `opened`，与新消息合成一批重新跑一次 L1，写一个新作业。
+- **pending 的深想作业同样参与合批重想**：`quick_reply_then_think` 尚未开始时与新消息点开重叠，也会被取消并重新合批。
 - **running 不打扰**：旧作业已经是 `running`（正在生成回复）时，新消息单独决策、单独成作业，不动旧作业。
 - `deferred.enqueue` / `enqueue_job` 不再按 reason 合并不同批次；合批只在 `handle_opened` 层完成。
 
