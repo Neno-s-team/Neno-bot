@@ -42,7 +42,6 @@ class TelegramGateway:
         self.config = config
         self.tdlib = TdlibClient(config.sidecar_binary, config.tdjson_library)
         self.core = NenoCoreClient(config.core_url, config.internal_token)
-        self._seen: set[tuple[int, int]] = set()
         self._chat_locks: dict[int, asyncio.Lock] = {}
         # 每条消息都带表情包表（一次性上下文，core 落库时剥离）：
         # 名字表必须每轮可见，否则模型下一轮就忘了能发什么。
@@ -55,13 +54,19 @@ class TelegramGateway:
             columns = {row["name"] for row in c.execute("PRAGMA table_info(inbox)").fetchall()}
             if "retract_state" not in columns:
                 c.execute("ALTER TABLE inbox ADD COLUMN retract_state TEXT")
-        self.tdlib.send_status_observer = self.delivery.receipt
+        self.tdlib.send_status_observer = self._send_status_receipt
         self._delivery_task = None
         self._mind_task = None
         self._mind_runner = None
         if getattr(config, "mind_async", False):
             from telegram_gateway.mind_runner import MindRunner
             self._mind_runner = MindRunner(self)
+
+    def _send_status_receipt(self, update: dict[str, Any]) -> None:
+        # 一份回执更新两套账本：旧 outbox 与异步 mind_outbox
+        self.delivery.receipt(update)
+        if self._mind_runner is not None:
+            self._mind_runner.receipt(update)
 
     async def close(self) -> None:
         self.delivery.stopping = True
@@ -134,7 +139,7 @@ class TelegramGateway:
             return
         for message_id in update.get("message_ids") or []:
             row = self.delivery.store.one(
-                "SELECT key, trace_id, state FROM inbox WHERE chat_id=? AND message_id=?",
+                "SELECT key, trace_id, state, payload FROM inbox WHERE chat_id=? AND message_id=?",
                 (chat_id, int(message_id)),
             )
             if row is None:
@@ -144,8 +149,8 @@ class TelegramGateway:
                 logging.info("retract ignored (sync mode) chat=%s message_id=%s", chat_id, message_id)
                 continue
             trace_id = row.get("trace_id")
-            if not trace_id and row.get("state") == "generating":
-                # 交给 core 的调用正在进行：等拿到 trace 后补撤
+            if not trace_id and (row.get("state") == "generating" or row.get("payload")):
+                # 交给 core 的调用正在进行，或 payload 已生成待重试：等拿到 trace 后补撤
                 self.delivery.store.write(
                     "UPDATE inbox SET retract_state='pending' WHERE key=?",
                     (row["key"],),
@@ -153,7 +158,7 @@ class TelegramGateway:
                 logging.info("retract pending (generating) chat=%s message_id=%s", chat_id, message_id)
                 continue
             if not trace_id:
-                # 还没交给 core：直接取消，不调 core
+                # 从没提交过（payload 为空）：直接取消，不调 core
                 self.delivery.store.write(
                     "UPDATE inbox SET state='cancelled', retract_state='cancelled', updated_at=? WHERE key=?",
                     (time.time(), row["key"]),
@@ -174,58 +179,6 @@ class TelegramGateway:
                 )
                 logging.warning("retract retry scheduled chat=%s message_id=%s error=%s",
                                 chat_id, message_id, type(exc).__name__)
-
-    async def _handle_message(self, message: InboundMessage) -> None:
-        key = (message.chat_id, message.message_id)
-        if key in self._seen:
-            return
-        self._seen.add(key)
-        if len(self._seen) > 20_000:
-            self._seen = set(list(self._seen)[-10_000:])
-
-        temp_path: Path | None = None
-        attachments: list[dict[str, Any]] = []
-        text = message.text
-        if message.content_type == "image":
-            if message.file_id:
-                suffix = self._media_suffix(message)
-                temp_path = await self._download_file(message.file_id, suffix=suffix)
-                attachments.append(
-                    {
-                        "kind": "image",
-                        "media_path": str(temp_path),
-                        # Leave photo MIME unset when Telegram does not expose
-                        # it; Core resolves the real container from magic bytes.
-                        "mime_type": message.mime_type,
-                        "source": "telegram",
-                        "text_hint": message.caption or None,
-                    }
-                )
-            else:
-                logging.warning(
-                    "telegram image update has no downloadable file chat=%s message_id=%s",
-                    message.chat_id, message.message_id,
-                )
-                text = "[用户发送了一张 Telegram 图片，但暂时无法读取图片文件]"
-        elif message.content_type != "text":
-            text = project_non_image_message(message)
-
-        session_id = f"tg:{message.chat_id}"
-        text = self._sticker_injector.decorate(session_id, text)
-        try:
-            result = await self.core.chat(
-                session_id=session_id,
-                message=text,
-                attachments=attachments,
-            )
-            await self._send_reply(
-                message.chat_id,
-                str(result["reply"]),
-                trace_id=str(result.get("trace_id") or ""),
-            )
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _media_suffix(message: InboundMessage) -> str:

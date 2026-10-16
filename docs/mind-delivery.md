@@ -101,11 +101,12 @@ FastAPI lifespan 里启动（`MIND_ENABLED and MIND_ASYNC_DELIVERY`），每 `MI
 
 - 网关开关：`NENO_MIND_ASYNC=false`（与 core 的 `MIND_ASYNC_DELIVERY` 保持一致）。false 时网关行为与旧同步链路完全一致。
 - `NENO_MIND_POLL_SEC=1`：轮询周期。`NENO_MIND_MAX_CONCURRENCY=4`：不同会话并发上限；同一会话严格串行。
-- 网关本地 `mind_outbox` 表以 `delivery_id` 为主键幂等：同一项 core 租约过期后重发不会重复 sendMessage，只按本地状态推进或补 ack。
+- 网关本地 `mind_outbox` 表以 `delivery_id` 为主键幂等：同一项 core 租约过期后重发不会重复 sendMessage，只按本地状态推进或补 ack。状态机 `pending → submitting → sent / failed / uncertain / needs_attention`：text/sticker 在交给 TDLib 前置 `submitting`（attempts+1），拿到 local_id 立刻写账；崩溃恢复时 `submitting` 与 `uncertain` 一样走 `getMessage` 核对，不重发；429 退回 `pending`，暂停结束后正常重发。发送回执通过 observer 双写旧 outbox 与 `mind_outbox`；`uncertain` 超过 `NENO_MIND_UNCERTAIN_MAX_SEC`（默认 600）仍无结论 → `needs_attention`，之后不再处理也不 ack、不重发。
 - text：`payload.text` 原样一条消息发送，超 4096 分块。确认语义沿用现有 outbox：Succeeded → ack sent；明确失败 → ack failed；结果不确定 → 本地 `uncertain`，确认前不 ack、不重发。
-- mark_read：`payload.trace_ids` 在 inbox 映射到 message_id 后调 `viewMessages`（force_read）。映射缺失时兜底取该聊天最新入站消息并记 warning。
+- mark_read：`payload.trace_ids`（每条 mark_read 的 trace_ids 约定只有一条）在 inbox 映射到 message_id 后调 `viewMessages`（force_read）。映射缺失时兜底取该聊天里 `created_at <= send_at` 的最新一条入站消息并记 warning——不使用当前时刻，避免把看手机之后新到的消息标成已读。
 - typing：每 4 秒 `sendChatAction(chatActionTyping)`，持续 `payload.duration` 秒。
 - sticker：`payload.name` 查 StickerTable，失败退回图片；名字未知 → ack failed("unknown sticker")。
-- 429：该会话暂停 retry_after 秒，不 ack failed；本地记录保持，暂停结束后继续。
-- 撤回：`updateDeleteMessages`（is_permanent=true 且 from_cache=false）→ 未交给 core 直接取消；已有 trace 调 `/mind/retract`（失败持久化 `inbox.retract_state='retry'`）；generating 中先标 pending，拿到 trace 后补撤。同步模式只记日志。
-- presence：`NENO_MIND_PRESENCE=true` 时启动 offline；动作前 online；最后一个动作 60 秒后 offline。网关无其他 openChat/viewMessages 调用。
+- 轮询为每个会话一个独立循环（各自 sleep 轮询间隔），执行时用 Semaphore 限制并发；一个会话在长 typing 时不阻塞其他会话。
+- 429：该会话暂停 retry_after 秒，不 ack failed；本地记录退回 pending，暂停结束后重新执行。
+- 撤回：`updateDeleteMessages`（is_permanent=true 且 from_cache=false）→ 从没提交过（payload 为空）直接取消；已有 trace 调 `/mind/retract`（失败持久化 `inbox.retract_state='retry'`，网关每 10 秒重试，404 视为完成）；generating 或 payload 已生成但无 trace 先标 pending，prepare 拿到 trace 后补撤。同步模式只记日志。
+- presence：`NENO_MIND_PRESENCE=true` 时启动 offline；动作前 online；最后一个动作 `NENO_MIND_PRESENCE_LINGER_SEC` 秒后 offline。网关无其他 openChat/viewMessages 调用。

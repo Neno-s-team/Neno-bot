@@ -1,8 +1,8 @@
 """P3b 轮询执行器：拉取 core 的投递项并按类型执行。
 
-不同会话并发（上限 NENO_MIND_MAX_CONCURRENCY），同一会话严格串行。
-真实发送以 mind_outbox 的 delivery_id 幂等：core 租约过期重发不会导致
-重复 sendMessage。
+每个会话一个独立循环（各自 sleep 轮询间隔），执行时用 Semaphore 限制并发；
+同一会话严格串行。真实发送以 mind_outbox 的 delivery_id 幂等，状态机为
+pending → submitting → sent / failed / uncertain / needs_attention。
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from typing import Any
 
 from telegram_gateway.mind_outbox import MindOutbox
 from telegram_gateway.tdlib_client import TdlibError
-
 from telegram_gateway.stickerkit import build_send_photo_request, build_send_sticker_request
 
 _FLOOD_RE = re.compile(r"retry after (\d+)", re.I)
@@ -28,6 +27,10 @@ class ChatFloodWait(RuntimeError):
     def __init__(self, retry_after: float):
         self.retry_after = max(1.0, float(retry_after))
         super().__init__(f"chat flood wait: retry after {self.retry_after}s")
+
+
+class _ChatPaused(RuntimeError):
+    """会话处于 429 暂停期：中断当前批，由该会话的独立循环等暂停结束。"""
 
 
 def _flood_from_error(error: Any) -> ChatFloodWait | None:
@@ -53,6 +56,8 @@ class MindRunner:
         self.stopping = False
         self._chat_locks: dict[int, asyncio.Lock] = {}
         self._pause_until: dict[int, float] = {}
+        self._chat_loops: dict[int, asyncio.Task] = {}
+        self._retract_task: asyncio.Task | None = None
         self._presence_task: asyncio.Task | None = None
         self._presence_until = 0.0
 
@@ -65,12 +70,23 @@ class MindRunner:
 
     async def stop(self) -> None:
         self.stopping = True
+        tasks = [*self._chat_loops.values()]
+        if self._retract_task is not None:
+            tasks.append(self._retract_task)
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     # ── presence（NENO_MIND_PRESENCE=true 时启用） ─────────────────────────
     async def _presence_on(self) -> None:
         if not getattr(self.gateway.config, "mind_presence", False):
             return
-        self._presence_until = time.time() + 60.0
+        linger = max(1.0, float(getattr(self.gateway.config, "mind_presence_linger_sec", 60)))
+        self._presence_until = time.time() + linger
         if self._presence_task is None or self._presence_task.done():
             self._presence_task = asyncio.create_task(self._presence_worker())
 
@@ -95,7 +111,7 @@ class MindRunner:
             logging.warning("mind presence offline set failed")
 
     async def _presence_worker(self) -> None:
-        # 先上线；最后一个动作完成 60 秒后下线
+        # 先上线；最后一个动作完成 NENO_MIND_PRESENCE_LINGER_SEC 秒后下线
         await self._presence_online()
         while not self.stopping and time.time() < self._presence_until:
             await asyncio.sleep(1.0)
@@ -106,25 +122,38 @@ class MindRunner:
             return
         await self._presence_offline()
 
-    # ── 主循环 ─────────────────────────────────────────────────────────────
+    # ── 主循环：每会话独立轮询 + 并发上限 ─────────────────────────────────
     async def run(self) -> None:
         await self._ensure_offline_at_start()
         poll = max(0.1, float(getattr(self.gateway.config, "mind_poll_seconds", 1)))
         concurrency = max(1, int(getattr(self.gateway.config, "mind_max_concurrency", 4)))
         semaphore = asyncio.Semaphore(concurrency)
+        self._retract_task = asyncio.create_task(self._retract_retry_loop(), name="mind-retract-retry")
 
-        async def worker(chat_id: int) -> None:
+        def spawn(chat_id: int) -> None:
+            task = self._chat_loops.get(chat_id)
+            if task is None or task.done():
+                self._chat_loops[chat_id] = asyncio.create_task(
+                    self._chat_loop(chat_id, semaphore), name=f"mind-runner-{chat_id}")
+
+        for chat_id in self.gateway.config.allowed_chat_ids:
+            spawn(chat_id)
+        while not self.stopping:
+            # allowed 列表变化时补新循环；已有循环各自 sleep，不再每轮 gather
+            for chat_id in self.gateway.config.allowed_chat_ids:
+                spawn(chat_id)
+            await asyncio.sleep(max(poll, 1.0))
+
+    async def _chat_loop(self, chat_id: int, semaphore: asyncio.Semaphore) -> None:
+        poll = max(0.1, float(getattr(self.gateway.config, "mind_poll_seconds", 1)))
+        while not self.stopping:
+            pause = self._pause_until.get(chat_id, 0.0)
+            now = time.time()
+            if pause > now:
+                await asyncio.sleep(max(0.1, min(poll, pause - now)))
+                continue
             async with semaphore:
                 await self._drain_chat(chat_id)
-
-        while not self.stopping:
-            now = time.time()
-            chats = [
-                chat_id for chat_id in self.gateway.config.allowed_chat_ids
-                if self._pause_until.get(chat_id, 0.0) <= now
-            ]
-            if chats:
-                await asyncio.gather(*(worker(chat) for chat in chats))
             await asyncio.sleep(poll)
 
     async def _drain_chat(self, chat_id: int) -> None:
@@ -148,22 +177,57 @@ class MindRunner:
                     self._pause_until[chat_id] = time.time() + exc.retry_after
                     logging.warning("mind chat paused chat=%s retry_after=%ss", chat_id, exc.retry_after)
                     return
+                except _ChatPaused:
+                    return
                 except Exception as exc:
                     logging.warning("mind delivery failed chat=%s delivery=%s error=%s",
                                     chat_id, item.get("id"), type(exc).__name__)
 
-    # ── 单项执行 ───────────────────────────────────────────────────────────
+    # ── 撤回重试（inbox.retract_state='retry' 持久化） ──────────────────────
+    async def _retract_retry_loop(self) -> None:
+        while not self.stopping:
+            try:
+                await self._retry_retracts_once()
+            except Exception as exc:
+                logging.warning("mind retract retry sweep failed error=%s", type(exc).__name__)
+            await asyncio.sleep(10.0)
+
+    async def _retry_retracts_once(self) -> None:
+        rows = self.outbox.store.all(
+            "SELECT key, trace_id FROM inbox WHERE retract_state='retry' AND trace_id IS NOT NULL"
+        )
+        for row in rows:
+            try:
+                await self.gateway.core.mind_retract(str(row["trace_id"]))
+                self.outbox.store.write(
+                    "UPDATE inbox SET retract_state='done',error=NULL,updated_at=? WHERE key=?",
+                    (time.time(), row["key"]),
+                )
+            except Exception as exc:
+                logging.warning("retract retry failed key=%s error=%s", row["key"], type(exc).__name__)
+
+    # ── 单项执行与恢复 ──────────────────────────────────────────────────────
     async def _execute(self, chat_id: int, item: dict[str, Any]) -> None:
         delivery_id = int(item["id"])
         kind = str(item.get("kind") or "")
         payload = item.get("payload") or {}
-        local = self.outbox.begin(delivery_id, str(item.get("session_id") or ""), kind)
+        payload["send_at"] = payload.get("send_at") or item.get("send_at") or 0.0
+        local = self.outbox.begin(
+            delivery_id, str(item.get("session_id") or ""), kind,
+            payload_json=json.dumps(payload, ensure_ascii=False),
+        )
         if local is not None:
-            # 已经执行/执行过：只补 ack 或继续推进
+            # 已经执行/执行过：只补 ack、核对或按状态推进
             await self._resume(chat_id, local, payload)
             return
-        self.outbox.increment_attempts(delivery_id)
         await self._presence_on()
+        await self._do_kind(chat_id, delivery_id, kind, payload)
+
+    async def _do_kind(self, chat_id: int, delivery_id: int, kind: str,
+                       payload: dict[str, Any]) -> None:
+        if kind in ("text", "sticker"):
+            # 交给 TDLib 之前先落 submitting（attempts+1）；崩溃恢复按 uncertain 处理
+            self.outbox.mark_submitting(delivery_id)
         try:
             if kind == "mark_read":
                 await self._do_mark_read(chat_id, delivery_id, payload)
@@ -177,25 +241,121 @@ class MindRunner:
                 self.outbox.mark_failed(delivery_id, f"unknown kind: {kind}")
                 await self._ack(delivery_id, "failed", error=f"unknown kind: {kind}")
         except ChatFloodWait:
+            # 尚未确认交给 TDLib：退回 pending，暂停结束后由独立循环重新执行
+            self.outbox.mark_pending(delivery_id, error="chat flood wait")
+            raise
+        except _ChatPaused:
             raise
         except Exception as exc:
             self.outbox.mark_failed(delivery_id, str(exc)[:250])
             await self._ack(delivery_id, "failed", error=str(exc)[:200])
 
-    async def _resume(self, chat_id: int, local: dict[str, Any], payload: dict[str, Any]) -> None:
+    async def _resume(self, chat_id: int, local: dict[str, Any],
+                      payload: dict[str, Any]) -> None:
         delivery_id = int(local["delivery_id"])
         if int(local.get("acked") or 0):
             return
+        kind = str(local.get("kind") or "")
         state = str(local.get("state") or "")
         if state == "sent":
             await self._ack(delivery_id, "sent")
         elif state == "failed":
             await self._ack(delivery_id, "failed", error=str(local.get("error") or "")[:200])
-        elif state == "uncertain":
-            # 结果不确定：确认之前不 ack、不重发
-            logging.warning("mind delivery stays uncertain delivery=%s", delivery_id)
+        elif state in ("uncertain", "submitting"):
+            # 崩在发送途中/结果不确定：getMessage 核对，不重发
+            await self._reconcile_uncertain(chat_id, local)
+        elif state == "needs_attention":
+            return
+        elif state == "pending":
+            saved = json.loads(local.get("payload_json") or "{}")
+            merged = {**saved, **payload} if payload else saved
+            # mark_read/typing 重复执行无副作用；text/sticker 是 429 退回的未提交项
+            await self._presence_on()
+            await self._do_kind(chat_id, delivery_id, kind, merged)
         else:
             logging.info("mind delivery in progress delivery=%s state=%s", delivery_id, state)
+
+    # ── 回执：与旧 outbox 账本并行同步 ────────────────────────────────────
+    def receipt(self, update: dict[str, Any]) -> None:
+        kind = str(update.get("@type") or "")
+        if kind not in {"updateMessageSendSucceeded", "updateMessageSendFailed"}:
+            return
+        old_message_id = update.get("old_message_id")
+        if old_message_id is None:
+            return
+        row = self.outbox.find_by_local_id(int(old_message_id))
+        if row is None:
+            return
+        delivery_id = int(row["delivery_id"])
+        message = update.get("message") or {}
+        chat_id = int(message.get("chat_id") or 0)
+        if kind == "updateMessageSendSucceeded":
+            self.outbox.mark_sent(delivery_id, final_id=message.get("id"))
+            self._schedule_ack(delivery_id, "sent")
+            return
+        error = update.get("error") or {}
+        flood = _flood_from_error(error)
+        if flood is not None:
+            self.outbox.mark_pending(delivery_id, error="chat flood wait")
+            if chat_id:
+                self._pause_until[chat_id] = time.time() + flood.retry_after
+            return
+        self.outbox.mark_failed(delivery_id, json.dumps(error)[:250])
+        self._schedule_ack(delivery_id, "failed", error=str(error.get("message") or "")[:200])
+
+    def _schedule_ack(self, delivery_id: int, status: str, error: str | None = None) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._ack(delivery_id, status, error=error))
+
+    # ── uncertain/submitting 核对 ──────────────────────────────────────────
+    async def _reconcile_uncertain(self, chat_id: int, local: dict[str, Any]) -> None:
+        delivery_id = int(local["delivery_id"])
+        kind = str(local.get("kind") or "")
+        message_id = local.get("final_id") or local.get("local_id")
+        if not message_id:
+            self.outbox.mark_needs_attention(delivery_id, "uncertain without local_id")
+            logging.error("mind delivery needs_attention delivery=%s", delivery_id)
+            return
+        max_sec = float(getattr(self.gateway.config, "mind_uncertain_max_sec", 600))
+        age = time.time() - float(local.get("updated_at") or 0)
+        if age > max_sec:
+            self.outbox.mark_needs_attention(delivery_id, "uncertain unresolved")
+            logging.error("mind delivery needs_attention delivery=%s", delivery_id)
+            return
+        try:
+            response = await self.gateway.tdlib.request(
+                {"@type": "getMessage", "chat_id": chat_id, "message_id": int(message_id)},
+                timeout=30,
+            )
+        except Exception as exc:
+            logging.warning("mind reconcile getMessage failed delivery=%s error=%s",
+                            delivery_id, type(exc).__name__)
+            return
+        sending_state = str((response.get("sending_state") or {}).get("@type") or "")
+        if sending_state == "messageSendingStateFailed":
+            self.outbox.mark_failed(delivery_id, "confirmed failed by getMessage")
+            await self._ack(delivery_id, "failed", error="confirmed failed by getMessage")
+            return
+        if sending_state:
+            return  # 仍在 sending/pending，下一轮再查
+        if response.get("is_outgoing") is not True:
+            return
+        if self._message_matches(kind, response):
+            self.outbox.mark_sent(delivery_id, final_id=response.get("id"))
+            await self._ack(delivery_id, "sent")
+
+    @staticmethod
+    def _message_matches(kind: str, message: dict[str, Any]) -> bool:
+        content = message.get("content") or {}
+        content_type = str(content.get("@type") or "")
+        if kind == "sticker":
+            return content_type in {"messageSticker", "messagePhoto"}
+        if kind == "text":
+            return content_type == "messageText"
+        return True
 
     async def _ack(self, delivery_id: int, status: str, error: str | None = None) -> None:
         try:
@@ -206,8 +366,10 @@ class MindRunner:
             logging.warning("mind ack deferred delivery=%s error=%s", delivery_id, type(exc).__name__)
 
     # ── mark_read ─────────────────────────────────────────────────────────
-    async def _do_mark_read(self, chat_id: int, delivery_id: int, payload: dict[str, Any]) -> None:
+    async def _do_mark_read(self, chat_id: int, delivery_id: int,
+                            payload: dict[str, Any]) -> None:
         trace_ids = [str(t) for t in payload.get("trace_ids") or []]
+        send_at = float(payload.get("send_at") or time.time())
         message_ids: list[int] = []
         missing = []
         for trace_id in trace_ids:
@@ -220,15 +382,15 @@ class MindRunner:
             else:
                 missing.append(trace_id)
         if missing:
-            # 兜底：该聊天里 created_at <= 当前时刻的最新一条入站消息
+            # 兜底锚 send_at：只标已读时点之前到达的消息，不看当前时刻
             row = self.outbox.store.one(
                 """SELECT message_id FROM inbox WHERE chat_id=? AND created_at<=?
                    ORDER BY message_id DESC LIMIT 1""",
-                (chat_id, time.time()),
+                (chat_id, send_at),
             )
             logging.warning(
-                "mark_read trace mapping missing chat=%s missing=%d fallback=%s",
-                chat_id, len(missing), row["message_id"] if row else None,
+                "mark_read trace mapping missing chat=%s missing=%d fallback=%s anchor=%s",
+                chat_id, len(missing), row["message_id"] if row else None, send_at,
             )
             if row:
                 message_ids.append(int(row["message_id"]))
@@ -244,12 +406,12 @@ class MindRunner:
         await self._ack(delivery_id, "sent")
 
     # ── typing ────────────────────────────────────────────────────────────
-    async def _do_typing(self, chat_id: int, delivery_id: int, payload: dict[str, Any]) -> None:
+    async def _do_typing(self, chat_id: int, delivery_id: int,
+                         payload: dict[str, Any]) -> None:
         duration = max(1.0, float(payload.get("duration") or 1.0))
         action = dict(_TYPING_ACTION)
         action["chat_id"] = chat_id
         deadline = time.monotonic() + duration
-        sent = 0
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -260,13 +422,13 @@ class MindRunner:
                 flood = _flood_from_error(str(exc))
                 if flood:
                     raise flood
-            sent += 1
             await asyncio.sleep(min(_TYPING_INTERVAL, max(0.1, remaining)))
         self.outbox.mark_sent(delivery_id)
         await self._ack(delivery_id, "sent")
 
     # ── text ──────────────────────────────────────────────────────────────
-    async def _do_text(self, chat_id: int, delivery_id: int, payload: dict[str, Any]) -> None:
+    async def _do_text(self, chat_id: int, delivery_id: int,
+                       payload: dict[str, Any]) -> None:
         text = str(payload.get("text") or "")
         parts = text_chunks(text)
         for index, part in enumerate(parts):
@@ -288,29 +450,34 @@ class MindRunner:
                 await self._ack(delivery_id, "failed", error=str(exc)[:200])
                 return
             local_id = int(response.get("id") or 0)
-            if index == 0:
-                self.outbox.mark_uncertain(delivery_id, local_id=local_id)
+            self.outbox.set_local_id(delivery_id, local_id)
+            self.outbox.mark_uncertain(delivery_id, local_id=local_id)
             try:
                 status = await self.gateway.tdlib.wait_message_send_result(local_id, timeout=8)
             except asyncio.TimeoutError:
-                # 结果不确定：确认之前不 ack、不重发
                 logging.warning("mind text uncertain chat=%s delivery=%s local_id=%s",
                                 chat_id, delivery_id, local_id)
                 return
-            status_type = str(status.get("@type") or "")
-            if status_type == "updateMessageSendFailed":
-                flood = _flood_from_error(status.get("error") or {})
-                if flood:
-                    raise flood
-                error = status.get("error") or {}
-                self.outbox.mark_failed(delivery_id, json.dumps(error)[:250])
-                await self._ack(delivery_id, "failed", error=str(error.get("message") or "")[:200])
+            self._apply_send_result(delivery_id, status)
+            if str(status.get("@type") or "") == "updateMessageSendFailed":
                 return
+        # 所有分块都确认成功才置 sent 并 ack
         self.outbox.mark_sent(delivery_id)
         await self._ack(delivery_id, "sent")
 
+    def _apply_send_result(self, delivery_id: int, status: dict[str, Any]) -> None:
+        status_type = str(status.get("@type") or "")
+        if status_type == "updateMessageSendSucceeded":
+            message = status.get("message") or {}
+            self.outbox.mark_sent(delivery_id, final_id=message.get("id"))
+        elif status_type == "updateMessageSendFailed":
+            error = status.get("error") or {}
+            self.outbox.mark_failed(delivery_id, json.dumps(error)[:250])
+            self._schedule_ack(delivery_id, "failed", error=str(error.get("message") or "")[:200])
+
     # ── sticker ───────────────────────────────────────────────────────────
-    async def _do_sticker(self, chat_id: int, delivery_id: int, payload: dict[str, Any]) -> None:
+    async def _do_sticker(self, chat_id: int, delivery_id: int,
+                          payload: dict[str, Any]) -> None:
         name = str(payload.get("name") or "").strip()
         table = getattr(self.gateway, "stickers", None)
         entry = table.resolve(name) if table is not None else None
@@ -346,10 +513,8 @@ class MindRunner:
         except asyncio.TimeoutError:
             logging.warning("mind sticker uncertain chat=%s delivery=%s", chat_id, delivery_id)
             return
+        self._apply_send_result(delivery_id, status)
         if str(status.get("@type") or "") == "updateMessageSendFailed":
-            error = status.get("error") or {}
-            self.outbox.mark_failed(delivery_id, json.dumps(error)[:250])
-            await self._ack(delivery_id, "failed", error=str(error.get("message") or "")[:200])
             return
         self.outbox.mark_sent(delivery_id)
         await self._ack(delivery_id, "sent")

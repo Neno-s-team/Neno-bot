@@ -66,6 +66,7 @@ class GatewayConfig:
     mind_poll_seconds: float
     mind_max_concurrency: int
     mind_presence: bool
+    mind_presence_linger_sec: float
 
     def tdlib_parameters_request(self) -> dict[str, object]:
         """Build the TDLib request shape; the database key is sent separately."""
@@ -131,4 +132,5 @@ class GatewayConfig:
             mind_poll_seconds=float(os.getenv("NENO_MIND_POLL_SEC", "1")),
             mind_max_concurrency=int(os.getenv("NENO_MIND_MAX_CONCURRENCY", "4")),
             mind_presence=os.getenv("NENO_MIND_PRESENCE", "false").strip().lower() in ("1", "true", "yes", "on"),
+            mind_presence_linger_sec=float(os.getenv("NENO_MIND_PRESENCE_LINGER_SEC", "60")),
         )
