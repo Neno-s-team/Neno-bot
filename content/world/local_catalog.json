@@ -1,0 +1,935 @@
+{
+  "version": "neno-life-v1",
+  "description": "Authored fictional content; no real-world prices or character biography.",
+  "types": [
+    {
+      "type_id": "neno:place",
+      "label": "地点",
+      "aliases": [
+        "place"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {}
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:actor",
+      "label": "角色",
+      "aliases": [
+        "actor"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {}
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:region",
+      "label": "区域",
+      "aliases": [
+        "region"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {}
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:cup",
+      "label": "杯子",
+      "aliases": [
+        "cup"
+      ],
+      "capabilities": [
+        "portable",
+        "container",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "capacity_ml": 300,
+          "volume_ml": 0,
+          "liquid": null,
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:bowl",
+      "label": "碗",
+      "aliases": [
+        "bowl"
+      ],
+      "capabilities": [
+        "portable",
+        "container",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "capacity_ml": 300,
+          "volume_ml": 0,
+          "liquid": null,
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:plate",
+      "label": "盘子",
+      "aliases": [
+        "plate"
+      ],
+      "capabilities": [
+        "portable",
+        "container",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "capacity_ml": 300,
+          "volume_ml": 0,
+          "liquid": null,
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:bottle",
+      "label": "水瓶",
+      "aliases": [
+        "bottle"
+      ],
+      "capabilities": [
+        "portable",
+        "container",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "capacity_ml": 300,
+          "volume_ml": 0,
+          "liquid": null,
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:pan",
+      "label": "锅",
+      "aliases": [
+        "pan"
+      ],
+      "capabilities": [
+        "portable",
+        "container",
+        "washable",
+        "cookware"
+      ],
+      "properties": {
+        "default_state": {
+          "capacity_ml": 1000,
+          "volume_ml": 0,
+          "liquid": null,
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:cabinet",
+      "label": "橱柜",
+      "aliases": [
+        "cabinet"
+      ],
+      "capabilities": [
+        "container",
+        "openable"
+      ],
+      "properties": {
+        "default_state": {
+          "open": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:drawer",
+      "label": "抽屉",
+      "aliases": [
+        "drawer"
+      ],
+      "capabilities": [
+        "container",
+        "openable"
+      ],
+      "properties": {
+        "default_state": {
+          "open": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:fridge",
+      "label": "冰箱",
+      "aliases": [
+        "fridge"
+      ],
+      "capabilities": [
+        "container",
+        "openable"
+      ],
+      "properties": {
+        "default_state": {
+          "open": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:box",
+      "label": "收纳盒",
+      "aliases": [
+        "box"
+      ],
+      "capabilities": [
+        "container",
+        "openable",
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "open": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:backpack",
+      "label": "背包",
+      "aliases": [
+        "backpack"
+      ],
+      "capabilities": [
+        "container",
+        "openable",
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "open": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:table",
+      "label": "桌子",
+      "aliases": [
+        "table"
+      ],
+      "capabilities": [
+        "container"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:shelf",
+      "label": "置物架",
+      "aliases": [
+        "shelf"
+      ],
+      "capabilities": [
+        "container"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:desk",
+      "label": "书桌",
+      "aliases": [
+        "desk"
+      ],
+      "capabilities": [
+        "container"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:chair",
+      "label": "椅子",
+      "aliases": [
+        "chair"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:sofa",
+      "label": "沙发",
+      "aliases": [
+        "sofa"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:bed",
+      "label": "床",
+      "aliases": [
+        "bed"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:curtain",
+      "label": "窗帘",
+      "aliases": [
+        "curtain"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:plant",
+      "label": "盆栽",
+      "aliases": [
+        "plant"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:rug",
+      "label": "地毯",
+      "aliases": [
+        "rug"
+      ],
+      "capabilities": [],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "metadata_only"
+    },
+    {
+      "type_id": "neno:lamp",
+      "label": "台灯",
+      "aliases": [
+        "lamp"
+      ],
+      "capabilities": [
+        "portable",
+        "toggleable",
+        "repairable"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "required_part": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:phone",
+      "label": "手机",
+      "aliases": [
+        "phone"
+      ],
+      "capabilities": [
+        "portable",
+        "toggleable",
+        "repairable"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "required_part": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:computer",
+      "label": "电脑",
+      "aliases": [
+        "computer"
+      ],
+      "capabilities": [
+        "portable",
+        "toggleable",
+        "repairable"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "required_part": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:fan",
+      "label": "风扇",
+      "aliases": [
+        "fan"
+      ],
+      "capabilities": [
+        "portable",
+        "toggleable",
+        "repairable"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "required_part": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:kettle",
+      "label": "电热水壶",
+      "aliases": [
+        "kettle"
+      ],
+      "capabilities": [
+        "portable",
+        "toggleable",
+        "repairable"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "required_part": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:stove",
+      "label": "灶台",
+      "aliases": [
+        "stove"
+      ],
+      "capabilities": [
+        "toggleable",
+        "cooking_station"
+      ],
+      "properties": {
+        "default_state": {
+          "on": false,
+          "broken": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:sink",
+      "label": "水槽",
+      "aliases": [
+        "sink"
+      ],
+      "capabilities": [
+        "water_source"
+      ],
+      "properties": {
+        "default_state": {
+          "water_available": true,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:screwdriver",
+      "label": "螺丝刀",
+      "aliases": [
+        "screwdriver"
+      ],
+      "capabilities": [
+        "portable",
+        "repair_tool"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:switch",
+      "label": "替换开关",
+      "aliases": [
+        "switch"
+      ],
+      "capabilities": [
+        "portable",
+        "repair_part"
+      ],
+      "properties": {
+        "default_state": {
+          "part_kind": "switch",
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:book",
+      "label": "书",
+      "aliases": [
+        "book"
+      ],
+      "capabilities": [
+        "portable",
+        "readable"
+      ],
+      "properties": {
+        "default_state": {
+          "read_count": 0,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:notebook",
+      "label": "笔记本",
+      "aliases": [
+        "notebook"
+      ],
+      "capabilities": [
+        "portable",
+        "readable"
+      ],
+      "properties": {
+        "default_state": {
+          "read_count": 0,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:magazine",
+      "label": "杂志",
+      "aliases": [
+        "magazine"
+      ],
+      "capabilities": [
+        "portable",
+        "readable"
+      ],
+      "properties": {
+        "default_state": {
+          "read_count": 0,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:rice",
+      "label": "米",
+      "aliases": [
+        "rice"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:egg",
+      "label": "鸡蛋",
+      "aliases": [
+        "egg"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:apple",
+      "label": "苹果",
+      "aliases": [
+        "apple"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:bread",
+      "label": "面包",
+      "aliases": [
+        "bread"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:vegetable",
+      "label": "蔬菜",
+      "aliases": [
+        "vegetable"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:meal",
+      "label": "熟食",
+      "aliases": [
+        "meal"
+      ],
+      "capabilities": [
+        "portable",
+        "edible"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1,
+          "dirty": false
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:spoon",
+      "label": "勺子",
+      "aliases": [
+        "spoon"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:fork",
+      "label": "叉子",
+      "aliases": [
+        "fork"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:chopsticks",
+      "label": "筷子",
+      "aliases": [
+        "chopsticks"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:towel",
+      "label": "毛巾",
+      "aliases": [
+        "towel"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:shirt",
+      "label": "衬衫",
+      "aliases": [
+        "shirt"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:shoes",
+      "label": "鞋子",
+      "aliases": [
+        "shoes"
+      ],
+      "capabilities": [
+        "portable",
+        "washable"
+      ],
+      "properties": {
+        "default_state": {
+          "dirty": false,
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:pen",
+      "label": "笔",
+      "aliases": [
+        "pen"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:key",
+      "label": "钥匙",
+      "aliases": [
+        "key"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:umbrella",
+      "label": "雨伞",
+      "aliases": [
+        "umbrella"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:scissors",
+      "label": "剪刀",
+      "aliases": [
+        "scissors"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:tape",
+      "label": "胶带",
+      "aliases": [
+        "tape"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:soap",
+      "label": "肥皂",
+      "aliases": [
+        "soap"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    },
+    {
+      "type_id": "neno:tissue",
+      "label": "纸巾",
+      "aliases": [
+        "tissue"
+      ],
+      "capabilities": [
+        "portable"
+      ],
+      "properties": {
+        "default_state": {
+          "quantity": 1
+        }
+      },
+      "support": "interactive"
+    }
+  ]
+}

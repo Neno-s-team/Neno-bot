@@ -46,18 +46,21 @@ def test_normalized_structure() -> None:
     assert "用户附带文字：这张图你能看到什么？" in normalized
     assert "用户附带文字：你能看懂它在想什么吗" not in normalized
 
-def test_user_facing_failure_message() -> None:
-    original = service.generate_multimodal_chat_reply
+def test_user_facing_failure_message(monkeypatch) -> None:
+    from app.services.chat import image_memory
+    called = []
 
-    def fake_generate_multimodal_chat_reply(*, text_prompt: str, attachments: list[MediaAttachment], trace_id: str | None = None) -> str:
-        raise RuntimeError("provider timeout")
+    def invalid_source(*args, **kwargs):
+        raise FileNotFoundError("Synthetic invalid image fixture")
 
-    service.generate_multimodal_chat_reply = fake_generate_multimodal_chat_reply
-    try:
-        with pytest.raises(HTTPException) as excinfo:
-            chat(make_request("这张图你能看到什么？"))
-        
-        assert excinfo.value.status_code == 400
-        assert excinfo.value.detail == service.MULTIMODAL_USER_ERROR_MESSAGE
-    finally:
-        service.generate_multimodal_chat_reply = original
+    def legacy_provider(*args, **kwargs):
+        called.append(True)
+        raise RuntimeError("Legacy provider should not run")
+
+    monkeypatch.setattr(image_memory, "_read_source", invalid_source)
+    monkeypatch.setattr(service, "generate_multimodal_chat_reply", legacy_provider)
+    with pytest.raises(HTTPException) as excinfo:
+        chat(make_request("invalid synthetic image"))
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "图片无法读取或保存，请发送有效图片（每张不超过 20 MiB）。"
+    assert not called

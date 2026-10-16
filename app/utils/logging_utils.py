@@ -6,7 +6,7 @@ from urllib.parse import unquote
 from typing import Any
 
 SECRET_KEY_PARTS = ("token", "secret", "cookie", "api_key", "authorization")
-IDENTIFIER_KEY_PARTS = ("user_id", "session_id", "openid", "open_id", "target_hash", "target")
+IDENTIFIER_KEY_PARTS = ("user_id", "session_id")
 BODY_KEY_PARTS = ("prompt", "message", "response", "reply", "content")
 MAX_FIELD_LENGTH = 200
 _LOGGING_READY = False
@@ -124,20 +124,8 @@ def sanitize_access_path(path: str) -> str:
         flags=re.IGNORECASE,
     )
     sanitized = re.sub(
-        r"((?:session_id|user_id|openid|open_id|target_hash|target)=)([^&\s]+)",
+        r"((?:session_id|user_id)=)([^&\s]+)",
         replace_query_value,
-        sanitized,
-        flags=re.IGNORECASE,
-    )
-    sanitized = re.sub(
-        r"((?:qq|wx)%3A(?:private|group)%3A)([A-Za-z0-9%]+)",
-        lambda match: f"{unquote(match.group(1))}{mask_sensitive(unquote(match.group(2)))}",
-        sanitized,
-        flags=re.IGNORECASE,
-    )
-    sanitized = re.sub(
-        r"((?:qq|wx):(?:private|group):)([A-Za-z0-9:]+)",
-        lambda match: f"{match.group(1)}{mask_sensitive(match.group(2))}",
         sanitized,
         flags=re.IGNORECASE,
     )

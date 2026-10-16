@@ -5,8 +5,4 @@ python-dotenv
 pydantic
 httpx
 pytest
-pytest-asyncio
-pilk
-dashscope
-apscheduler
-pypdf
+Pillow>=10.4

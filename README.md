@@ -1,225 +1,169 @@
-# Neno Bot
+# Neno Core
 
-Neno 是一个本地优先、SQLite 驱动的 AI 伴侣后端。它把聊天、长期记忆、关系演进、主动性和 Living World 收在同一个状态驱动引擎里，而不是一个无状态的 LLM wrapper。
+Neno Core 是一个本地优先的最小聊天后端：本地 HTTP 聊天 API、SQLite 消息历史、
+同 session 串行/聚合保护、LLM provider 客户端、单句 system prompt、
+基础日志/trace，以及低耦合的多模态（图片）输入归一化接口。
 
-## 项目地图
+非核心的平台桥接（微信/QQ/企微/OpenClaw）、移动端、主动消息、关系/记忆系统、
+Living World/Consciousness 等已从运行时和源码中移除。
+
+## 架构
 
 ```text
-HTTP / Web / OpenClaw / Android / Operit
-                    |
-          输入归一化与媒体解析
-                    |
-     Session 聚合 -> Session 串行提交锁
-                    |
-        上下文组装 -> 主聊天 / Executive
-                    |
-       回复出口、记忆、关系、审计落库
-                    |
-       WorldLoop -> validator -> world store
+POST /chat
+  │
+  ├─ 输入归一化（图片附件 → 视觉模型文本投影，纯文本透传）
+  │
+  ├─ SessionAggregationController（聚合窗口：突发消息合并为一个批次）
+  │
+  ├─ SessionSubmitController（同 session 严格串行，绝不并发跑 turn）
+  │
+  └─ run_chat_turn
+       ├─ 读取近期历史（SQLite，按 token 预算）
+       ├─ 落库 user 消息（metadata 冻结快照）
+       ├─ 组装 prompt：system（单句人设）→ 历史 → 当前消息
+       ├─ 调 LLM provider（OpenAI 兼容 / Anthropic Messages）
+       └─ 落库 assistant 回复
 ```
 
 | 路径 | 职责 |
 | --- | --- |
-| `app/` | FastAPI 后端、聊天编排、状态存储、Living World 和调试路由 |
-| `app/static/` | 后端托管的调试控制台，入口为 `/test` |
-| `mobile/android/` | 原生 Kotlin + Jetpack Compose 的 Neno v0 客户端 |
-| `mobile/operit/` | 完整 Operit Neno fork，当前 Operit 源码真相源 |
-| `prompts/` | Neno 系统提示词、陪伴版提示词和阶段性实验提示词 |
-| `tests/` | 后端单元测试、集成测试和协议测试 |
-| `docs/` | 架构契约、移动端交接、Living World 和迁移记录 |
-
-两个 Android 客户端相互独立。`mobile/operit` 的 Neno 特殊好友通过后端 `/mobile/*` 连接，不把 Neno 当作角色卡模型，也不绕过后端接入 Operit 本地模型链。
+| `app/main.py` | FastAPI 应用装配 |
+| `app/config.py` | 环境变量配置（LLM、历史预算、聚合窗口、ADMIN_TOKEN、system prompt） |
+| `app/routers/chat.py` | 聊天入口：归一化 → 聚合 → 串行提交 |
+| `app/routers/session.py` | 会话历史管理（admin 鉴权） |
+| `app/routers/system.py` | 健康检查（`GET /`、`GET /health`） |
+| `app/services/chat_service.py` | 最小聊天主链（prompt 组装 + turn 执行） |
+| `app/services/session_aggregation_controller.py` | 同 session 突发消息聚合（内存锁） |
+| `app/services/session_submit_controller.py` | 同 session 串行提交（内存锁） |
+| `app/services/chat/llm_gateway.py` | LLM 网关（回复生成 / 图片输入解析） |
+| `app/services/chat/multimodal_input_service.py` | 多模态输入归一化接口 |
+| `app/llm/openrouter_client.py` | LLM provider HTTP 客户端 |
+| `app/storage/db.py` | SQLite：messages / chat_stats / debug_events |
+| `app/utils/logging_utils.py` | 脱敏日志 + trace_id + debug_events 落库 |
+| `prompts/system.txt` | 当前单句 system prompt |
+| `tests/` | 核心单元/集成测试 |
 
 ## 快速开始
-
-### 安装后端依赖
-
-PowerShell：
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-Bash：
-
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 配置环境
-
-```powershell
-Copy-Item .env.example .env
-```
-
-至少配置以下变量。真实值只放在本机 `.env`，不要写入 README、测试或提交：
-
-| 变量 | 用途 |
-| --- | --- |
-| `OPENROUTER_API_KEY` | 聊天、记忆和世界模型调用 |
-| `ADMIN_TOKEN` | `/debug/*`、`/session/*`、记忆和配置管理 |
-| `PLATFORM_TOKEN` | 非回环平台消息入口 |
-| `MOBILE_TOKEN` | Android `/mobile/*` 与 `/mobile/ws` |
-| `MOBILE_DEFAULT_SESSION_ID` | 默认移动端会话，通常为 `mobile:neno` |
-| `MIMO_API_KEY` | 选择层和部分反思/世界模型 |
-
-### 启动服务
-
-默认只监听本机：
-
-```powershell
+Copy-Item .env.example .env   # 填入真实 key，只放在本机 .env
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-调试控制台：<http://127.0.0.1:8000/test>
+## API
 
-只有在 token 和网络边界已经配置好时，才显式监听局域网：
+| 方法 | 路径 | 鉴权 | 用途 |
+| --- | --- | --- | --- |
+| `POST` | `/chat` | `X-Internal-Token` | 发送消息，返回回复；仅供本机 Gateway/受信调用方 |
+| `GET` | `/` | 无 | 存活检查 |
+| `GET` | `/health` | 无 | 健康检查（DB + 近 24h 错误数） |
+| `GET` | `/session/messages` | `X-Admin-Token` | 读取会话历史 |
+| `GET` | `/session/list` | `X-Admin-Token` | 会话列表 |
+| `POST` | `/session/clear` | `X-Admin-Token` | 清空会话 |
+| `POST` | `/session/delete-message` | `X-Admin-Token` | 按 trace 删除一轮 |
 
-```powershell
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+### POST /chat
+
+请求：
+
+```json
+{
+  "message": "你好",
+  "session_id": "default",
+  "attachments": [
+    {"kind": "image", "media_path": "C:/path/to.png", "mime_type": "image/png"}
+  ]
+}
 ```
 
-## API 入口
+响应：
 
-| 方法 | 路径 | 鉴权 / 用途 |
-| --- | --- | --- |
-| `GET` | `/` | 健康检查 |
-| `GET` | `/test` | 后端调试控制台 |
-| `POST` | `/chat` | Web/控制台聊天；建议只监听回环 |
-| `POST` | `/platform/openclaw/message` | OpenClaw 平台消息；回环或 `X-Platform-Token` |
-| `GET` | `/mobile/status` | `Bearer MOBILE_TOKEN`，移动端连接检查 |
-| `POST` | `/mobile/uploads` | `Bearer MOBILE_TOKEN`，上传图片、语音或文件 |
-| `GET` | `/mobile/conversations` | `Bearer MOBILE_TOKEN`，对话列表 |
-| `GET` | `/mobile/conversations/{id}/messages` | `Bearer MOBILE_TOKEN`，消息历史 |
-| `POST` | `/mobile/conversations/{id}/messages` | `Bearer MOBILE_TOKEN`，发送文本或附件 |
-| `WS` | `/mobile/ws` | `Bearer MOBILE_TOKEN`，前台连接状态和 presence |
-| `GET/POST` | `/memory/*` | `X-Admin-Token`，记忆管理 |
-| `GET/POST` | `/session/*` | `X-Admin-Token`，会话查询和清理 |
-| `GET/POST` | `/proactive/*` | `X-Admin-Token`，主动消息控制 |
-| `GET/POST` | `/debug/*` | `X-Admin-Token`，诊断、事件和世界调试 |
+```json
+{
+  "reply": "……",
+  "trace_id": "ab12cd34",
+  "session_id": "default",
+  "user_message_id": 1,
+  "user_message_ids": [1],
+  "assistant_message_id": 2,
+  "message_type": "text",
+  "latency_ms": 812
+}
+```
 
-移动端约束：Android 只能访问 `/mobile/*`；`/mobile/ws` 不承载聊天正文，聊天必须走 `POST /mobile/conversations/neno/messages`。Android 不得直接访问 `/debug/*`、`/session/*` 或 admin-only 路由。
+说明：
 
-## 核心运行模型
+- `attachments` 可选；图片附件会先经视觉模型归一化为文本投影（`message_type: "image"`），
+  持久历史只存文本，不存图片 payload。
+- `/chat` 要求配置的 `NENO_INTERNAL_TOKEN`，请求头为 `X-Internal-Token`；未配置时接口 fail-closed。
+- 单次请求最多 8 个附件；图片附件最多 8 张，且 `media_path` 必须位于受信媒体 spool 目录。
+- 同一 `session_id` 的消息严格串行处理；窗口内的突发消息会合并成一个 turn 一次回复。
+- LLM 失败返回 500；此时 user 消息已落库，历史不丢。
 
-同一 `session_id` 的消息必须经过现有的聚合窗口和提交锁，内部严格串行：
+## 环境变量
 
-1. 归一化文本、图片、语音和文件输入。
-2. `SessionAggregationController` 合并短时间内的连续消息。
-3. `SessionSubmitController` 获取会话锁，组装缓存安全的上下文。
-4. 运行记忆候选、TRIAGE、私有涌念和可选 Executive。
-5. 生成隔离出口回复，随后将消息、关系、审计和世界命令写入 SQLite。
-6. `WorldLoop` 独立消费世界命令，并通过 `action_validator` 后再应用物理操作。
-
-### 状态所有权
-
-| 状态 | 真相源 |
+| 变量 | 用途 |
 | --- | --- |
-| `messages`、`memories`、`relationship_state` | SQLite |
-| `agent_state` | `StateStore` 管理的 SQLite 状态 |
-| `life_world_state`、活动片段、世界经历 | `WorldStore` / `WorldLoop` 管理的 SQLite 状态 |
-| `executive_decisions`、`executive_commands` | SQLite 追加审计 |
-| `history_digest.json` | 文件系统摘要，游标单调推进 |
-| 聚合队列、提交锁 | 进程内存 |
+| `OPENROUTER_API_KEY` | LLM provider key |
+| `OPENROUTER_URL` | provider 端点（OpenAI 兼容或 Anthropic Messages） |
+| `OPENROUTER_CHAT_MODEL` | 聊天模型 |
+| `OPENROUTER_VISION_MODEL` | 图片理解模型（默认同聊天模型） |
+| `OPENROUTER_PROXY` | 可选代理 |
+| `CHAT_MAX_TOKENS` | 回复长度上限（默认 220） |
+| `LLM_TIMEOUT_SECONDS` | LLM 请求超时（默认 60） |
+| `HISTORY_TOKEN_LIMIT` | 送入 prompt 的历史 token 预算（默认 500） |
+| `SESSION_AGGREGATION_WINDOW_SECONDS` | 突发消息聚合窗口（默认 3） |
+| `ADMIN_TOKEN` | `/session/*` 鉴权 |
+| `NENO_INTERNAL_TOKEN` | `/chat` 与 Telegram Gateway 的内部鉴权 |
+| `CORS_ALLOWED_ORIGINS` | 显式允许的浏览器 Origin，逗号分隔；留空表示不启用 CORS |
+| `NENO_IMAGE_SPOOL_ROOTS` | Telegram/本地媒体输入的受信目录，按系统路径分隔符分隔 |
 
-不要用 Redis、外部队列或第二套内存世界替换上述边界。当前设计假设单节点运行；多 worker 或多实例部署前必须重新设计一致性模型。
-
-## Living World
-
-Living World 的正式入口是 `WorldLoop.tick()`，不是演示脚本。它维护房间、物品、世界时钟、计划、睡醒节律、活动片段、内在经历和 `self_context`。
-
-- 聊天消息作为经历和意图候选进入世界，但聊天侧不能直接写 `life_world_state`。
-- 主聊天只能追加 `executive_commands`；物理操作必须经过 `WorldLoop -> action_validator -> world_model.apply_op()`。
-- 世界循环、世界 LLM、日计划 LLM 和 self-context LLM 分别由环境变量控制，示例默认关闭。
-- 世界当前状态只能通过受控的 `self_context` 只读通道进入主聊天。
-
-端点和缺口见 [`docs/living-world.md`](docs/living-world.md)。
-
-## Prompt 与并发红线
-
-修改聊天核心前必须先读 [`NENO.md`](NENO.md) 和 [`NENO_ARCHITECTURE.md`](NENO_ARCHITECTURE.md)。以下约束不能随意改动：
-
-- `context_builder.py` 的缓存前缀顺序：`SYSTEM_PROMPT -> history_digest -> 原文历史 -> 动态块`。
-- `SessionAggregationController` 与 `SessionSubmitController` 的串行语义和异常释放路径。
-- `history_digest` 的单调 `last_baked_message_id` 游标和 200-token 回收阈值。
-- 当轮新记忆和关系变化遵守 1-turn lag，只影响下一轮上下文。
-- 原始图片、音频 payload 和 provider-ready data URL 不写入 SQLite `messages`。
-- `/debug`、`debug_events` 和 trace ID 是生产级可观测性设施，不做清理式删除。
-
-## Android 与 Operit
-
-### Neno 原生客户端
-
-`mobile/android` 是原生 Compose 客户端，包含对话列表、Neno 聊天、附件上传、连接状态和 Phone Agent v0 协议骨架。构建和 API 合同见 [`docs/android-app-handoff.md`](docs/android-app-handoff.md)。
-
-### Operit fork
-
-`mobile/operit` 是 2026-08-07 从桌面工作区整体迁入的 Operit Neno fork：
-
-- 原源码、未提交状态、构建产物、本地配置和子目录 Git 历史均保留。
-- 原 `.git` 元数据改名为 `.operit-git`，不形成父仓嵌套仓库。
-- `D:\OperitNenoMerge.work` 是迁移前完整快照；`D:\OperitNenoBuildMirror` 只是构建镜像。
-- 本地签名配置、token、密码、APK、`build/` 和 `.gradle/` 物理保留但不提交。
-
-构建入口：
-
-```powershell
-cd mobile\operit
-.\gradlew.bat tasks
-```
-
-具体边界见 [`mobile/operit/README.NENO.md`](mobile/operit/README.NENO.md)。
-
-## 验证与常用命令
-
-后端：
+## 测试
 
 ```powershell
 python -m pytest -q
-python -m compileall -q app scripts tests
-python -m pip check
-git diff --check
 ```
 
-原生 Neno Android：
+## 运维脚本
+
+- `scripts/start-neno-backend.ps1`：后台启动（127.0.0.1:8000）
+- `scripts/neno-reboot.ps1`：重启后端（改 `.env` / prompt / 代码后执行）
+- `scripts/start-cloudflared-tunnel.ps1`：远程访问隧道（可选）
+- `scripts/build-telegram-sidecar.ps1`：编译 C++ TDLib sidecar
+- `scripts/build-tdlib.ps1`：从固定 TDLib tag 构建 `tdjson.dll`
+- `scripts/start-telegram-gateway.ps1`：启动 TDLib Telegram Gateway（需先配置 `.env`）
+
+## Telegram 普通用户客户端
+
+Telegram 接入使用 TDLib，不使用 Bot API。C++ sidecar 负责加载 `tdjson.dll`
+并通过 JSONL stdin/stdout 承载 TDLib；Python `telegram_gateway` 负责授权状态、
+update、多媒体下载和调用本地 `/chat`。TDLib 的数据库和文件目录独立放在
+`data/telegram/tdlib/`，Telegram 进程不会直接导入 `app` 内部模块。
+
+先构建 sidecar 和 TDLib：
 
 ```powershell
-.\mobile\android\gradlew.bat -p .\mobile\android :app:testDebugUnitTest
-.\mobile\android\gradlew.bat -p .\mobile\android :app:assembleDebug
+pwsh -NoProfile -File scripts\build-telegram-sidecar.ps1
+pwsh -NoProfile -File scripts\build-tdlib.ps1
 ```
 
-Operit fork：
+再在 `.env` 填写 `TELEGRAM_API_ID`、`TELEGRAM_API_HASH`、
+`TELEGRAM_DATABASE_ENCRYPTION_KEY` 和明确的 `TELEGRAM_ALLOWED_CHAT_IDS`，
+先进行一次交互式用户授权：
 
 ```powershell
-.\mobile\operit\gradlew.bat -p .\mobile\operit tasks
+python -m telegram_gateway --login
 ```
 
-世界 LLM 开关（PowerShell）：
+授权成功后启动：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\neno-llm.ps1 status
-powershell -ExecutionPolicy Bypass -File scripts\neno-llm.ps1 on
-powershell -ExecutionPolicy Bypass -File scripts\neno-llm.ps1 off
+pwsh -NoProfile -File scripts\start-telegram-gateway.ps1
 ```
 
-## 文档索引
-
-| 文档 | 说明 |
-| --- | --- |
-| [`NENO.md`](NENO.md) | AI 协作规则与状态契约 |
-| [`NENO_ARCHITECTURE.md`](NENO_ARCHITECTURE.md) | 运行时拓扑和危险区域 |
-| [`docs/living-world.md`](docs/living-world.md) | Living World 当前能力、开关、端点和缺口 |
-| [`docs/android-app-design-brief.md`](docs/android-app-design-brief.md) | Android 产品与视觉边界 |
-| [`docs/android-app-implementation-plan.md`](docs/android-app-implementation-plan.md) | Android API 合同和工程计划 |
-| [`docs/android-app-handoff.md`](docs/android-app-handoff.md) | Android 实现、验证和接手边界 |
-| [`mobile/operit/README.NENO.md`](mobile/operit/README.NENO.md) | Operit fork 的源码边界和迁移信息 |
-| [`docs/project-knowledge/2026-08-07-operit-source-unification.md`](docs/project-knowledge/2026-08-07-operit-source-unification.md) | 本次源码统一管理记录 |
-| [`docs/codegraph-query-rebuild.md`](docs/codegraph-query-rebuild.md) | CodeGraph 索引维护 |
-
-## Git 与数据边界
-
-提交前确认没有把 `.env`、`data/`、`uploads/`、构建缓存、本地签名文件、token 或用户数据加入暂存区。父仓负责 `mobile/operit` 的源码变更；`.operit-git` 只是原始历史归档。
+白名单为空时 Gateway fail-closed，不处理任何聊天。实时通话不在当前实现范围内；
+语音消息与实时通话是两条不同链路。

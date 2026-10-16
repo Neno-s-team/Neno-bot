@@ -1,68 +1,51 @@
-from pathlib import Path
+from contextlib import asynccontextmanager
+import asyncio
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-from app.routers import chat, context, debug, memory, mobile, phone_agent, platform, proactive, relationship, session, stats, system
-from app.services.consciousness import ConsciousnessEngine
-from app.services.proactive_scheduler import start_proactive_scheduler, stop_proactive_scheduler
-from app.storage.db import init_db
-from app.storage.relationship import init_relationship_tables
+from app.routers import chat, session, system
+from app.routers import operations as operations_router
+from app.storage.db import init_db, DB_PATH
+from app.routers import world as world_router
+from app.services.world.runtime import start_world, stop_world
 from app.utils.logging_utils import configure_safe_logging
+from app import config
 
 configure_safe_logging()
 
-app = FastAPI()
-BASE_DIR = Path(__file__).resolve().parent
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    from app.services.chat.maintenance import worker
+    maintenance_stop = asyncio.Event()
+    maintenance_task = asyncio.create_task(worker(maintenance_stop), name='chat-maintenance')
+    await start_world(_, DB_PATH)
+    try:
+        yield
+    finally:
+        maintenance_stop.set()
+        await maintenance_task
+        await stop_world(_)
+
+
+app = FastAPI(lifespan=lifespan)
+if config.CORS_ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(config.CORS_ALLOWED_ORIGINS),
+        allow_credentials=False,
+        allow_methods=["POST", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Internal-Token"],
+    )
 
 app.include_router(system.router)
-app.include_router(context.router)
+app.include_router(operations_router.router)
 app.include_router(session.router)
-app.include_router(memory.router)
-app.include_router(relationship.router)
-app.include_router(mobile.router)
-app.include_router(phone_agent.router)
-app.include_router(platform.router)
-app.include_router(stats.router)
-app.include_router(proactive.router)
-app.include_router(debug.router)
 app.include_router(chat.router)
 
-_scheduler: AsyncIOScheduler | None = None
-_consciousness: ConsciousnessEngine | None = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    global _scheduler, _consciousness
-    init_db()
-    init_relationship_tables()
-    start_proactive_scheduler()
-
-    _scheduler = AsyncIOScheduler()
-    _consciousness = ConsciousnessEngine(db=None, scheduler=_scheduler)
-    await _consciousness.start()
-    _scheduler.start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global _scheduler, _consciousness
-    if _scheduler:
-        _scheduler.shutdown(wait=False)
-    if _consciousness:
-        await _consciousness.stop()
-    await stop_proactive_scheduler()
+app.include_router(world_router.router)

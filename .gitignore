@@ -50,6 +50,14 @@ openclaw-plugins/neno-bridge/allowed_wx_users.json
 *.kuzu
 tmp/
 
+# Native Telegram sidecar build/runtime artifacts
+telegram_sidecar/build/
+runtime/tdlib/
+data/telegram/
+third_party/tdlib/
+third_party/tdlib-build/
+third_party/vcpkg/
+
 
 # tooling artifacts
 .agents/
@@ -66,3 +74,41 @@ tmp/
 
 # Remote session upload scratch
 .codex-remote-attachments/
+
+# Vendored upstream clones (archived separately, never tracked here)
+third_party/miband-mcp/
+third_party/miband-mcp.git/
+third_party/_miband-mcp-archive/
+
+# Research data and backups (local only)
+research-data/
+device-pull/
+assets/
+
+# Notion export (local working copies)
+docs/notion-export/
+
+# TDLib source trees (build artifacts only in gitignore already)
+third_party/tdlib-current/
+third_party/tdlib-build-current/
+third_party/vcpkg-current/
+
+# .claude editor config (local)
+.claude/
+
+# Work copies
+*.work
+*.work.bak
+
+# hs_err logs
+hs_err_pid*.log
+
+# Notion export
+memory-mcp-notes.md
+
+# Local phone data and SDK dumps
+third_party/_phonelogs/
+third_party/_androidsdk/
+third_party/_miband-cloud-refs/
+
+scripts/mcp5323.session.json

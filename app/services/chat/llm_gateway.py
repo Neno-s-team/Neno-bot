@@ -8,6 +8,8 @@ from app.config import (
     CHAT_MAX_TOKENS,
     CHAT_MODEL_NAME,
     CHAT_STOP_SEQUENCES,
+    LLM_EXTRA_BODY,
+    LLM_TIMEOUT_SECONDS,
     OPENROUTER_API_KEY,
     OPENROUTER_URL,
     VISION_MODEL_NAME,
@@ -42,7 +44,13 @@ def request_model_response(
     trace_id: str | None = None,
     max_tokens: int | None = None,
     stop: list[str] | None = None,
-) -> str:
+    extra_body: dict | None = None,
+    session_id: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str = "auto",
+    return_message: bool = False,
+    purpose: str = "chat",
+) -> str | dict:
     return chat_with_openrouter(
         api_key=require_api_key(),
         url=OPENROUTER_URL,
@@ -52,17 +60,32 @@ def request_model_response(
         trace_id=trace_id,
         max_tokens=max_tokens,
         stop=stop,
+        extra_body=extra_body,
+        session_id=session_id,
+        tools=tools,
+        tool_choice=tool_choice,
+        return_message=return_message,
+        purpose=purpose,
     )
 
 
-def generate_chat_reply(messages: list[dict], trace_id: str | None = None) -> str:
+def generate_chat_reply(
+    messages: list[dict], trace_id: str | None = None, session_id: str | None = None
+) -> str:
+    if session_id:
+        from app.storage.image_store import has_images
+        if has_images(session_id):
+            from app.services.chat.image_memory import generate_image_reply
+            return generate_image_reply(messages, session_id, trace_id)
     reply = request_model_response(
         model_name=CHAT_MODEL_NAME,
         messages=messages,
-        timeout=60,
+        timeout=LLM_TIMEOUT_SECONDS,
         trace_id=trace_id,
         max_tokens=CHAT_MAX_TOKENS,
         stop=CHAT_STOP_SEQUENCES,
+        extra_body=LLM_EXTRA_BODY,
+        session_id=session_id,
     )
     return _strip_leading_role_label(reply)
 
@@ -90,7 +113,7 @@ def generate_multimodal_chat_reply(
         model_name=VISION_MODEL_NAME,
         text_prompt=text_prompt,
         image_urls=image_inputs,
-        timeout=60,
+        timeout=LLM_TIMEOUT_SECONDS,
         trace_id=trace_id,
     )
 

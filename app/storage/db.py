@@ -1,3 +1,9 @@
+"""SQLite 消息历史与诊断事件存储。
+
+只保留核心表：messages（聊天历史）、chat_stats（基础诊断统计）、
+debug_events（trace 日志）。metadata_json 在写入时冻结，事后不回改。
+"""
+
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -59,10 +65,12 @@ def init_db():
                 message_type TEXT DEFAULT 'text',
                 source TEXT DEFAULT 'chat',
                 metadata_json TEXT,
-                preview_payload_json TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)"
         )
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(messages)").fetchall()
@@ -75,82 +83,6 @@ def init_db():
             conn.execute("ALTER TABLE messages ADD COLUMN source TEXT DEFAULT 'chat'")
         if "metadata_json" not in message_columns:
             conn.execute("ALTER TABLE messages ADD COLUMN metadata_json TEXT")
-        if "preview_payload_json" not in message_columns:
-            conn.execute("ALTER TABLE messages ADD COLUMN preview_payload_json TEXT")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS visual_assets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                asset_uid TEXT NOT NULL UNIQUE,
-                sha256 TEXT NOT NULL UNIQUE,
-                mime_type TEXT NOT NULL,
-                storage_path TEXT NOT NULL,
-                byte_size INTEGER NOT NULL,
-                width INTEGER,
-                height INTEGER,
-                source TEXT,
-                original_filename TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                deleted_at DATETIME
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_visual_assets_created ON visual_assets(created_at)")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS visual_asset_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                asset_id INTEGER NOT NULL,
-                message_id INTEGER,
-                session_id TEXT NOT NULL,
-                trace_id TEXT,
-                relation TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_visual_asset_links_session
-            ON visual_asset_links(session_id, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_visual_asset_links_asset
-            ON visual_asset_links(asset_id, relation)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS visual_observations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                asset_id INTEGER NOT NULL,
-                question TEXT NOT NULL,
-                observation TEXT NOT NULL,
-                model TEXT NOT NULL,
-                trace_id TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_visual_observations_asset
-            ON visual_observations(asset_id, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL,
-                memory_type TEXT DEFAULT 'general',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                is_active INTEGER DEFAULT 1
-            )
-            """
-        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS chat_stats (
@@ -166,66 +98,6 @@ def init_db():
                 latency_ms INTEGER,
                 error_type TEXT,
                 model TEXT
-            )
-            """
-        )
-        chat_stats_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(chat_stats)").fetchall()
-        }
-        if "session_id" not in chat_stats_columns:
-            conn.execute("ALTER TABLE chat_stats ADD COLUMN session_id TEXT")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS proactive_candidates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                platform TEXT,
-                target_hash TEXT,
-                target_label TEXT,
-                message TEXT,
-                reason TEXT,
-                status TEXT DEFAULT 'pending',
-                source TEXT DEFAULT 'manual',
-                metadata_json TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS proactive_targets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                target_hash TEXT NOT NULL,
-                target_label TEXT NOT NULL,
-                real_user_id TEXT,
-                is_allowed INTEGER DEFAULT 0,
-                last_seen_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(platform, session_id)
-            )
-            """
-        )
-        proactive_target_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(proactive_targets)").fetchall()
-        }
-        if "real_user_id" not in proactive_target_columns:
-            conn.execute("ALTER TABLE proactive_targets ADD COLUMN real_user_id TEXT")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS proactive_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                event_type TEXT,
-                platform TEXT,
-                target_label TEXT,
-                candidate_id INTEGER,
-                action TEXT,
-                success INTEGER,
-                skipped INTEGER,
-                reason TEXT,
-                metadata_json TEXT
             )
             """
         )
@@ -249,247 +121,13 @@ def init_db():
             """
         )
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS platform_routing_overrides (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform TEXT NOT NULL,
-                account_id TEXT NOT NULL DEFAULT 'default',
-                routing_key TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                is_active INTEGER DEFAULT 1,
-                operator TEXT,
-                reason TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(platform, account_id, routing_key)
-            )
-            """
+            "CREATE INDEX IF NOT EXISTS idx_debug_events_trace ON debug_events(trace_id, id)"
         )
-        routing_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(platform_routing_overrides)").fetchall()
-        }
-        if "account_id" not in routing_columns:
-            conn.execute(
-                "ALTER TABLE platform_routing_overrides ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default'"
-            )
-        if "operator" not in routing_columns:
-            conn.execute("ALTER TABLE platform_routing_overrides ADD COLUMN operator TEXT")
-        if "reason" not in routing_columns:
-            conn.execute("ALTER TABLE platform_routing_overrides ADD COLUMN reason TEXT")
-        if "is_active" not in routing_columns:
-            conn.execute("ALTER TABLE platform_routing_overrides ADD COLUMN is_active INTEGER DEFAULT 1")
-        if "updated_at" not in routing_columns:
-            conn.execute(
-                "ALTER TABLE platform_routing_overrides ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
-            )
+    from app.storage.image_store import init_image_store
+    init_image_store()
 
-        # --- consciousness module tables (Phase 1) ---
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS agent_state (
-                id          INTEGER PRIMARY KEY CHECK (id = 1),
-                revision    INTEGER NOT NULL DEFAULT 0,
-                state_json  TEXT    NOT NULL,
-                updated_at  TEXT    NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS event_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic_hash  TEXT    NOT NULL,
-                priority    INTEGER NOT NULL,
-                content     TEXT    NOT NULL,
-                tags        TEXT,
-                mood_impact REAL    DEFAULT 0.0,
-                status      TEXT    DEFAULT 'pending',
-                created_at  TEXT    NOT NULL
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_event_topic ON event_log(topic_hash, created_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_event_status ON event_log(status, priority)")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS long_term_memory (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                content    TEXT NOT NULL,
-                tags       TEXT,
-                subject    TEXT,
-                salience   REAL DEFAULT 0.5,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_subject ON long_term_memory(subject, salience)")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS proactive_intent (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id    TEXT NOT NULL,
-                fragments  TEXT NOT NULL,
-                status     TEXT DEFAULT 'queued',
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS inner_experience_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trace_id TEXT NOT NULL,
-                source TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                content TEXT NOT NULL,
-                mood_impact REAL DEFAULT 0.0,
-                desire_impact REAL DEFAULT 0.0,
-                salience REAL DEFAULT 0.5,
-                expression_status TEXT DEFAULT 'unspoken',
-                related_event_hash TEXT,
-                related_message_ids TEXT,
-                related_intent_id INTEGER,
-                metadata_json TEXT,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_inner_exp_created
-            ON inner_experience_log(created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_inner_exp_status
-            ON inner_experience_log(expression_status, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_inner_exp_source
-            ON inner_experience_log(source, kind)
-            """
-        )
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_inner_exp_dedupe
-            ON inner_experience_log(source, kind, related_event_hash, date(created_at))
-            WHERE related_event_hash IS NOT NULL
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS dream_reflection_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trace_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'created',
-                input_summary TEXT NOT NULL,
-                output_json TEXT,
-                model_name TEXT,
-                error TEXT,
-                created_at TEXT NOT NULL,
-                completed_at TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_reflection_created
-            ON dream_reflection_runs(created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_reflection_status
-            ON dream_reflection_runs(status, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS life_activity_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trace_id TEXT,
-                activity_key TEXT NOT NULL,
-                activity_label TEXT NOT NULL,
-                place TEXT NOT NULL,
-                time_phase TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active',
-                started_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                ended_at TEXT,
-                reason TEXT NOT NULL DEFAULT '',
-                continuity_note TEXT NOT NULL DEFAULT '',
-                source_residue_json TEXT NOT NULL DEFAULT '{}',
-                routine_key TEXT NOT NULL DEFAULT '',
-                metadata_json TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_life_episode_status_updated
-            ON life_activity_episodes(status, updated_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_life_episode_started
-            ON life_activity_episodes(started_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS life_world_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                state_json TEXT NOT NULL DEFAULT '{}',
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS executive_decisions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trace_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                trigger_type TEXT NOT NULL,
-                action TEXT NOT NULL,
-                depth TEXT NOT NULL,
-                decision_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_executive_decisions_trace
-            ON executive_decisions(trace_id, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS executive_commands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                decision_id INTEGER NOT NULL,
-                trace_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                command_type TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'queued',
-                created_at TEXT NOT NULL,
-                consumed_at TEXT,
-                error TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_executive_commands_status
-            ON executive_commands(status, created_at, id)
-            """
-        )
+
+# ── messages ────────────────────────────────────────────────────────────────
 
 
 def add_message(
@@ -501,33 +139,14 @@ def add_message(
     message_type: str = "text",
     source: str = "chat",
     metadata: dict[str, Any] | None = None,
-    preview_payload: dict[str, Any] | None = None,
 ) -> int:
-    message_metadata = dict(metadata or {})
-    if "world_time" not in message_metadata:
-        try:
-            from app.services.consciousness.world_time import read_world_time_snapshot
-
-            world_time = read_world_time_snapshot()
-        except Exception:
-            world_time = None
-        if world_time is not None:
-            message_metadata["world_time"] = world_time
-
     with get_conn() as conn:
         cursor = conn.execute(
             """
             INSERT INTO messages (
-                session_id,
-                role,
-                content,
-                trace_id,
-                message_type,
-                source,
-                metadata_json,
-                preview_payload_json
+                session_id, role, content, trace_id, message_type, source, metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -536,8 +155,7 @@ def add_message(
                 trace_id,
                 message_type,
                 source,
-                json.dumps(message_metadata, ensure_ascii=False) if message_metadata else None,
-                json.dumps(preview_payload, ensure_ascii=False) if preview_payload is not None else None,
+                json.dumps(metadata, ensure_ascii=False) if metadata else None,
             ),
         )
         return int(cursor.lastrowid)
@@ -553,61 +171,22 @@ def _decode_json_field(raw: Any) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+_MESSAGE_FIELDS = [
+    "id",
+    "session_id",
+    "role",
+    "content",
+    "trace_id",
+    "message_type",
+    "source",
+    "metadata_json",
+    "created_at",
+]
+
+
 def _normalize_message_row(item: dict[str, Any]) -> dict[str, Any]:
     item["metadata"] = _decode_json_field(item.pop("metadata_json", None))
-    item["preview_payload"] = _decode_json_field(item.pop("preview_payload_json", None))
-    item["has_preview"] = bool(item["preview_payload"])
     return item
-
-
-def delete_message_turn(message_id: int) -> dict[str, Any] | None:
-    row = fetch_one(
-        """
-        SELECT id, session_id, role, trace_id
-        FROM messages
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (message_id,),
-    )
-    if row is None:
-        return None
-
-    session_id = row["session_id"]
-    trace_id = row["trace_id"]
-    deleted_ids: list[int] = []
-
-    with get_conn() as conn:
-        if trace_id:
-            rows = conn.execute(
-                """
-                SELECT id
-                FROM messages
-                WHERE session_id = ? AND trace_id = ?
-                ORDER BY id ASC
-                """,
-                (session_id, trace_id),
-            ).fetchall()
-            deleted_ids = [int(item["id"]) for item in rows]
-            conn.execute(
-                """
-                DELETE FROM messages
-                WHERE session_id = ? AND trace_id = ?
-                """,
-                (session_id, trace_id),
-            )
-        else:
-            conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
-            deleted_ids = [message_id]
-
-    return {
-        "message_id": int(row["id"]),
-        "session_id": session_id,
-        "trace_id": trace_id,
-        "deleted_ids": deleted_ids,
-        "deleted_count": len(deleted_ids),
-        "deleted_scope": "turn" if trace_id else "message",
-    }
 
 
 def list_messages(session_id: str, limit: int, fields: list[str]) -> list[dict]:
@@ -622,7 +201,7 @@ def list_messages(session_id: str, limit: int, fields: list[str]) -> list[dict]:
         (session_id, limit),
     )
     items = rows_to_dicts(list(reversed(rows)), fields)
-    if "metadata_json" in fields or "preview_payload_json" in fields:
+    if "metadata_json" in fields:
         return [_normalize_message_row(item) for item in items]
     return items
 
@@ -632,9 +211,10 @@ def get_recent_messages(session_id: str, limit: int = 8):
 
 
 def get_recent_messages_by_tokens(session_id: str, token_limit: int) -> list[dict]:
+    """按 token 预算取最近的对话历史（粗估：UTF-8 字节 / 2），时间正序返回。"""
     rows = fetch_all(
         """
-        SELECT id, role, content, created_at, metadata_json
+        SELECT id, role, content, created_at
         FROM messages
         WHERE session_id = ? AND role IN ('user', 'assistant')
         ORDER BY id DESC
@@ -652,7 +232,6 @@ def get_recent_messages_by_tokens(session_id: str, token_limit: int) -> list[dic
             "role": row["role"],
             "content": row["content"],
             "created_at": row["created_at"],
-            "metadata": _decode_json_field(row["metadata_json"]),
         })
         if total >= token_limit:
             break
@@ -661,39 +240,13 @@ def get_recent_messages_by_tokens(session_id: str, token_limit: int) -> list[dic
 
 
 def get_session_messages(session_id: str, limit: int = 50):
-    return list_messages(
-        session_id,
-        limit,
-        [
-            "id",
-            "role",
-            "content",
-            "trace_id",
-            "message_type",
-            "source",
-            "metadata_json",
-            "preview_payload_json",
-            "created_at",
-        ],
-    )
+    return list_messages(session_id, limit, _MESSAGE_FIELDS)
 
 
 def get_message_by_id(message_id: int) -> dict[str, Any] | None:
-    fields = [
-        "id",
-        "session_id",
-        "role",
-        "content",
-        "trace_id",
-        "message_type",
-        "source",
-        "metadata_json",
-        "preview_payload_json",
-        "created_at",
-    ]
     row = fetch_one(
         f"""
-        SELECT {", ".join(fields)}
+        SELECT {", ".join(_MESSAGE_FIELDS)}
         FROM messages
         WHERE id = ?
         LIMIT 1
@@ -702,141 +255,66 @@ def get_message_by_id(message_id: int) -> dict[str, Any] | None:
     )
     if row is None:
         return None
-    return _normalize_message_row(row_to_dict(row, fields) or {})
+    return _normalize_message_row(row_to_dict(row, _MESSAGE_FIELDS) or {})
 
 
-def update_message_metadata(message_id: int, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
-    affected = execute_write(
-        """
-        UPDATE messages
-        SET metadata_json = ?
-        WHERE id = ?
-        """,
-        (
-            json.dumps(metadata, ensure_ascii=False) if metadata is not None else None,
-            message_id,
-        ),
-    )
-    if affected <= 0:
-        return None
-    return get_message_by_id(message_id)
-
-
-def add_memory(content: str, memory_type: str = "general"):
-    execute_write(
-        """
-        INSERT INTO memories (content, memory_type)
-        VALUES (?, ?)
-        """,
-        (content, memory_type),
-    )
-
-
-def list_memories(where_clause: str = "", params: Iterable[Any] = (), limit: int | None = None) -> list[dict]:
-    fields = ["id", "content", "memory_type", "created_at", "is_active"]
-    query = f"""
-        SELECT {", ".join(fields)}
-        FROM memories
-        {where_clause}
-        ORDER BY id DESC
-    """
-    if limit is not None:
-        query += "\nLIMIT ?"
-        params = tuple(params) + (limit,)
-
-    rows = fetch_all(query, params)
-    items = rows_to_dicts(rows, fields)
-    return list(reversed(items)) if limit is not None else items
-
-
-def get_active_memories(limit: int = 5):
-    memories = list_memories("WHERE is_active = 1", (), limit=limit)
-    return [
-        {
-            "id": item["id"],
-            "content": item["content"],
-            "memory_type": item["memory_type"],
-            "created_at": item["created_at"],
-        }
-        for item in memories
-    ]
-
-
-def get_all_memories():
-    return list_memories()
-
-
-def get_memories_by_status(is_active: int):
-    return list_memories("WHERE is_active = ?", (is_active,))
-
-
-def get_memory_by_id(memory_id: int) -> dict | None:
-    fields = ["id", "content", "memory_type", "created_at", "is_active"]
+def delete_message_turn(message_id: int) -> dict[str, Any] | None:
+    """按 trace_id 删除整轮对话（同一 turn 的 user+assistant）。"""
     row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM memories
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (memory_id,),
+        "SELECT id, session_id, role, trace_id FROM messages WHERE id = ? LIMIT 1",
+        (message_id,),
     )
-    return row_to_dict(row, fields)
-
-
-def update_memory(memory_id: int, content: str, memory_type: str):
-    affected = execute_write(
-        """
-        UPDATE memories
-        SET content = ?, memory_type = ?
-        WHERE id = ?
-        """,
-        (content, memory_type, memory_id),
-    )
-    if affected <= 0:
+    if row is None:
         return None
-    return get_memory_by_id(memory_id)
 
+    session_id = row["session_id"]
+    from app.storage.operations import operations
+    trace_id = row["trace_id"]
+    deleted_ids: list[int] = []
 
-def delete_memory(memory_id: int) -> bool:
-    affected = execute_write(
-        """
-        DELETE FROM memories
-        WHERE id = ?
-        """,
-        (memory_id,),
-    )
-    return affected > 0
+    with operations().invalidate(session_id, trace_id=trace_id, cancel_delivery=bool(trace_id)):
+        with get_conn() as conn:
+            if trace_id:
+                rows = conn.execute(
+                    """
+                    SELECT id FROM messages
+                    WHERE session_id = ? AND trace_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (session_id, trace_id),
+                ).fetchall()
+                deleted_ids = [int(item["id"]) for item in rows]
+                conn.execute(
+                    "DELETE FROM messages WHERE session_id = ? AND trace_id = ?",
+                    (session_id, trace_id),
+                )
+            else:
+                conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+                deleted_ids = [message_id]
 
-
-def set_memory_active(memory_id: int, is_active: bool) -> bool:
-    affected = execute_write(
-        "UPDATE memories SET is_active = ? WHERE id = ?",
-        (1 if is_active else 0, memory_id),
-    )
-    return affected > 0
-
-
-def memory_exists(content: str) -> bool:
-    row = fetch_one(
-        """
-        SELECT 1 FROM memories
-        WHERE content = ? AND is_active = 1
-        LIMIT 1
-        """,
-        (content,),
-    )
-    return row is not None
+        if deleted_ids:
+            placeholders = ','.join('?' for _ in deleted_ids)
+            execute_write(
+                f"DELETE FROM image_assets WHERE session_id=? AND message_id IN ({placeholders})",
+                (session_id, *deleted_ids),
+            )
+    return {
+        "message_id": int(row["id"]),
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "deleted_ids": deleted_ids,
+        "deleted_count": len(deleted_ids),
+        "deleted_scope": "turn" if trace_id else "message",
+    }
 
 
 def clear_session_messages(session_id: str) -> int:
-    return execute_write(
-        """
-        DELETE FROM messages
-        WHERE session_id = ?
-        """,
-        (session_id,),
-    )
+    from app.storage.operations import operations
+    with operations().invalidate(session_id):
+        with get_conn() as conn:
+            conn.execute("DELETE FROM image_assets WHERE session_id=?", (session_id,))
+            conn.execute("DELETE FROM image_turns WHERE session_id=?", (session_id,))
+            return conn.execute("DELETE FROM messages WHERE session_id=?", (session_id,)).rowcount
 
 
 def get_sessions():
@@ -854,366 +332,7 @@ def get_sessions():
     return rows_to_dicts(rows, ["session_id", "message_count", "last_message_at"])
 
 
-def upsert_proactive_target(
-    *,
-    platform: str,
-    session_id: str,
-    target_hash: str,
-    target_label: str,
-    real_user_id: str | None,
-    is_allowed: bool,
-    last_seen_at: str,
-) -> dict:
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO proactive_targets (
-                platform,
-                session_id,
-                target_hash,
-                target_label,
-                real_user_id,
-                is_allowed,
-                last_seen_at,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(platform, session_id) DO UPDATE SET
-                target_hash = excluded.target_hash,
-                target_label = excluded.target_label,
-                real_user_id = COALESCE(excluded.real_user_id, proactive_targets.real_user_id),
-                is_allowed = excluded.is_allowed,
-                last_seen_at = excluded.last_seen_at,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                platform,
-                session_id,
-                target_hash,
-                target_label,
-                real_user_id,
-                1 if is_allowed else 0,
-                last_seen_at,
-            ),
-        )
-
-    target = get_proactive_target_by_session(platform, session_id)
-    if target is None:
-        raise RuntimeError("proactive target upsert failed")
-    return target
-
-
-def _proactive_target_fields() -> list[str]:
-    return [
-        "id",
-        "platform",
-        "session_id",
-        "target_hash",
-        "target_label",
-        "real_user_id",
-        "is_allowed",
-        "last_seen_at",
-        "created_at",
-        "updated_at",
-    ]
-
-
-def get_proactive_target_by_session(platform: str, session_id: str) -> dict | None:
-    fields = _proactive_target_fields()
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_targets
-        WHERE platform = ?
-          AND session_id = ?
-        LIMIT 1
-        """,
-        (platform, session_id),
-    )
-    return row_to_dict(row, fields)
-
-
-def list_proactive_targets(limit: int = 20) -> list[dict]:
-    fields = _proactive_target_fields()
-    rows = fetch_all(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_targets
-        ORDER BY last_seen_at DESC, updated_at DESC, id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
-    return rows_to_dicts(rows, fields)
-
-
-def get_latest_allowed_proactive_target(platform: str) -> dict | None:
-    fields = _proactive_target_fields()
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_targets
-        WHERE platform = ?
-          AND is_allowed = 1
-          AND session_id != ''
-          AND target_hash != ''
-        ORDER BY last_seen_at DESC, updated_at DESC, id DESC
-        LIMIT 1
-        """,
-        (platform,),
-    )
-    return row_to_dict(row, fields)
-
-
-def get_latest_proactive_target(platform: str) -> dict | None:
-    fields = _proactive_target_fields()
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_targets
-        WHERE platform = ?
-          AND session_id != ''
-          AND target_hash != ''
-        ORDER BY last_seen_at DESC, updated_at DESC, id DESC
-        LIMIT 1
-        """,
-        (platform,),
-    )
-    return row_to_dict(row, fields)
-
-
-def _platform_routing_override_fields() -> list[str]:
-    return [
-        "id",
-        "platform",
-        "account_id",
-        "routing_key",
-        "session_id",
-        "is_active",
-        "operator",
-        "reason",
-        "created_at",
-        "updated_at",
-    ]
-
-
-def get_platform_routing_override(
-    *,
-    platform: str,
-    account_id: str,
-    routing_key: str,
-    active_only: bool = False,
-) -> dict | None:
-    fields = _platform_routing_override_fields()
-    where_active = "AND is_active = 1" if active_only else ""
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM platform_routing_overrides
-        WHERE platform = ?
-          AND account_id = ?
-          AND routing_key = ?
-          {where_active}
-        LIMIT 1
-        """,
-        (platform, account_id, routing_key),
-    )
-    return row_to_dict(row, fields)
-
-
-def upsert_platform_routing_override(
-    *,
-    platform: str,
-    account_id: str,
-    routing_key: str,
-    session_id: str,
-    operator: str | None = None,
-    reason: str | None = None,
-) -> dict:
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO platform_routing_overrides (
-                platform,
-                account_id,
-                routing_key,
-                session_id,
-                is_active,
-                operator,
-                reason,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(platform, account_id, routing_key) DO UPDATE SET
-                session_id = excluded.session_id,
-                is_active = 1,
-                operator = excluded.operator,
-                reason = excluded.reason,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                platform,
-                account_id,
-                routing_key,
-                session_id,
-                operator,
-                reason,
-            ),
-        )
-
-    record = get_platform_routing_override(
-        platform=platform,
-        account_id=account_id,
-        routing_key=routing_key,
-    )
-    if record is None:
-        raise RuntimeError("platform routing override upsert failed")
-    return record
-
-
-def clear_platform_routing_override(
-    *,
-    platform: str,
-    account_id: str,
-    routing_key: str,
-    operator: str | None = None,
-    reason: str | None = None,
-) -> dict | None:
-    current = get_platform_routing_override(
-        platform=platform,
-        account_id=account_id,
-        routing_key=routing_key,
-    )
-    if current is None:
-        return None
-
-    with get_conn() as conn:
-        conn.execute(
-            """
-            UPDATE platform_routing_overrides
-            SET is_active = 0,
-                operator = ?,
-                reason = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE platform = ?
-              AND account_id = ?
-              AND routing_key = ?
-            """,
-            (
-                operator,
-                reason,
-                platform,
-                account_id,
-                routing_key,
-            ),
-        )
-
-    return get_platform_routing_override(
-        platform=platform,
-        account_id=account_id,
-        routing_key=routing_key,
-    )
-
-
-def add_proactive_event(
-    *,
-    event_type: str,
-    platform: str | None = None,
-    target_label: str | None = None,
-    candidate_id: int | None = None,
-    action: str | None = None,
-    success: bool | None = None,
-    skipped: bool | None = None,
-    reason: str | None = None,
-    metadata_json: str = "{}",
-) -> dict:
-    with get_conn() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO proactive_events (
-                event_type,
-                platform,
-                target_label,
-                candidate_id,
-                action,
-                success,
-                skipped,
-                reason,
-                metadata_json
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_type,
-                platform,
-                target_label,
-                candidate_id,
-                action,
-                None if success is None else 1 if success else 0,
-                None if skipped is None else 1 if skipped else 0,
-                reason,
-                metadata_json,
-            ),
-        )
-        event_id = cursor.lastrowid
-
-    event = get_proactive_event(event_id)
-    if event is None:
-        raise RuntimeError("proactive event insert failed")
-    return event
-
-
-def _proactive_event_fields() -> list[str]:
-    return [
-        "id",
-        "created_at",
-        "event_type",
-        "platform",
-        "target_label",
-        "candidate_id",
-        "action",
-        "success",
-        "skipped",
-        "reason",
-        "metadata_json",
-    ]
-
-
-def get_proactive_event(event_id: int) -> dict | None:
-    fields = _proactive_event_fields()
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_events
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (event_id,),
-    )
-    return row_to_dict(row, fields)
-
-
-def list_proactive_events(limit: int = 50, event_type: str | None = None) -> list[dict]:
-    fields = _proactive_event_fields()
-    bounded_limit = max(1, min(int(limit), 200))
-    where = ""
-    params: tuple[Any, ...]
-    if event_type:
-        where = "WHERE event_type = ?"
-        params = (event_type, bounded_limit)
-    else:
-        params = (bounded_limit,)
-    rows = fetch_all(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_events
-        {where}
-        ORDER BY id DESC
-        LIMIT ?
-        """,
-        params,
-    )
-    return rows_to_dicts(rows, fields)
+# ── debug_events（trace 诊断） ──────────────────────────────────────────────
 
 
 def add_debug_event(
@@ -1234,17 +353,8 @@ def add_debug_event(
         cursor = conn.execute(
             """
             INSERT INTO debug_events (
-                trace_id,
-                module,
-                event,
-                level,
-                success,
-                skipped,
-                action,
-                reason,
-                target_label,
-                candidate_id,
-                metadata_json
+                trace_id, module, event, level, success, skipped,
+                action, reason, target_label, candidate_id, metadata_json
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -1263,36 +373,16 @@ def add_debug_event(
             ),
         )
         event_id = int(cursor.lastrowid)
+        # 保留最近 1000 条，防止无限膨胀
         conn.execute(
             """
             DELETE FROM debug_events
             WHERE id NOT IN (
-                SELECT id
-                FROM debug_events
-                ORDER BY id DESC
-                LIMIT 1000
+                SELECT id FROM debug_events ORDER BY id DESC LIMIT 1000
             )
             """
         )
         return event_id
-
-
-def _debug_event_fields() -> list[str]:
-    return [
-        "id",
-        "created_at",
-        "trace_id",
-        "module",
-        "event",
-        "level",
-        "success",
-        "skipped",
-        "action",
-        "reason",
-        "target_label",
-        "candidate_id",
-        "metadata_json",
-    ]
 
 
 def list_debug_events(
@@ -1303,7 +393,19 @@ def list_debug_events(
     trace_id: str | None = None,
     level: str | None = None,
 ) -> list[dict]:
-    fields = _debug_event_fields()
+    fields = [
+        "id",
+        "created_at",
+        "trace_id",
+        "module",
+        "event",
+        "level",
+        "success",
+        "skipped",
+        "action",
+        "reason",
+        "metadata_json",
+    ]
     bounded_limit = max(1, min(int(limit), 300))
     clauses = []
     params: list[Any] = []
@@ -1333,124 +435,23 @@ def list_debug_events(
     return rows_to_dicts(rows, fields)
 
 
-def add_proactive_candidate(
-    *,
-    platform: str,
-    target_hash: str,
-    target_label: str,
-    message: str,
-    reason: str,
-    status: str = "pending",
-    source: str = "manual",
-    metadata_json: str = "{}",
-) -> dict:
-    with get_conn() as conn:
-        cursor = conn.execute(
+def check_db_connection() -> bool:
+    try:
+        return fetch_one("SELECT 1 AS ok") is not None
+    except Exception:
+        return False
+
+
+def count_recent_error_events(hours: int = 24) -> int:
+    try:
+        row = fetch_one(
             """
-            INSERT INTO proactive_candidates (
-                platform,
-                target_hash,
-                target_label,
-                message,
-                reason,
-                status,
-                source,
-                metadata_json
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT COUNT(*) AS count
+            FROM debug_events
+            WHERE level = 'error' AND created_at >= datetime('now', ?)
             """,
-            (
-                platform,
-                target_hash,
-                target_label,
-                message,
-                reason,
-                status,
-                source,
-                metadata_json,
-            ),
+            (f"-{int(hours)} hours",),
         )
-        candidate_id = cursor.lastrowid
-
-    candidate = get_proactive_candidate(candidate_id)
-    if candidate is None:
-        raise RuntimeError("proactive candidate insert failed")
-    return candidate
-
-
-def get_proactive_candidate(candidate_id: int) -> dict | None:
-    fields = [
-        "id",
-        "created_at",
-        "platform",
-        "target_hash",
-        "target_label",
-        "message",
-        "reason",
-        "status",
-        "source",
-        "metadata_json",
-    ]
-    row = fetch_one(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_candidates
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (candidate_id,),
-    )
-    return row_to_dict(row, fields)
-
-
-def list_proactive_candidates(limit: int = 20) -> list[dict]:
-    fields = [
-        "id",
-        "created_at",
-        "platform",
-        "target_hash",
-        "target_label",
-        "message",
-        "reason",
-        "status",
-        "source",
-        "metadata_json",
-    ]
-    rows = fetch_all(
-        f"""
-        SELECT {", ".join(fields)}
-        FROM proactive_candidates
-        ORDER BY id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
-    return rows_to_dicts(rows, fields)
-
-
-def update_proactive_candidate_status(candidate_id: int, status: str) -> dict | None:
-    affected = execute_write(
-        """
-        UPDATE proactive_candidates
-        SET status = ?
-        WHERE id = ?
-        """,
-        (status, candidate_id),
-    )
-    if affected <= 0:
-        return None
-    return get_proactive_candidate(candidate_id)
-
-
-def update_proactive_candidate_metadata(candidate_id: int, metadata_json: str) -> dict | None:
-    affected = execute_write(
-        """
-        UPDATE proactive_candidates
-        SET metadata_json = ?
-        WHERE id = ?
-        """,
-        (metadata_json, candidate_id),
-    )
-    if affected <= 0:
-        return None
-    return get_proactive_candidate(candidate_id)
+        return int(row["count"] or 0) if row else 0
+    except Exception:
+        return 0

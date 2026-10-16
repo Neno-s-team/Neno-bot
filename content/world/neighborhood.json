@@ -1,0 +1,536 @@
+{
+  "version": "neighborhood-v1",
+  "description": "Generic fictional neighborhood. Credits are simulation units, not prices.",
+  "entities": [
+    {
+      "entity_id": "living",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "客厅",
+      "owner_id": "neno",
+      "state": {
+        "exits": [
+          "kitchen",
+          "bedroom",
+          "bathroom",
+          "balcony",
+          "street"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "kitchen",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "厨房",
+      "owner_id": "neno",
+      "state": {
+        "exits": [
+          "living"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "bedroom",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "卧室",
+      "owner_id": "neno",
+      "state": {
+        "exits": [
+          "living"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "bathroom",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "卫生间",
+      "owner_id": "neno",
+      "state": {
+        "exits": [
+          "living"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "balcony",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "阳台",
+      "owner_id": "neno",
+      "state": {
+        "exits": [
+          "living"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "street",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "街道",
+      "owner_id": null,
+      "state": {
+        "exits": [
+          "living",
+          "shop",
+          "cafe",
+          "park",
+          "neighbor_home"
+        ],
+        "open": true,
+        "weather": "clear"
+      }
+    },
+    {
+      "entity_id": "shop",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "便利店",
+      "owner_id": null,
+      "state": {
+        "exits": [
+          "street"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "cafe",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "咖啡店",
+      "owner_id": null,
+      "state": {
+        "exits": [
+          "street"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "park",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "公园",
+      "owner_id": null,
+      "state": {
+        "exits": [
+          "street"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "neighbor_home",
+      "kind": "place",
+      "type_id": "neno:place",
+      "label": "邻居住处",
+      "owner_id": "neighbor",
+      "state": {
+        "exits": [
+          "street"
+        ],
+        "open": true
+      }
+    },
+    {
+      "entity_id": "neno",
+      "kind": "actor",
+      "type_id": "neno:actor",
+      "label": "Neno",
+      "parent_id": "living",
+      "state": {
+        "active": true,
+        "credits": 100
+      }
+    },
+    {
+      "entity_id": "shopkeeper",
+      "kind": "actor",
+      "type_id": "neno:actor",
+      "label": "店员",
+      "parent_id": "shop",
+      "state": {
+        "active": true,
+        "credits": 100
+      }
+    },
+    {
+      "entity_id": "neighbor",
+      "kind": "actor",
+      "type_id": "neno:actor",
+      "label": "邻居",
+      "parent_id": "neighbor_home",
+      "state": {
+        "active": true,
+        "credits": 100
+      }
+    },
+    {
+      "entity_id": "kitchen_cabinet",
+      "kind": "item",
+      "type_id": "neno:cabinet",
+      "label": "橱柜",
+      "parent_id": "kitchen",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "cup_blue",
+      "kind": "item",
+      "type_id": "neno:cup",
+      "label": "杯子",
+      "parent_id": "kitchen_cabinet",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "bowl_1",
+      "kind": "item",
+      "type_id": "neno:bowl",
+      "label": "碗",
+      "parent_id": "kitchen_cabinet",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "plate_1",
+      "kind": "item",
+      "type_id": "neno:plate",
+      "label": "盘子",
+      "parent_id": "kitchen_cabinet",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "rice_1",
+      "kind": "item",
+      "type_id": "neno:rice",
+      "label": "米",
+      "parent_id": "kitchen_cabinet",
+      "owner_id": "neno",
+      "state": {
+        "quantity": 4
+      }
+    },
+    {
+      "entity_id": "egg_1",
+      "kind": "item",
+      "type_id": "neno:egg",
+      "label": "鸡蛋",
+      "parent_id": "kitchen_cabinet",
+      "owner_id": "neno",
+      "state": {
+        "quantity": 3
+      }
+    },
+    {
+      "entity_id": "stove_1",
+      "kind": "item",
+      "type_id": "neno:stove",
+      "label": "灶台",
+      "parent_id": "kitchen",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "sink_1",
+      "kind": "item",
+      "type_id": "neno:sink",
+      "label": "水槽",
+      "parent_id": "kitchen",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "pan_1",
+      "kind": "item",
+      "type_id": "neno:pan",
+      "label": "锅",
+      "parent_id": "kitchen",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "table_1",
+      "kind": "item",
+      "type_id": "neno:table",
+      "label": "桌子",
+      "parent_id": "living",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "lamp_1",
+      "kind": "item",
+      "type_id": "neno:lamp",
+      "label": "台灯",
+      "parent_id": "table_1",
+      "owner_id": "neno",
+      "state": {
+        "broken": true
+      }
+    },
+    {
+      "entity_id": "book_1",
+      "kind": "item",
+      "type_id": "neno:book",
+      "label": "书",
+      "parent_id": "table_1",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "toolbox",
+      "kind": "item",
+      "type_id": "neno:box",
+      "label": "收纳盒",
+      "parent_id": "living",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "screwdriver_1",
+      "kind": "item",
+      "type_id": "neno:screwdriver",
+      "label": "螺丝刀",
+      "parent_id": "toolbox",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "switch_1",
+      "kind": "item",
+      "type_id": "neno:switch",
+      "label": "替换开关",
+      "parent_id": "toolbox",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "water_bottle",
+      "kind": "item",
+      "type_id": "neno:bottle",
+      "label": "水瓶",
+      "parent_id": "table_1",
+      "owner_id": "neno",
+      "state": {
+        "volume_ml": 250,
+        "liquid": "water"
+      }
+    },
+    {
+      "entity_id": "desk_1",
+      "kind": "item",
+      "type_id": "neno:desk",
+      "label": "书桌",
+      "parent_id": "bedroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "bed_1",
+      "kind": "item",
+      "type_id": "neno:bed",
+      "label": "床",
+      "parent_id": "bedroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "wardrobe",
+      "kind": "item",
+      "type_id": "neno:cabinet",
+      "label": "橱柜",
+      "parent_id": "bedroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "shirt_1",
+      "kind": "item",
+      "type_id": "neno:shirt",
+      "label": "衬衫",
+      "parent_id": "wardrobe",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "umbrella_1",
+      "kind": "item",
+      "type_id": "neno:umbrella",
+      "label": "雨伞",
+      "parent_id": "living",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "sofa_1",
+      "kind": "item",
+      "type_id": "neno:sofa",
+      "label": "沙发",
+      "parent_id": "living",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "plant_1",
+      "kind": "item",
+      "type_id": "neno:plant",
+      "label": "盆栽",
+      "parent_id": "balcony",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "bath_sink",
+      "kind": "item",
+      "type_id": "neno:sink",
+      "label": "水槽",
+      "parent_id": "bathroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "towel_1",
+      "kind": "item",
+      "type_id": "neno:towel",
+      "label": "毛巾",
+      "parent_id": "bathroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "soap_1",
+      "kind": "item",
+      "type_id": "neno:soap",
+      "label": "肥皂",
+      "parent_id": "bathroom",
+      "owner_id": "neno",
+      "state": {}
+    },
+    {
+      "entity_id": "stock_bread",
+      "kind": "item",
+      "type_id": "neno:bread",
+      "label": "面包",
+      "parent_id": "shop",
+      "owner_id": "shopkeeper",
+      "state": {
+        "price_credits": 3,
+        "quantity": 12
+      }
+    },
+    {
+      "entity_id": "stock_apple",
+      "kind": "item",
+      "type_id": "neno:apple",
+      "label": "苹果",
+      "parent_id": "shop",
+      "owner_id": "shopkeeper",
+      "state": {
+        "price_credits": 2,
+        "quantity": 10
+      }
+    },
+    {
+      "entity_id": "stock_egg",
+      "kind": "item",
+      "type_id": "neno:egg",
+      "label": "鸡蛋",
+      "parent_id": "shop",
+      "owner_id": "shopkeeper",
+      "state": {
+        "price_credits": 1,
+        "quantity": 20
+      }
+    },
+    {
+      "entity_id": "stock_switch",
+      "kind": "item",
+      "type_id": "neno:switch",
+      "label": "替换开关",
+      "parent_id": "shop",
+      "owner_id": "shopkeeper",
+      "state": {
+        "price_credits": 5,
+        "quantity": 4
+      }
+    },
+    {
+      "entity_id": "stock_rice",
+      "kind": "item",
+      "type_id": "neno:rice",
+      "label": "米",
+      "parent_id": "shop",
+      "owner_id": "shopkeeper",
+      "state": {
+        "price_credits": 3,
+        "quantity": 10
+      }
+    },
+    {
+      "entity_id": "neighbor_book",
+      "kind": "item",
+      "type_id": "neno:book",
+      "label": "邻居的书",
+      "parent_id": "neighbor_home",
+      "owner_id": "neighbor"
+    }
+  ],
+  "daily_schedules": [
+    {
+      "id": "shop_open",
+      "hour": 9,
+      "operation": "shop_open"
+    },
+    {
+      "id": "shop_close",
+      "hour": 18,
+      "operation": "shop_close"
+    },
+    {
+      "id": "neighbor_walk",
+      "hour": 16,
+      "actor_id": "neighbor",
+      "destination": "park"
+    },
+    {
+      "id": "neighbor_return",
+      "hour": 17,
+      "actor_id": "neighbor",
+      "destination": "neighbor_home"
+    }
+  ],
+  "variants": [
+    {
+      "parent_id": "living",
+      "owner_id": "neno",
+      "types": [
+        "neno:magazine",
+        "neno:pen",
+        "neno:tissue"
+      ],
+      "min": 2,
+      "max": 5
+    },
+    {
+      "parent_id": "cafe",
+      "types": [
+        "neno:table",
+        "neno:chair",
+        "neno:cup"
+      ],
+      "min": 4,
+      "max": 8
+    }
+  ]
+}

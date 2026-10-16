@@ -1,0 +1,31 @@
+{
+  "version": "catalog-09cceb87b1da28b5",
+  "types": 3537,
+  "source_synsets": 3484,
+  "authored_types": 53,
+  "interactive": 259,
+  "metadata_only": 3278,
+  "bytes": 2108091,
+  "sources": [
+    {
+      "file": "taxonomy.json",
+      "url": "https://raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/6cbf70b075816096e9be53958780769f3264d25d/bddl3/bddl/generated_data/output_hierarchy_properties.json",
+      "commit": "6cbf70b075816096e9be53958780769f3264d25d",
+      "sha256": "0fe0dd0dc2064a3a94e076ba92cc2ce3b1e30681aae81fa42b00308428c0acda",
+      "bytes": 7942085,
+      "license": "MIT"
+    },
+    {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/6cbf70b075816096e9be53958780769f3264d25d/bddl3/LICENSE",
+      "commit": "6cbf70b075816096e9be53958780769f3264d25d",
+      "sha256": "7cdbfab482b23a4d925d59ff169ab0bc5f8c97ceb0db79f9fd5bf46ef8aa1556",
+      "bytes": 1089,
+      "license": "MIT"
+    }
+  ],
+  "limitations": [
+    "Only explicitly mapped abilities execute; source metadata is not a physics engine.",
+    "English source labels are preserved; authored content supplies Chinese aliases."
+  ]
+}

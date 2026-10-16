@@ -24,8 +24,14 @@ foreach ($procId in $pids) {
 }
 if ($pids) { Start-Sleep -Milliseconds 800 }  # 等端口释放
 
-# --- 启动：隐藏窗口、后台、日志重定向 ---
+# --- 启动：隐藏窗口、后台、日志重定向（旧日志先轮转，防止覆盖丢证据）---
 New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "logs") | Out-Null
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+foreach ($log in @($OutLog, $ErrLog)) {
+    if (Test-Path -LiteralPath $log) {
+        Move-Item -LiteralPath $log -Destination "$log.$stamp.bak" -Force
+    }
+}
 Start-Process -FilePath $Python `
     -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") `
     -WorkingDirectory $ProjectRoot `

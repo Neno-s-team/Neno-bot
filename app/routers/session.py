@@ -43,7 +43,6 @@ def session_clear(req: SessionRequest):
         "success": True,
         "session_id": req.session_id,
         "deleted": deleted,
-        "message": f"已清空会话：{req.session_id}",
     }
 
 

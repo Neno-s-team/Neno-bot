@@ -113,8 +113,6 @@ class _BatchState:
 
 @dataclass
 class _SessionAggregationState:
-    next_arrival_seq: int = 1
-    next_batch_seq: int = 1
     open_batch_id: str | None = None
     batches: dict[str, _BatchState] = field(default_factory=dict)
 
@@ -131,6 +129,8 @@ class SessionAggregationController:
         self._scheduler = scheduler if scheduler is not None else _RealTimerScheduler()
         self._lock = threading.RLock()
         self._sessions: dict[str, _SessionAggregationState] = {}
+        self._next_arrival_seq = 1
+        self._next_batch_seq = 1
         self._recent_limit = max(20, recent_limit)
         self._recent_batches: list[dict[str, Any]] = []
         self._recent_sources: list[dict[str, Any]] = []
@@ -211,12 +211,12 @@ class SessionAggregationController:
         deadline_iso = datetime.fromtimestamp(
             time.time() + self.window_seconds,
         ).isoformat(timespec="milliseconds")
-        batch_id = f"{session_id}#batch-{state.next_batch_seq}"
-        state.next_batch_seq += 1
+        batch_id = f"{session_id}#batch-{self._next_batch_seq}"
+        self._next_batch_seq += 1
         batch = _BatchState(
             session_id=session_id,
             batch_id=batch_id,
-            batch_seq=state.next_batch_seq - 1,
+            batch_seq=self._next_batch_seq - 1,
             opened_at=now,
             deadline_at=deadline_iso,
             opened_monotonic=opened_monotonic,
@@ -264,8 +264,8 @@ class SessionAggregationController:
                     aggregate_window_seconds=self.window_seconds,
                 )
 
-            arrival_seq = state.next_arrival_seq
-            state.next_arrival_seq += 1
+            arrival_seq = self._next_arrival_seq
+            self._next_arrival_seq += 1
             ticket = AggregationTicket(
                 session_id=session_id,
                 arrival_seq=arrival_seq,
@@ -522,7 +522,7 @@ class SessionAggregationController:
                         self._append_recent_source(item.source_snapshot)
                 self._refresh_batch_snapshot(batch)
                 self._close_batch_locked(batch)
-            raise
+            return
 
         with self._lock:
             state = self._sessions.get(session_id)
@@ -551,6 +551,8 @@ class SessionAggregationController:
             if state.open_batch_id == batch.batch_id:
                 state.open_batch_id = None
             state.batches.pop(batch.batch_id, None)
+            if state.open_batch_id is None and not state.batches:
+                self._sessions.pop(batch.session_id, None)
         if batch.timer is not None:
             batch.timer.cancel()
         self._append_recent_batch(batch.batch_snapshot)
