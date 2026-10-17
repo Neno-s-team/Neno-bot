@@ -240,12 +240,21 @@ def run_cycle(
     skip_l2: bool = False,
     plan_patch: dict[str, Any] | None = None,
     preset_l1_json: str | None = None,
+    allow_fallback: bool = True,
 ) -> str:
+    """allow_fallback=False（异步作业）：L1/E2/E3 失败直接抛出，由作业重试，
+    不退回不带人设卡的旧单次调用（那会产出"我是 AI"之类的出戏回复）。"""
+
+    def _fallback() -> str:
+        if not allow_fallback:
+            raise RuntimeError("mind cycle failed; async job will retry")
+        return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+
     if not config.MIND_ENABLED:
         raise RuntimeError("run_cycle called while MIND_ENABLED is false")
     if not config.MIND_L1_MODEL:
         log_event("mind", "mind_l1_model_missing", trace_id=trace_id, session_id=session_id)
-        return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+        return _fallback()
     if not messages:
         from app.services.chat_service import build_chat_messages
 
@@ -315,7 +324,7 @@ def run_cycle(
                 reason="L1 failed",
             )
             update_cycle(cycle_id, status="failed", error=f"L1: {type(exc).__name__}")
-            return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+            return _fallback()
     else:
         l1 = L1Appraisal.from_dict(json.loads(existing["l1_json"]))
 
@@ -405,7 +414,7 @@ def run_cycle(
                 reason="E2 failed",
             )
             update_cycle(cycle_id, status="failed", error=f"E2: {type(exc).__name__}")
-            return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+            return _fallback()
     else:
         expr_text = existing["expr_text"]
 
@@ -424,7 +433,7 @@ def run_cycle(
                 reason="E3 failed",
             )
             update_cycle(cycle_id, status="failed", error=f"E3: {type(exc).__name__}")
-            return _llm_gateway.generate_chat_reply(messages, trace_id=trace_id, session_id=session_id)
+            return _fallback()
     else:
         final_text = existing["final_text"]
         update_cycle(cycle_id, status="completed")

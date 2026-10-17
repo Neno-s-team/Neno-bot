@@ -339,6 +339,7 @@ def run_async_cycle(
         skip_l2=skip_l2,
         plan_patch=plan_patch,
         preset_l1_json=l1_json,
+        allow_fallback=False,
     )
     if not final_text.strip():
         return cycle_id

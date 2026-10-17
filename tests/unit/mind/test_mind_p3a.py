@@ -1286,3 +1286,35 @@ def test_new_message_while_thinking_merges(mind_env, fake_provider, monkeypatch)
     assert texts and all(r["status"] == "cancelled" for r in texts)
     jobs = store.list_pending_deferred(session)
     assert len(jobs) == 1 and json.loads(jobs[0]["trace_ids_json"]) == ["a", "b"]
+
+
+def test_async_e2_failure_retries_without_persona_less_fallback(mind_env, fake_provider, monkeypatch):
+    """异步作业里 E2 网络失败：不走旧单次调用兜底，作业退回 pending，重试后正常出句。"""
+    monkeypatch.setattr(config, "MIND_SETTLE_SEC", {})
+    fake_provider.l1_depth = "fast"
+    fake_provider.l1_reply_will = "now"
+    fallback_calls = []
+    monkeypatch.setattr("app.services.mind.cycle._llm_gateway.generate_chat_reply",
+                        lambda *a, **k: fallback_calls.append(1) or "我是AI")
+    real_e2 = __import__("app.services.mind.expression", fromlist=["run_e2"]).run_e2
+    state = {"n": 0}
+
+    def flaky_e2(**kwargs):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("SSLError")
+        return real_e2(**kwargs)
+
+    monkeypatch.setattr("app.services.mind.cycle.expression.run_e2", flaky_e2)
+    session = "s-e2"
+    _force_opened(session, "t1")
+    orchestration.handle_opened(session, ["t1"])
+    job_id = int(store.get_perception_by_trace("t1")["deferred_id"])
+    mind_scheduler.process_deferred(session, job_id)
+    assert fallback_calls == []
+    assert store.get_deferred(job_id)["status"] == "pending"
+    mind_scheduler.process_deferred(session, job_id)
+    assert store.get_deferred(job_id)["status"] == "done"
+    texts = [json.loads(r["payload_json"])["text"] for r in _deliveries(session) if r["kind"] == "text"]
+    assert texts == ["好哦"]
+    assert fallback_calls == []
