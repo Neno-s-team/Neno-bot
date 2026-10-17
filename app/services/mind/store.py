@@ -335,6 +335,56 @@ def open_unread_perceptions(session_id: str, seen_at: float) -> int:
     return len(rows)
 
 
+def session_has_inflight_reply(session_id: str) -> bool:
+    """她正在想（作业 running）或正在发（text/sticker/typing 还没发完）。"""
+    row = fetch_one(
+        """SELECT
+             (SELECT COUNT(*) FROM mind_deferred
+                WHERE session_id = ? AND status = 'running') +
+             (SELECT COUNT(*) FROM mind_delivery
+                WHERE session_id = ? AND status IN ('pending', 'claimed')
+                  AND kind IN ('text', 'sticker', 'typing')) AS count""",
+        (session_id, session_id),
+    )
+    return bool(row and int(row["count"] or 0) > 0)
+
+
+def newer_unseen_perceptions(session_id: str, after: float) -> list[dict[str, Any]]:
+    """received_at 晚于 after、还没被点开的感知（pending/previewed）。"""
+    rows = fetch_all(
+        """SELECT * FROM mind_perception
+           WHERE session_id = ? AND received_at > ? AND retracted = 0
+             AND status IN ('pending', 'previewed')
+           ORDER BY received_at ASC""",
+        (session_id, after),
+    )
+    return [dict(row) for row in rows]
+
+
+def newer_unhandled_perceptions(session_id: str, after: float) -> list[dict[str, Any]]:
+    """received_at 晚于 after、还没开始想的感知（未点开/已点开/在 pending 作业里排队）。"""
+    rows = fetch_all(
+        """SELECT * FROM mind_perception
+           WHERE session_id = ? AND received_at > ? AND retracted = 0
+             AND (status IN ('pending', 'previewed', 'opened')
+                  OR (status = 'queued' AND deferred_id IN (
+                        SELECT id FROM mind_deferred WHERE status = 'pending')))
+           ORDER BY received_at ASC""",
+        (session_id, after),
+    )
+    return [dict(row) for row in rows]
+
+
+def reopen_queued_perceptions(deferred_id: int) -> None:
+    """作业作废：本作业 queue 的 perception 改回 opened（解绑作业）。"""
+    execute_write(
+        """UPDATE mind_perception
+           SET status='opened', deferred_id=NULL, updated_at=?
+           WHERE deferred_id=? AND status='queued' AND retracted=0""",
+        (clock.now(), deferred_id),
+    )
+
+
 def count_pending_perceptions(session_id: str, before: float) -> int:
     row = fetch_one(
         """SELECT COUNT(*) AS count FROM mind_perception

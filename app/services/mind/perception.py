@@ -74,11 +74,28 @@ def sample_glance_time(received_at: float, unread_count: int, session_id: str, t
     return fallback if fallback is not None else limit
 
 
+def _in_chat(session_id: str, ts: float) -> bool:
+    """课表等级 >=2 且她正在回这个聊天，或最后活动在 linger 秒内。"""
+    linger = max(0, int(config.MIND_IN_CHAT_LINGER_SEC))
+    if not linger:
+        return False
+    if int(schedule.segment_at(ts).get("level", 3)) < 2:
+        return False
+    if store.session_has_inflight_reply(session_id):
+        return True
+    last = store.last_self_activity(session_id, ts)
+    return last is not None and ts - last <= linger
+
+
 def create_perception(session_id: str, trace_id: str, *, received_at: float | None = None) -> dict[str, Any] | None:
     """收到消息：确定性抽样 glance_at 并落库；同 trace 重复调用复用记录。"""
     ts = clock.now() if received_at is None else received_at
     unread = store.count_pending_perceptions(session_id, ts) + 1
-    glance_at = sample_glance_time(ts, unread, session_id, trace_id)
+    if _in_chat(session_id, ts):
+        # 她就在这个聊天里（正在想/正在发/刚发完）：新消息几秒内就看到
+        glance_at = ts + max(0.0, float(config.MIND_IN_CHAT_GLANCE_SEC))
+    else:
+        glance_at = sample_glance_time(ts, unread, session_id, trace_id)
     store.create_perception(session_id, trace_id, ts, glance_at)
     record = store.get_perception_by_trace(trace_id)
     if record and record["glance_at"] != glance_at and record["status"] != "pending":

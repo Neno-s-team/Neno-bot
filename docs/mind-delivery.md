@@ -76,6 +76,9 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 
 ### 作业合批规则
 
+- **她在聊天里**：课表等级 ≥2，且她正在想（作业 running）/正在发（text/typing 未发完）/最后活动在 `MIND_IN_CHAT_LINGER_SEC`（60）秒内 → 新消息不抽样，`glance_at = 收到 + MIND_IN_CHAT_GLANCE_SEC`（2s）。
+- **等停顿再想**：回复作业 `due_at = min(本批及更新未读的最后收到时刻 + MIND_SETTLE_SEC[等级], 点开 + MIND_SETTLE_MAX_SEC)`，默认等级 4=5s、2/3=10s、上限 30s。
+- **想到一半被打断**：作业跑完周期后，若本批之后还有没开始想的新消息且本轮一句未发 → 取消本轮投递、作业 cancelled、trace 改回 opened，记"未送达"经历；新消息已点开则立即合批重决策，未点开则等它 glance。卡住恢复在有即将 glance 的新消息时让路。
 - **点开即看到全部未读**：任一条 glance 结果为 opened 时，同 session 已收到、未撤回的 pending/previewed 感知一并置 opened（同一 `seen_at`，各自 mark_read），进同一批决策。
 - **pending 合批重想**：新消息被点开时，如果该会话有 `status='pending'` 的回复作业：旧作业置 `cancelled`，其 trace 改回 `opened`，与新消息合成一批重新跑一次 L1，写一个新作业。
 - **pending 的深想作业同样参与合批重想**：`quick_reply_then_think` 尚未开始时与新消息点开重叠，也会被取消并重新合批。

@@ -59,6 +59,10 @@ def recover_stuck_opened() -> int:
     for row in rows:
         by_session.setdefault(row["session_id"], []).append(str(row["trace_id"]))
     for session_id, trace_ids in by_session.items():
+        # 有新消息马上就要被看到（如想到一半被打断后）：等它点开时一起合批，不单独恢复
+        if any(float(item["glance_at"]) <= ts + grace
+               for item in store.newer_unseen_perceptions(session_id, 0.0)):
+            continue
         records = [store.get_perception_by_trace(item) for item in trace_ids]
         ids = [int(r["id"]) for r in records if r is not None]
         max_attempts = max(1, int(config.MIND_JOB_MAX_ATTEMPTS))

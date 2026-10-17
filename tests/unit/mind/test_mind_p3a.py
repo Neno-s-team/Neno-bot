@@ -1214,3 +1214,75 @@ def test_open_sees_all_unread_in_session(mind_env, fake_provider, monkeypatch):
     assert reads == ["a", "b"]
     job = store.get_deferred(1)
     assert json.loads(job["trace_ids_json"]) == ["a", "b"]
+
+
+def test_in_chat_new_message_glanced_fast(mind_env, fake_provider, monkeypatch):
+    """她刚发完消息（linger 内）：新消息不再抽样，IN_CHAT_GLANCE 秒后就看到；超出 linger 恢复抽样。"""
+    monkeypatch.setattr(perception, "_seed_float", lambda s, t: 0.5)
+    monkeypatch.setattr(config, "MIND_L0_LAMBDA_PER_MIN", {"0": 0, "1": 0.025, "2": 0.12, "3": 0.35, "4": 3.0})
+    monkeypatch.setattr(config, "MIND_IN_CHAT_LINGER_SEC", 60)
+    monkeypatch.setattr(config, "MIND_IN_CHAT_GLANCE_SEC", 2.0)
+    t_noon = datetime(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = t_noon
+    session = "s-inchat"
+    _opened_perception(session, "old", t_noon - 30)
+    add_message(session, "user", "在吗", trace_id="n1")
+    rec = perception.create_perception(session, "n1")
+    assert rec["glance_at"] == t_noon + 2.0
+    mind_env["clock"]["t"] = t_noon + 200
+    add_message(session, "user", "人呢", trace_id="n2")
+    rec2 = perception.create_perception(session, "n2")
+    # n1 仍未读 → unread=2，λ 乘 1.2
+    expected = t_noon + 200 + (-math.log(0.5)) / (0.35 * 1.2) * 60
+    assert abs(rec2["glance_at"] - expected) < 0.01
+
+
+def test_settle_waits_for_pause(mind_env, fake_provider, monkeypatch):
+    """点开后按等级等对方停顿：等级3 等最后一条 +10s；有未点开的更新消息按它算；最长 30s。"""
+    monkeypatch.setattr(config, "MIND_SETTLE_SEC", {"3": 10, "4": 5})
+    monkeypatch.setattr(config, "MIND_SETTLE_MAX_SEC", 30.0)
+    monkeypatch.setattr(config, "MIND_IN_CHAT_LINGER_SEC", 0)
+    t_noon = datetime(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = t_noon
+    session = "s-settle"
+    _force_opened(session, "a", seen_at=t_noon)
+    assert orchestration._settle_due(session, ["a"], 3) == t_noon + 10
+    mind_env["clock"]["t"] = t_noon + 8
+    add_message(session, "user", "还有", trace_id="b")
+    perception.create_perception(session, "b")
+    assert orchestration._settle_due(session, ["a"], 3) == t_noon + 18
+    assert orchestration._settle_due(session, ["a"], 4) == t_noon + 13
+    mind_env["clock"]["t"] = t_noon + 40
+    add_message(session, "user", "再来", trace_id="c")
+    perception.create_perception(session, "c")
+    assert orchestration._settle_due(session, ["a"], 3) == t_noon + 40
+
+
+def test_new_message_while_thinking_merges(mind_env, fake_provider, monkeypatch):
+    """想到一半（作业 running）来了新消息并已点开：本轮作废、一句不发，两条合批重想。"""
+    monkeypatch.setattr(config, "MIND_SETTLE_SEC", {})
+    fake_provider.l1_depth = "fast"
+    fake_provider.l1_reply_will = "now"
+    session = "s-think"
+    t_noon = datetime(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = t_noon
+    _force_opened(session, "a")
+    orchestration.handle_opened(session, ["a"])
+    job_a = store.get_deferred(store.get_perception_by_trace("a")["deferred_id"])
+    orig = orchestration.run_async_cycle
+
+    def cycle_with_arrival(*args, **kwargs):
+        result = orig(*args, **kwargs)
+        mind_env["clock"]["t"] = t_noon + 5
+        _force_opened(session, "b")
+        orchestration.handle_opened(session, ["b"])
+        return result
+
+    monkeypatch.setattr(orchestration, "run_async_cycle", cycle_with_arrival)
+    orchestration.run_reply_job(int(job_a["id"]))
+    monkeypatch.setattr(orchestration, "run_async_cycle", orig)
+    assert store.get_deferred(int(job_a["id"]))["status"] == "cancelled"
+    texts = [r for r in _deliveries(session) if r["kind"] in ("text", "typing")]
+    assert texts and all(r["status"] == "cancelled" for r in texts)
+    jobs = store.list_pending_deferred(session)
+    assert len(jobs) == 1 and json.loads(jobs[0]["trace_ids_json"]) == ["a", "b"]

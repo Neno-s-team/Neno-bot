@@ -86,13 +86,13 @@ def _decide(
     if level == 2:
         if l1.depth == "fast":
             _enqueue_reply_job(session_id, trace_ids, l1,
-                               due_at=clock.now(), reason="level2_fast",
+                               due_at=_settle_due(session_id, trace_ids, level), reason="level2_fast",
                                force_short=True, max_messages=2)
             return
         if l1.reply_will == "now":
             # 先短回一条；之后再等等级 >=3 深想一次
             _enqueue_reply_job(session_id, trace_ids, l1,
-                               due_at=clock.now(), reason="quick_reply",
+                               due_at=_settle_due(session_id, trace_ids, level), reason="quick_reply",
                                force_short=True, max_messages=1)
             # 等级2先短回、之后出队时按当时状态重想：短回已 ack 进历史，深想能看到
             # 但当前作业还没 done，不能复用同一条 pending（会因单 pending 合并被吞掉）。
@@ -102,7 +102,28 @@ def _decide(
         deferred.enqueue(session_id, trace_ids, due, reason="level2_busy")
         return
     _enqueue_reply_job(session_id, trace_ids, l1,
-                       due_at=clock.now(), reason="reply_now")
+                       due_at=_settle_due(session_id, trace_ids, level), reason="reply_now")
+
+
+def _settle_due(session_id: str, trace_ids: list[str], level: int) -> float:
+    """点开后等对方停顿再开始想：最后一条未处理消息 + N 秒，最长从点开起等 MAX 秒。"""
+    now = clock.now()
+    settle = float((config.MIND_SETTLE_SEC or {}).get(str(level), 0) or 0)
+    if settle <= 0:
+        return now
+    latest = 0.0
+    earliest_seen = now
+    for trace_id in trace_ids:
+        record = store.get_perception_by_trace(trace_id)
+        if record is None:
+            continue
+        latest = max(latest, float(record["received_at"] or 0))
+        if record.get("seen_at"):
+            earliest_seen = min(earliest_seen, float(record["seen_at"]))
+    for record in store.newer_unseen_perceptions(session_id, latest):
+        latest = max(latest, float(record["received_at"] or 0))
+    due = min(latest + settle, earliest_seen + max(settle, float(config.MIND_SETTLE_MAX_SEC)))
+    return max(now, due)
 
 
 def _enqueue_reply_job(
@@ -211,6 +232,19 @@ def run_reply_job(deferred_id: int) -> str | None:
         force_short=bool(payload.get("force_short")),
         max_messages=payload.get("max_messages"),
     )
+    if _interrupted_while_thinking(job["session_id"], trace_ids, cycle_id):
+        # 想到一半来了新消息、一句还没发：作废本轮，trace 改回 opened，等新消息点开时合批重想
+        store.cancel_remaining_deliveries(cycle_id)
+        store.update_deferred(deferred_id, status="cancelled", cycle_id=cycle_id)
+        store.reopen_queued_perceptions(deferred_id)
+        _record_unsent(job["session_id"], cycle_id, reason="想到一半看到新消息")
+        log_event("mind", "reply_job_interrupted", session_id=job["session_id"],
+                  candidate_id=deferred_id, cycle_id=cycle_id)
+        # 新消息已点开（或已排进 pending 作业）：现在就合批重决策；没点开的等它 glance 时再合
+        if any(item["status"] in ("opened", "queued")
+               for item in store.newer_unhandled_perceptions(job["session_id"], 0.0)):
+            handle_opened(job["session_id"], _open_traces(job["session_id"]))
+        return None
     store.update_deferred(deferred_id, status="done", cycle_id=cycle_id)
     # 只把本作业 queue 的 perception 置 decided，不碰并发改回 opened 的行
     store.decide_queued_perceptions(deferred_id)
@@ -231,6 +265,18 @@ def run_reply_job(deferred_id: int) -> str | None:
             perception_ids, int(deep_job["id"]), allow_from=("opened", "decided")
         )
     return cycle_id
+
+
+def _interrupted_while_thinking(session_id: str, trace_ids: list[str], cycle_id: str) -> bool:
+    """本批最后一条之后又来了没处理的新消息，且本轮一句都还没发出。"""
+    if store.cycle_has_sent_text(cycle_id):
+        return False
+    latest = 0.0
+    for trace_id in trace_ids:
+        record = store.get_perception_by_trace(trace_id)
+        if record is not None:
+            latest = max(latest, float(record["received_at"] or 0))
+    return bool(store.newer_unhandled_perceptions(session_id, latest))
 
 
 def _job_payload(job: dict[str, Any]) -> dict[str, Any]:

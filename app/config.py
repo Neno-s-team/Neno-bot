@@ -148,3 +148,9 @@ MIND_DELIVERY_LEASE_SEC = _env_int("MIND_DELIVERY_LEASE_SEC", 60)
 MIND_JOB_MAX_ATTEMPTS = _env_int("MIND_JOB_MAX_ATTEMPTS", 3)
 # opened 卡住多久后由调度器恢复重决策（秒）
 MIND_OPENED_GRACE_SEC = _env_int("MIND_OPENED_GRACE_SEC", 30)
+# 她在聊天里（刚发完/正在想/正在发）时新消息几秒后就看到；linger=她最后活动后仍算在聊天里的秒数，0=关闭
+MIND_IN_CHAT_LINGER_SEC = _env_int("MIND_IN_CHAT_LINGER_SEC", 60)
+MIND_IN_CHAT_GLANCE_SEC = _env_float("MIND_IN_CHAT_GLANCE_SEC", 2.0)
+# 点开后等对方停顿多少秒再开始想（按收到时的等级），最长等 MIND_SETTLE_MAX_SEC
+MIND_SETTLE_SEC = json.loads(os.getenv("MIND_SETTLE_SEC", "").strip() or '{"2": 10, "3": 10, "4": 5}')
+MIND_SETTLE_MAX_SEC = _env_float("MIND_SETTLE_MAX_SEC", 30.0)
