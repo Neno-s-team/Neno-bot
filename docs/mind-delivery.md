@@ -76,6 +76,7 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 
 ### 作业合批规则
 
+- **点开即看到全部未读**：任一条 glance 结果为 opened 时，同 session 已收到、未撤回的 pending/previewed 感知一并置 opened（同一 `seen_at`，各自 mark_read），进同一批决策。
 - **pending 合批重想**：新消息被点开时，如果该会话有 `status='pending'` 的回复作业：旧作业置 `cancelled`，其 trace 改回 `opened`，与新消息合成一批重新跑一次 L1，写一个新作业。
 - **pending 的深想作业同样参与合批重想**：`quick_reply_then_think` 尚未开始时与新消息点开重叠，也会被取消并重新合批。
 - **running 不打扰**：旧作业已经是 `running`（正在生成回复）时，新消息单独决策、单独成作业，不动旧作业。

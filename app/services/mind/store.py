@@ -322,6 +322,19 @@ def pending_perceptions(session_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def open_unread_perceptions(session_id: str, seen_at: float) -> int:
+    """点开聊天：同 session 已收到、未撤回的 pending/previewed 一律置 opened（同一 seen_at）。"""
+    rows = fetch_all(
+        """SELECT id FROM mind_perception
+           WHERE session_id = ? AND status IN ('pending', 'previewed') AND retracted = 0
+             AND received_at <= ?""",
+        (session_id, seen_at),
+    )
+    for row in rows:
+        update_perception(int(row["id"]), seen="opened", seen_at=seen_at, status="opened")
+    return len(rows)
+
+
 def count_pending_perceptions(session_id: str, before: float) -> int:
     row = fetch_one(
         """SELECT COUNT(*) AS count FROM mind_perception

@@ -37,6 +37,8 @@ def process_glance(session_id: str, trace_id: str) -> None:
             return
         after = perception.glance(session_id, trace_id)
         if after and after["status"] == "opened" and after["seen"] == "opened":
+            # 点开聊天就看到全部未读：同 session 其余 pending/previewed 一起置 opened
+            store.open_unread_perceptions(session_id, float(after["seen_at"]))
             trace_ids = _open_batch(session_id)
             if trace_ids:
                 from app.services.mind import orchestration

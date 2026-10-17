@@ -1187,3 +1187,30 @@ from app.services.mind import perception, schedule  # noqa: E402
 
 
 
+
+
+def test_open_sees_all_unread_in_session(mind_env, fake_provider, monkeypatch):
+    """点开聊天时同 session 早到但 glance_at 更晚的未读也一起被看到、并进同一批。"""
+    monkeypatch.setattr(perception, "_seed_float", lambda s, t: {"a": 0.99, "b": 0.01}[t])
+    fake_provider.l1_depth = "fast"
+    t_noon = datetime(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = t_noon
+    session = "s-open-all"
+    add_message(session, "user", "刷手机", trace_id="a")
+    rec_a = perception.create_perception(session, "a")
+    mind_env["clock"]["t"] = t_noon + 16
+    add_message(session, "user", "我刚吃完饭", trace_id="b")
+    rec_b = perception.create_perception(session, "b")
+    assert rec_b["glance_at"] < rec_a["glance_at"]
+
+    mind_env["clock"]["t"] = rec_b["glance_at"] + 1
+    mind_scheduler.process_due_batch()
+
+    a = store.get_perception_by_trace("a")
+    b = store.get_perception_by_trace("b")
+    assert a["seen"] == "opened" and a["seen_at"] == b["seen_at"]
+    reads = sorted(json.loads(r["payload_json"])["trace_ids"][0]
+                   for r in _deliveries(session) if r["kind"] == "mark_read")
+    assert reads == ["a", "b"]
+    job = store.get_deferred(1)
+    assert json.loads(job["trace_ids_json"]) == ["a", "b"]
