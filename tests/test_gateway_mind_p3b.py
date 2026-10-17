@@ -819,3 +819,18 @@ def test_receipt_skips_inflight(tmp_path, monkeypatch):
     runner.receipt({"@type": "updateMessageSendSucceeded", "old_message_id": 650,
                     "message": {"id": 950, "chat_id": 42}})
     assert core.acks == []
+
+
+def test_stale_outbox_row_from_other_session_does_not_block(tmp_path, monkeypatch):
+    """outbox 里同 id 的残留行（别的会话/类型）不能吞掉新投递。"""
+    tdlib = FakeTdlib()
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    runner.outbox.begin(30, "tg:43", "sticker")
+    runner.outbox.mark_failed(30, "unknown sticker")
+    runner.outbox.mark_ack(30)
+    asyncio.run(runner._execute(42, _text_item(30, "要发出去")))
+    assert len(tdlib.requests) == 1
+    local = runner.outbox.get(30)
+    assert local["session_id"] == "tg:42" and local["kind"] == "text"
+    assert local["state"] == "sent" and local["acked"] == 1

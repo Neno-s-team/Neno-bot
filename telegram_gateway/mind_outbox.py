@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -47,6 +48,17 @@ class MindOutbox:
             row = c.execute(
                 "SELECT * FROM mind_outbox WHERE delivery_id=?", (delivery_id,)
             ).fetchone()
+            if row is not None and (row["session_id"] != session_id or row["kind"] != kind):
+                # 同 id 但会话/类型不符：残留行（库被替换或测试写入），作废后按新项执行
+                logging.warning("mind outbox stale row replaced delivery=%s", delivery_id)
+                c.execute("DELETE FROM mind_outbox WHERE delivery_id=?", (delivery_id,))
+                c.execute(
+                    """INSERT INTO mind_outbox(
+                         delivery_id, session_id, kind, state, payload_json, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (delivery_id, session_id, kind, "pending", payload_json, now, now),
+                )
+                return None
             return dict(row) if row is not None else None
 
     def find_by_local_id(self, local_id: int) -> dict[str, Any] | None:
