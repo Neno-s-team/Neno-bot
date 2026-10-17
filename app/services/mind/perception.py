@@ -32,13 +32,36 @@ def _lambda(level: int, unread_count: int) -> float:
 
 
 def sample_glance_time(received_at: float, unread_count: int, session_id: str, trace_id: str) -> float:
-    """从 received_at 沿课表累加 λ·Δt，达到目标风险 H=-ln(1-u) 的时刻。"""
+    """从 received_at 沿课表累加 λ·Δt，达到目标风险 H=-ln(1-u) 的时刻。
+
+    专注窗口叠加：[received_at, focus_until) 内课表等级 >=3 的部分按等级 4 的
+    λ 计算（她刚活动过）；窗口之后按课表原始等级。等级 <=2 的时段永不升级。
+    窗口只按收到消息那一刻已有的活动计算，抽样保持确定性。
+    """
     u = _seed_float(session_id, trace_id)
     target = -math.log(1.0 - u)
     accumulated = 0.0
     limit = received_at + _MAX_SIM_HOURS * 3600
+    window = max(0, int(config.MIND_FOCUS_WINDOW_MIN)) * 60
+    last = store.last_self_activity(session_id, received_at) if window else None
+    focus_until = (last + window) if (last is not None and last + window > received_at) else received_at
     for seg_start, seg_end, seg in schedule.iter_segments(received_at, limit):
         level = int(seg.get("level", 3))
+        if focus_until > seg_start and level >= 3:
+            # 专注窗口与本段重叠的前半段按等级 4 累加
+            overlap_end = min(seg_end, focus_until)
+            lam_focus = _lambda(4, unread_count)
+            if lam_focus > 0:
+                span = (overlap_end - seg_start) / 60.0
+                if span > 0:
+                    accumulated += lam_focus * span
+                    if accumulated >= target:
+                        over = (accumulated - target) / lam_focus
+                        return overlap_end - over * 60.0
+            if overlap_end >= seg_end:
+                continue
+            # 窗口在本段中途到期：剩余部分按原始等级继续
+            seg_start = overlap_end
         lam = _lambda(level, unread_count)
         if lam <= 0:
             continue
@@ -73,7 +96,7 @@ def glance(session_id: str, trace_id: str) -> dict[str, Any] | None:
     ts = clock.now()
     # 首次 glance 按抽样的 glance_at 判等级；preview 重看时按当前时刻判
     judge_ts = record["glance_at"] if record["status"] == "pending" else ts
-    seg = schedule.segment_at(judge_ts)
+    seg = schedule.segment_at(judge_ts, session_id=session_id)
     level = int(seg.get("level", 3))
     if level == 1:
         preview_text = _preview_text(record)

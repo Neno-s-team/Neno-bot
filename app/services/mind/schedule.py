@@ -116,8 +116,12 @@ def _unavailable() -> dict[str, Any]:
     }
 
 
-def segment_at(t: float | None = None) -> dict[str, Any]:
-    """t（epoch）时的时段；缺失/解析失败 → 等级 3 + world=unavailable。"""
+def segment_at(t: float | None = None, session_id: str | None = None) -> dict[str, Any]:
+    """t（epoch）时的时段；缺失/解析失败 → 等级 3 + world=unavailable。
+
+    传 session_id 且课表等级 >=3 时：若 t < last_self_activity + 专注窗口，
+    升到等级 4（她在这个聊天里刚活动过）。不传 session_id 不做升级。
+    """
     ts = clock.now() if t is None else t
     local = datetime.fromtimestamp(ts, tz=clock.local_now().tzinfo)
     seg = _segment_on_day(local, local.hour * 60 + local.minute)
@@ -125,10 +129,10 @@ def segment_at(t: float | None = None) -> dict[str, Any]:
         return _unavailable()
     result = dict(seg)
     result["world"] = "schedule"
-    # 她最近 MIND_FOCUS_WINDOW_MIN 分钟内发过消息且等级>=3 → 视为等级 4（专注聊天中）
-    if result["level"] >= 3:
+    if session_id is not None and result["level"] >= 3:
         window = max(0, int(config.MIND_FOCUS_WINDOW_MIN)) * 60
-        if window and store.recent_user_activity(ts, window):
+        last = store.last_self_activity(session_id, ts)
+        if window and last is not None and ts < last + window:
             result["level"] = 4
     return result
 

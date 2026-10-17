@@ -57,6 +57,9 @@ text ack=failed 时，同一周期后续 text/sticker/typing 全部取消（mark
 ## 时间算法
 
 - 看手机时刻：`seed = sha256(session_id:trace_id)` 抽 `u ~ U(0,1)`，目标风险 `H = -ln(1-u)`，沿课表累计 `λ·Δt`；等级 0 的 λ = 0（直接跳过），等级 4 = 最近 `MIND_FOCUS_WINDOW_MIN` 分钟发过消息。未读 n 条 → λ × min(2, 1+0.2(n-1))。最多模拟 24 小时。
+  - 专注窗口（等级 4）只看**她在这个 session 里的活动**：`last_self_activity(session_id, received_at)` = 该 session 在收到时刻之前最近一次 `assistant` 消息（异步模式下 ack sent 才写入，代表真的发出去了）或 `mind_perception.seen='opened'` 的 `seen_at`（她点开过），取较晚者。用户消息不算。
+  - 抽样叠加：`focus_until = last_self_activity + MIND_FOCUS_WINDOW_MIN`；在 `[received_at, focus_until)` 内课表等级 >= 3 的部分按等级 4 的 λ 累加，窗口之后按课表原始等级；等级 <= 2 的时段永不升级。窗口只按收到消息那一刻已有的活动计算，同一 seed 结果确定。
+  - `segment_at(t, session_id)` 只有显式传 session_id 且等级 >=3、`t < last_self_activity + 窗口` 时才升 4；`glance()` 判级与抽样口径一致。
 - 投递计划：基准 `t0 = 决策完成时刻`；`mark_read` 在 `seen_at`；每条消息前 `typing`（时长 = 字数 / `MIND_TYPING_CPS`，乘 0.8–1.2 抖动，截到 [1,15]）；条与条之间 `MIND_MSG_GAP_SEC`；`hesitate=true` 第一条前先 typing 3 秒、停 `MIND_HESITATE_PAUSE_SEC` 再发。所有随机以 `sha256(cycle_id)` 派生，同一 cycle 重放结果一致。
 - 打断规则：新消息到达时，周期里 text/sticker 一条都没发出 → 取消剩余 pending、合并成新周期重想；已发出一条以上 → 让它发完。
 

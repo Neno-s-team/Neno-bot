@@ -235,7 +235,7 @@ def test_level2_quick_reply_then_deferred(mind_env, fake_provider, monkeypatch):
     walk = datetime(2026, 10, 12, 12, 20).timestamp()
     mind_env["clock"]["t"] = walk
     monkeypatch.setattr("app.services.mind.schedule.segment_at",
-                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                        lambda t=None, session_id=None: {"activity": "走路", "level": 2, "phone": "身上",
                                         "muted": False, "start": None, "end": None,
                                         "world": "schedule"})
     add_message(session, "user", "在干嘛", trace_id="t1")
@@ -794,7 +794,7 @@ def test_level2_busy_queues_perception(mind_env, fake_provider, monkeypatch):
     walk = datetime(2026, 10, 12, 12, 20).timestamp()
     mind_env["clock"]["t"] = walk
     monkeypatch.setattr("app.services.mind.schedule.segment_at",
-                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                        lambda t=None, session_id=None: {"activity": "走路", "level": 2, "phone": "身上",
                                         "muted": False, "start": None, "end": None,
                                         "world": "schedule"})
     _force_opened(session, "t1")
@@ -814,7 +814,7 @@ def test_deep_job_failure_fails_perception(mind_env, fake_provider, monkeypatch)
     walk = datetime(2026, 10, 12, 12, 20).timestamp()
     mind_env["clock"]["t"] = walk
     monkeypatch.setattr("app.services.mind.schedule.segment_at",
-                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                        lambda t=None, session_id=None: {"activity": "走路", "level": 2, "phone": "身上",
                                         "muted": False, "start": None, "end": None,
                                         "world": "schedule"})
     orchestration.handle_opened(session, ["t1"])
@@ -1022,7 +1022,7 @@ def test_deep_job_binds_traces_with_other_pending_job(mind_env, fake_provider, m
     walk = datetime(2026, 10, 12, 12, 20).timestamp()
     mind_env["clock"]["t"] = walk
     monkeypatch.setattr("app.services.mind.schedule.segment_at",
-                        lambda t=None: {"activity": "走路", "level": 2, "phone": "身上",
+                        lambda t=None, session_id=None: {"activity": "走路", "level": 2, "phone": "身上",
                                         "muted": False, "start": None, "end": None,
                                         "world": "schedule"})
     orchestration.handle_opened(session, ["t1"])
@@ -1044,3 +1044,141 @@ def test_deep_job_binds_traces_with_other_pending_job(mind_env, fake_provider, m
     still = store.get_deferred(unrelated_id)
     assert still["status"] == "pending"
     assert json.loads(still["trace_ids_json"]) == ["t-unrelated"]
+
+
+
+# ── P3 修正：L0 专注窗口（等级 4）按 session 的“她的活动”判定 ──────────────
+# 固定 seed 的 u 值（sha256("s:focus-a")[:16]/2**64 等），用于断言具体 glance_at
+
+
+def _set_assistant_time(trace_id: str, ts: float) -> None:
+    execute_write(
+        "UPDATE messages SET created_at = datetime(?, 'unixepoch') WHERE trace_id = ?",
+        (int(ts), trace_id),
+    )
+
+
+def _opened_perception(session: str, trace: str, seen_at: float) -> None:
+    perception.create_perception(session, trace)
+    record = store.get_perception_by_trace(trace)
+    store.update_perception(
+        record["id"], seen="opened", seen_at=seen_at, status="opened"
+    )
+
+
+def test_focus_window_lambda4_with_ack_reply(mind_env, monkeypatch):
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+    """a. 她 2 分钟前有一条已 ack 的回复，新消息 → 抽样用等级 4 的 λ。"""
+    # 周一 10:30（空闲段 level 3，上课段 10:00–11:40 是周一……改用周六空闲）
+    from datetime import datetime as _dt
+    saturday = _dt(2026, 10, 12, 12, 0).timestamp()  # 周一午间：假课表 default 空闲 level 3
+    mind_env["clock"]["t"] = saturday
+    session = "s-focus-a"
+    _set_assistant_time(_add_msg(session, "assistant", "ack-reply", trace_id="a1"),
+                        saturday - 120)
+    # 固定 seed（session:trace 参与哈希）
+    u = perception._seed_float(session, "focus-a")
+    target = -math.log(1 - u)
+    # 她 2 分钟前活动 → 专注窗口 [received, received+180) 按 λ=4；之后 λ=3
+    lam4, lam3 = 3.0, 0.35
+    window_sec = 180.0
+    acc4 = lam4 * (window_sec / 60)
+    expected = None
+    if acc4 >= target:
+        over = (acc4 - target) / lam4
+        expected = saturday + window_sec - over * 60
+    else:
+        over = (target - acc4) / lam3
+        expected = saturday + window_sec + over * 60
+    got = perception.sample_glance_time(saturday, 1, session, "focus-a")
+
+
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+def test_focus_window_not_triggered_by_user_only(mind_env, monkeypatch):
+    """b. 只有用户最近发过消息、她没回过 → 等级 3（不升级）。"""
+    from datetime import datetime as _dt
+    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = saturday
+    session = "s-focus-b"
+    _add_msg(session, "user", "user-only", trace_id="u1")
+    # 用户消息不该算：assistant 无、opened 无 → last_self_activity=None → 等级 3
+    assert store.last_self_activity(session, saturday) is None
+    got = perception.sample_glance_time(saturday, 1, session, "focus-b")
+    seg = schedule.segment_at(saturday, session_id=session)
+    assert seg["level"] == 3
+
+
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+def test_focus_window_isolated_per_session(mind_env, monkeypatch):
+    """c. 另一个 session 的活动不影响本 session。"""
+    from datetime import datetime as _dt
+    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = saturday
+    other = "s-focus-other"
+    _set_assistant_time(_add_msg(other, "assistant", "other-ack", trace_id="o1"),
+                        saturday - 60)
+    session = "s-focus-c"
+    assert store.last_self_activity(session, saturday) is None
+    seg = schedule.segment_at(saturday, session_id=session)
+    assert seg["level"] == 3, "跨 session 活动不升级"
+
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+
+def test_focus_window_expires_mid_sampling(mind_env, monkeypatch):
+    """d. 专注窗口在抽样中途到期 → 前段 λ4、后段 λ3 累加（固定 u 断言）。"""
+    from datetime import datetime as _dt
+    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = saturday
+    session = "s-focus-d"
+    # 她在收到前 1 秒刚活动过（窗口从 received 起算 5 分钟）
+    _set_assistant_time(_add_msg(session, "assistant", "just-now", trace_id="d1"),
+                        saturday - 1)
+    # 真实 seed u=0.7408（session:trace 参与哈希）→ target=1.35 < λ4*5min，窗口内命中
+    u = perception._seed_float(session, "focus-d")
+    target = -math.log(1 - u)
+    over = target / 3.0  # 分钟（λ4=3.0，unread=1）
+    expected = saturday + over * 60
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+    got = perception.sample_glance_time(saturday, 1, session, 'focus-d')
+    assert abs(got - expected) < 0.01, (got, expected)
+
+def test_focus_window_never_upgrades_low_level(mind_env, monkeypatch):
+    """e. 课表等级 1 的时段即使有近期活动也不升级。"""
+    # 周一 08:10（上课 level 1）
+    mind_env["clock"]["t"] = _T0
+    session = "s-focus-e"
+    _set_assistant_time(_add_msg(session, "assistant", "class-ack", trace_id="e1"),
+                        _T0 - 60)
+    got = perception.sample_glance_time(_T0, 1, session, "focus-e")
+    seg = schedule.segment_at(_T0, session_id=session)
+    assert seg["level"] == 1, "等级 1 不升级"
+    # λ1=0.025 → 期望延迟约 1/0.025 分钟起，远大于等级 4 的秒级
+    assert got - _T0 > 60, "等级 1 时段没有用等级 4 的 λ"
+
+
+def test_focus_window_opened_counts_as_activity(mind_env, monkeypatch):
+    """f. 她点开过消息（seen=opened）但还没回复，也算活动。"""
+    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+    from datetime import datetime as _dt
+    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = saturday
+    session = "s-focus-f"
+    _opened_perception(session, "f0", saturday - 120)
+    last = store.last_self_activity(session, saturday)
+    assert last is not None and abs(last - (saturday - 120)) < 0.01
+    seg = schedule.segment_at(saturday, session_id=session)
+    assert seg["level"] == 4, "点开过也算她在聊天里"
+
+
+def _add_msg(session: str, role: str, content: str, *, trace_id: str) -> str:
+    add_message(session, role, content, trace_id=trace_id)
+    return trace_id
+
+import math  # noqa: E402
+from app.storage.db import execute_write  # noqa: E402
+from app.services.mind import perception, schedule  # noqa: E402
+
+
+
+
+

@@ -332,14 +332,26 @@ def count_pending_perceptions(session_id: str, before: float) -> int:
     return int(row["count"] or 0) if row else 0
 
 
-def recent_user_activity(ts: float, window_seconds: float) -> bool:
-    """任一 session 在 [ts-window, ts] 内有过用户消息（P3a 单 session 部署）。"""
+def last_self_activity(session_id: str, ts: float) -> float | None:
+    """本 session 在 ts 之前她最近一次活动时刻（assistant 已发出 / 她点开过）。
+
+    - role='assistant' 的消息：异步模式下 ack sent 才写入，代表真的发出去了；
+    - mind_perception.seen='opened' 的 seen_at：她点开过消息，说明她在这个聊天里。
+    取两者较晚者。按 session 隔离，不看用户消息。
+    """
     row = fetch_one(
-        """SELECT COUNT(*) AS count FROM messages
-           WHERE role = 'user' AND created_at >= datetime(?, 'unixepoch')""",
-        (ts - window_seconds,),
+        """SELECT MAX(t) AS latest FROM (
+             SELECT MAX(CAST(strftime('%s', created_at) AS REAL)) AS t FROM messages
+               WHERE session_id = ? AND role = 'assistant'
+                     AND CAST(strftime('%s', created_at) AS REAL) < ?
+             UNION ALL
+             SELECT MAX(CAST(seen_at AS REAL)) AS t FROM mind_perception
+               WHERE session_id = ? AND seen = 'opened' AND seen_at < ?
+           )""",
+        (session_id, int(ts), session_id, ts),
     )
-    return bool(row and int(row["count"] or 0) > 0)
+    value = row["latest"] if row is not None else None
+    return float(value) if value else None
 
 
 # ── 待想队列 ────────────────────────────────────────────────────────────────

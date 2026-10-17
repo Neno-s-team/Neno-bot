@@ -158,7 +158,7 @@ def handle_opened(session_id: str, trace_ids: list[str]) -> None:
             if record is not None:
                 store.update_perception(record["id"], status="decided")
         return
-    seg = schedule.segment_at(clock.now())
+    seg = schedule.segment_at(clock.now(), session_id=session_id)
     level = int(seg.get("level", 3))
     mind = mind_state.read_state(session_id)
     # 决策用的 L1 带自我卡和最近原话；结果进作业，run_cycle 复用不再调用
