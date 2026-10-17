@@ -129,6 +129,8 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - **深夜泄露只做了一半**：`state.compute_leak` 只看 arousal 与气质基线，未接疲劳/深夜（mind-plan §4 的 inhibition 公式）。
 - **fast 路径不写记忆**：闲聊不产生 episode，P4 每日反思会缺素材，P4 规划时需要定方案。
 - `docs/mind-plan.md` 状态描述过期，需更新。
+- **待做（P3 实测后）：点开后等用户停顿再想**。她点开后连续 N 秒无新消息才开始 L1；N 随状态变：等级 4 约 5s、等级 3 约 10s，上限 30s；P5 后改由世界状态决定。
+- **待规划：网关能力扩展计划**（2026-10-18 用户提出）：监听用户"正在输入"，她看到对方在打字就继续等；其他网关能力一并放进这个计划。
 
 ## 6. P4 规划要点（来自 mind-plan §4–§6，尚未写实施提示词）
 
