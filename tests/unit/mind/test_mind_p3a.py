@@ -1066,109 +1066,114 @@ def _opened_perception(session: str, trace: str, seen_at: float) -> None:
     )
 
 
+def _fix_u(monkeypatch, u: float) -> None:
+    """把 seed 抽样固定成指定 u，断言不依赖真实哈希。"""
+    monkeypatch.setattr(perception, "_seed_float", lambda session_id, trace_id: u)
+
+
+def _set_focus_window(monkeypatch) -> None:
+    monkeypatch.setattr(config, "MIND_FOCUS_WINDOW_MIN", 5)
+
+
 def test_focus_window_lambda4_with_ack_reply(mind_env, monkeypatch):
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
-    """a. 她 2 分钟前有一条已 ack 的回复，新消息 → 抽样用等级 4 的 λ。"""
-    # 周一 10:30（空闲段 level 3，上课段 10:00–11:40 是周一……改用周六空闲）
+    """a. 她 2 分钟前有 ack 回复，u=0.5 → 窗口内按 λ4 命中。"""
     from datetime import datetime as _dt
-    saturday = _dt(2026, 10, 12, 12, 0).timestamp()  # 周一午间：假课表 default 空闲 level 3
-    mind_env["clock"]["t"] = saturday
+    _set_focus_window(monkeypatch)
+    received = _dt(2026, 10, 12, 12, 0).timestamp()  # 假课表 default 空闲 level 3
+    mind_env["clock"]["t"] = received
     session = "s-focus-a"
     _set_assistant_time(_add_msg(session, "assistant", "ack-reply", trace_id="a1"),
-                        saturday - 120)
-    # 固定 seed（session:trace 参与哈希）
-    u = perception._seed_float(session, "focus-a")
-    target = -math.log(1 - u)
-    # 她 2 分钟前活动 → 专注窗口 [received, received+180) 按 λ=4；之后 λ=3
-    lam4, lam3 = 3.0, 0.35
-    window_sec = 180.0
-    acc4 = lam4 * (window_sec / 60)
-    expected = None
-    if acc4 >= target:
-        over = (acc4 - target) / lam4
-        expected = saturday + window_sec - over * 60
-    else:
-        over = (target - acc4) / lam3
-        expected = saturday + window_sec + over * 60
-    got = perception.sample_glance_time(saturday, 1, session, "focus-a")
-
-
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
-def test_focus_window_not_triggered_by_user_only(mind_env, monkeypatch):
-    """b. 只有用户最近发过消息、她没回过 → 等级 3（不升级）。"""
-    from datetime import datetime as _dt
-    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
-    mind_env["clock"]["t"] = saturday
-    session = "s-focus-b"
-    _add_msg(session, "user", "user-only", trace_id="u1")
-    # 用户消息不该算：assistant 无、opened 无 → last_self_activity=None → 等级 3
-    assert store.last_self_activity(session, saturday) is None
-    got = perception.sample_glance_time(saturday, 1, session, "focus-b")
-    seg = schedule.segment_at(saturday, session_id=session)
-    assert seg["level"] == 3
-
-
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
-def test_focus_window_isolated_per_session(mind_env, monkeypatch):
-    """c. 另一个 session 的活动不影响本 session。"""
-    from datetime import datetime as _dt
-    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
-    mind_env["clock"]["t"] = saturday
-    other = "s-focus-other"
-    _set_assistant_time(_add_msg(other, "assistant", "other-ack", trace_id="o1"),
-                        saturday - 60)
-    session = "s-focus-c"
-    assert store.last_self_activity(session, saturday) is None
-    seg = schedule.segment_at(saturday, session_id=session)
-    assert seg["level"] == 3, "跨 session 活动不升级"
-
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
-
-def test_focus_window_expires_mid_sampling(mind_env, monkeypatch):
-    """d. 专注窗口在抽样中途到期 → 前段 λ4、后段 λ3 累加（固定 u 断言）。"""
-    from datetime import datetime as _dt
-    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
-    mind_env["clock"]["t"] = saturday
-    session = "s-focus-d"
-    # 她在收到前 1 秒刚活动过（窗口从 received 起算 5 分钟）
-    _set_assistant_time(_add_msg(session, "assistant", "just-now", trace_id="d1"),
-                        saturday - 1)
-    # 真实 seed u=0.7408（session:trace 参与哈希）→ target=1.35 < λ4*5min，窗口内命中
-    u = perception._seed_float(session, "focus-d")
-    target = -math.log(1 - u)
-    over = target / 3.0  # 分钟（λ4=3.0，unread=1）
-    expected = saturday + over * 60
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
-    got = perception.sample_glance_time(saturday, 1, session, 'focus-d')
+                        received - 120)
+    _fix_u(monkeypatch, 0.5)
+    got = perception.sample_glance_time(received, 1, session, "focus-a")
+    target = -math.log(0.5)  # ≈0.693
+    expected = received + target / 3.0 * 60
     assert abs(got - expected) < 0.01, (got, expected)
 
+
+def test_focus_window_not_triggered_by_user_only(mind_env, monkeypatch):
+    """b. 只有用户消息、窗口=5 → 等级 3，且按 λ3 抽样。"""
+    from datetime import datetime as _dt
+    _set_focus_window(monkeypatch)
+    received = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = received
+    session = "s-focus-b"
+    _add_msg(session, "user", "user-only", trace_id="u1")
+    _fix_u(monkeypatch, 0.5)
+    seg = schedule.segment_at(received, session_id=session)
+    assert seg["level"] == 3
+    got = perception.sample_glance_time(received, 1, session, "focus-b")
+    target = -math.log(0.5)
+    expected = received + target / 0.35 * 60
+    assert abs(got - expected) < 0.01, (got, expected)
+
+
+def test_focus_window_isolated_per_session(mind_env, monkeypatch):
+    """c. 只有另一个 session 有活动、窗口=5 → 本 session 等级 3、λ3 抽样。"""
+    from datetime import datetime as _dt
+    _set_focus_window(monkeypatch)
+    received = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = received
+    other = "s-focus-other"
+    _set_assistant_time(_add_msg(other, "assistant", "other-ack", trace_id="o1"),
+                        received - 60)
+    session = "s-focus-c"
+    _fix_u(monkeypatch, 0.5)
+    assert store.last_self_activity(session, received) is None
+    seg = schedule.segment_at(received, session_id=session)
+    assert seg["level"] == 3, "跨 session 活动不升级"
+    got = perception.sample_glance_time(received, 1, session, "focus-c")
+    target = -math.log(0.5)
+    expected = received + target / 0.35 * 60
+    assert abs(got - expected) < 0.01, (got, expected)
+
+
+def test_focus_window_expires_mid_sampling(mind_env, monkeypatch):
+    """d. 活动 4.5 分钟前 → 窗口只剩 30 秒；u=0.9 前段 λ4 后段 λ3。"""
+    from datetime import datetime as _dt
+    _set_focus_window(monkeypatch)
+    received = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = received
+    session = "s-focus-d"
+    _set_assistant_time(_add_msg(session, "assistant", "just-now", trace_id="d1"),
+                        received - 270)
+    _fix_u(monkeypatch, 0.9)
+    got = perception.sample_glance_time(received, 1, session, "focus-d")
+    target = -math.log(0.1)  # ≈2.3026
+    acc4 = 3.0 * (30 / 60)   # 窗口内 λ4 累加 = 1.5 < target
+    rest = (target - acc4) / 0.35
+    expected = received + 30 + rest * 60
+    assert abs(got - expected) < 0.01, (got, expected)
+
+
 def test_focus_window_never_upgrades_low_level(mind_env, monkeypatch):
-    """e. 课表等级 1 的时段即使有近期活动也不升级。"""
-    # 周一 08:10（上课 level 1）
+    """e. 周一 08:10 上课（level 1），她 1 分钟前有活动 → 等级 1，λ=0.025 精确值。"""
+    _set_focus_window(monkeypatch)
     mind_env["clock"]["t"] = _T0
     session = "s-focus-e"
     _set_assistant_time(_add_msg(session, "assistant", "class-ack", trace_id="e1"),
                         _T0 - 60)
-    got = perception.sample_glance_time(_T0, 1, session, "focus-e")
+    _fix_u(monkeypatch, 0.5)
     seg = schedule.segment_at(_T0, session_id=session)
     assert seg["level"] == 1, "等级 1 不升级"
-    # λ1=0.025 → 期望延迟约 1/0.025 分钟起，远大于等级 4 的秒级
-    assert got - _T0 > 60, "等级 1 时段没有用等级 4 的 λ"
+    got = perception.sample_glance_time(_T0, 1, session, "focus-e")
+    target = -math.log(0.5)
+    expected = _T0 + target / 0.025 * 60
+    assert abs(got - expected) < 0.01, (got, expected)
 
 
 def test_focus_window_opened_counts_as_activity(mind_env, monkeypatch):
-    """f. 她点开过消息（seen=opened）但还没回复，也算活动。"""
-    monkeypatch.setattr(config, 'MIND_FOCUS_WINDOW_MIN', 5)
+    """f. 她点开过消息（seen=opened）但还没回复，也算活动（窗口=5）。"""
     from datetime import datetime as _dt
-    saturday = _dt(2026, 10, 12, 12, 0).timestamp()
-    mind_env["clock"]["t"] = saturday
+    _set_focus_window(monkeypatch)
+    received = _dt(2026, 10, 12, 12, 0).timestamp()
+    mind_env["clock"]["t"] = received
     session = "s-focus-f"
-    _opened_perception(session, "f0", saturday - 120)
-    last = store.last_self_activity(session, saturday)
-    assert last is not None and abs(last - (saturday - 120)) < 0.01
-    seg = schedule.segment_at(saturday, session_id=session)
+    _opened_perception(session, "f0", received - 120)
+    last = store.last_self_activity(session, received)
+    assert last is not None and abs(last - (received - 120)) < 0.01
+    seg = schedule.segment_at(received, session_id=session)
     assert seg["level"] == 4, "点开过也算她在聊天里"
-
 
 def _add_msg(session: str, role: str, content: str, *, trace_id: str) -> str:
     add_message(session, role, content, trace_id=trace_id)
