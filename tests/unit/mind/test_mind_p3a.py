@@ -1318,3 +1318,21 @@ def test_async_e2_failure_retries_without_persona_less_fallback(mind_env, fake_p
     texts = [json.loads(r["payload_json"])["text"] for r in _deliveries(session) if r["kind"] == "text"]
     assert texts == ["好哦"]
     assert fallback_calls == []
+
+
+def test_retract_history_and_notice(mind_env, fake_provider, monkeypatch):
+    """没看到就撤回：L1/E2 历史里没有原文；点开后撤回：历史里换成撤回提示，工作记忆提示带全文。"""
+    from app.routers.mind import RetractRequest, retract
+    from app.services.mind.memory import wm_builder
+
+    session = "s-rh"
+    add_message(session, "user", "没看到就撤回的秘密", trace_id="u1")
+    perception.create_perception(session, "u1")
+    retract(RetractRequest(trace_id="u1"))
+    _force_opened(session, "o1")
+    retract(RetractRequest(trace_id="o1"))
+    add_message(session, "user", "正常的一句", trace_id="n1")
+
+    contents = [item["content"] for item in orchestration._history_without_retracted(session)]
+    assert contents == ["（对方撤回了一条消息，你撤回前看到过：msg-o1）", "正常的一句"]
+    assert wm_builder.retracted_notices(session) == ["对方撤回了一条消息（你看到过：msg-o1）"]

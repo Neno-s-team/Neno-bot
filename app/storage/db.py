@@ -419,7 +419,7 @@ def get_recent_messages_by_tokens(session_id: str, token_limit: int) -> list[dic
     """按 token 预算取最近的对话历史（粗估：UTF-8 字节 / 2），时间正序返回。"""
     rows = fetch_all(
         """
-        SELECT id, role, content, created_at
+        SELECT id, role, content, created_at, trace_id
         FROM messages
         WHERE session_id = ? AND role IN ('user', 'assistant')
         ORDER BY id DESC
@@ -437,6 +437,7 @@ def get_recent_messages_by_tokens(session_id: str, token_limit: int) -> list[dic
             "role": row["role"],
             "content": row["content"],
             "created_at": row["created_at"],
+            "trace_id": row["trace_id"],
         })
         if total >= token_limit:
             break

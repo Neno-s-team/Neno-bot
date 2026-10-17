@@ -128,7 +128,7 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 
 - `needs_attention` 投递项 core 每 60s 重新认领（日志噪音）。
 - 网关长时间离线后过期 text 仍会晚发 → 计划 P4/P5 让 core 对过期投递重规划。
-- **深夜泄露只做了一半**：`state.compute_leak` 只看 arousal 与气质基线，未接疲劳/深夜（mind-plan §4 的 inhibition 公式）。
+- **疲劳/深夜对情绪与泄露的影响归世界引擎**（2026-10-18 用户定）：时间线带来的状态变化由世界维护（W3 需求与节律），大脑只读世界给的状态；`state.compute_leak` 目前只看 arousal 与气质基线，P5 接入时从世界读疲劳。
 - **fast 路径不写记忆**：闲聊不产生 episode，P4 每日反思会缺素材，P4 规划时需要定方案。
 - `docs/mind-plan.md` 状态描述过期，需更新。
 - 点开后等停顿再想、她在聊天里新消息秒看到、想到一半被打断合批重想：已实现（`bf23261`），P5 后等待秒数改由世界状态决定。

@@ -76,13 +76,20 @@ def _render_situation(situation: dict[str, Any]) -> str:
 def retracted_notices(session_id: str, *, after_ts: float = 0.0) -> list[str]:
     """已撤回且被看到过的感知记录 → 当前情境里的一句提示。"""
     rows = fetch_all(
-        """SELECT trace_id, retracted_seen, preview_text FROM mind_perception
-           WHERE session_id = ? AND retracted = 1 AND seen != 'none' AND updated_at >= ?""",
+        """SELECT p.trace_id, p.retracted_seen, p.preview_text,
+                  (SELECT content FROM messages m WHERE m.trace_id = p.trace_id AND m.role = 'user'
+                   ORDER BY m.id LIMIT 1) AS content
+           FROM mind_perception p
+           WHERE p.session_id = ? AND p.retracted = 1 AND p.seen != 'none' AND p.updated_at >= ?""",
         (session_id, after_ts),
     )
     notices: list[str] = []
     for row in rows:
-        preview = (row["preview_text"] or "")[:30]
+        # 只瞥过预览的只知道预览那几个字；点开过的知道全文
+        if row["retracted_seen"] == "preview":
+            preview = (row["preview_text"] or "")[:30]
+        else:
+            preview = (row["content"] or row["preview_text"] or "")[:60]
         notices.append(f"对方撤回了一条消息（你看到过：{preview}）")
     return notices
 

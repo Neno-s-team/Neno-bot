@@ -146,6 +146,24 @@ def _enqueue_reply_job(
     # enqueue_job 已统一把 perception 置 queued（绑定作业 id）
 
 
+def _history_without_retracted(session_id: str) -> list[dict]:
+    """最近对话里的撤回消息：没看到过的直接去掉；看到过的换成一句撤回提示（像聊天界面那样）。"""
+    history = get_recent_messages_by_tokens(
+        session_id, token_limit=max(1000, config.HISTORY_TOKEN_LIMIT)
+    )
+    retracted = store.retracted_seen_map(session_id)
+    if not retracted:
+        return history
+    result = []
+    for item in history:
+        seen = retracted.get(item.get("trace_id")) if item.get("role") == "user" else None
+        if seen is None:
+            result.append(item)
+        elif seen != "none":
+            result.append({**item, "content": f"（对方撤回了一条消息，你撤回前看到过：{item['content']}）"})
+    return result
+
+
 def handle_opened(session_id: str, trace_ids: list[str]) -> None:
     """点开：mark_read 立即生成（锚 seen_at，与是否回复无关），然后决策。"""
     from app.services.mind import appraisal, state as mind_state
@@ -185,9 +203,7 @@ def handle_opened(session_id: str, trace_ids: list[str]) -> None:
     # 决策用的 L1 带自我卡和最近原话；结果进作业，run_cycle 复用不再调用
     from app.services.mind.cycle import _load_self_card
 
-    history = get_recent_messages_by_tokens(
-        session_id, token_limit=max(1000, config.HISTORY_TOKEN_LIMIT)
-    )
+    history = _history_without_retracted(session_id)
     l1 = appraisal.run_l1(
         message=message,
         state=mind,
@@ -302,9 +318,7 @@ def run_async_cycle(
     if not trace_ids:
         raise ValueError("run_async_cycle requires at least one trace_id")
     message = _load_batch_text(session_id, trace_ids)
-    history = get_recent_messages_by_tokens(
-        session_id, token_limit=max(1000, config.HISTORY_TOKEN_LIMIT)
-    )
+    history = _history_without_retracted(session_id)
     key = trigger_ref or f"async:{':'.join(trace_ids)}"
     cycle_id = derive_cycle_id(session_id, key)
     if not trigger_ref:
