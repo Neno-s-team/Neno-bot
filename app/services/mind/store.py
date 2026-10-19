@@ -385,13 +385,20 @@ def reopen_queued_perceptions(deferred_id: int) -> None:
     )
 
 
-def retracted_seen_map(session_id: str) -> dict[str, str]:
-    """已撤回的 trace → 撤回时她看到的程度（none / preview / opened）。"""
+def retracted_seen_map(session_id: str) -> dict[str, dict[str, str]]:
+    """已撤回的 trace → {seen: 撤回时她看到的程度（none / preview / opened）, preview: 预览文字}。"""
     rows = fetch_all(
-        "SELECT trace_id, retracted_seen FROM mind_perception WHERE session_id = ? AND retracted = 1",
+        """SELECT trace_id, retracted_seen, preview_text FROM mind_perception
+           WHERE session_id = ? AND retracted = 1""",
         (session_id,),
     )
-    return {str(row["trace_id"]): str(row["retracted_seen"] or "none") for row in rows}
+    return {
+        str(row["trace_id"]): {
+            "seen": str(row["retracted_seen"] or "none"),
+            "preview": str(row["preview_text"] or ""),
+        }
+        for row in rows
+    }
 
 
 def count_pending_perceptions(session_id: str, before: float) -> int:

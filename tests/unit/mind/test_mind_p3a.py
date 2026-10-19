@@ -1336,3 +1336,21 @@ def test_retract_history_and_notice(mind_env, fake_provider, monkeypatch):
     contents = [item["content"] for item in orchestration._history_without_retracted(session)]
     assert contents == ["（对方撤回了一条消息，你撤回前看到过：msg-o1）", "正常的一句"]
     assert wm_builder.retracted_notices(session) == ["对方撤回了一条消息（你看到过：msg-o1）"]
+
+
+def test_retract_after_preview_history_shows_only_preview(mind_env, fake_provider, monkeypatch):
+    """只在通知里瞥到预览就被撤回：历史里只带预览那几个字，不带全文。"""
+    from app.routers.mind import RetractRequest, retract
+
+    session = "s-rp"
+    full = "这是一条很长很长的消息，预览只显示前面一点点，后面还有她不该知道的秘密内容"
+    add_message(session, "user", full, trace_id="p1")
+    perception.create_perception(session, "p1")
+    record = store.get_perception_by_trace("p1")
+    store.update_perception(record["id"], seen="preview", status="previewed",
+                            preview_text=full[:12])
+    retract(RetractRequest(trace_id="p1"))
+
+    contents = [item["content"] for item in orchestration._history_without_retracted(session)]
+    assert contents == [f"（对方撤回了一条消息，你撤回前在通知里瞥到过：{full[:12]}）"]
+    assert "秘密" not in contents[0]

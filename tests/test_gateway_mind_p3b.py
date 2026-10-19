@@ -834,3 +834,24 @@ def test_stale_outbox_row_from_other_session_does_not_block(tmp_path, monkeypatc
     local = runner.outbox.get(30)
     assert local["session_id"] == "tg:42" and local["kind"] == "text"
     assert local["state"] == "sent" and local["acked"] == 1
+
+
+def test_stale_outbox_row_same_session_other_payload_does_not_block(tmp_path, monkeypatch):
+    """同会话同类型但内容不同的残留行（core 库重建后 id 重新计数）也不能吞掉新投递。"""
+    tdlib = FakeTdlib()
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    asyncio.run(runner._execute(42, _text_item(31, "旧库里的话")))
+    assert len(tdlib.requests) == 1
+    asyncio.run(runner._execute(42, _text_item(31, "新库里的话")))
+    assert len(tdlib.requests) == 2
+
+
+def test_same_delivery_redelivered_is_not_resent(tmp_path, monkeypatch):
+    """同一投递（payload 不变）再次下发：仍按已发处理，不重复 sendMessage。"""
+    tdlib = FakeTdlib()
+    gw, core = _make_gateway(tmp_path, monkeypatch, tdlib=tdlib)
+    runner = gw._mind_runner
+    asyncio.run(runner._execute(42, _text_item(32, "只发一次")))
+    asyncio.run(runner._execute(42, _text_item(32, "只发一次")))
+    assert len(tdlib.requests) == 1

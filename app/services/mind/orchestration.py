@@ -156,10 +156,13 @@ def _history_without_retracted(session_id: str) -> list[dict]:
         return history
     result = []
     for item in history:
-        seen = retracted.get(item.get("trace_id")) if item.get("role") == "user" else None
-        if seen is None:
+        info = retracted.get(item.get("trace_id")) if item.get("role") == "user" else None
+        if info is None:
             result.append(item)
-        elif seen != "none":
+        elif info["seen"] == "preview":
+            # 只瞥过通知预览：只知道预览那几个字，不知道全文
+            result.append({**item, "content": f"（对方撤回了一条消息，你撤回前在通知里瞥到过：{info['preview'][:30]}）"})
+        elif info["seen"] != "none":
             result.append({**item, "content": f"（对方撤回了一条消息，你撤回前看到过：{item['content']}）"})
     return result
 

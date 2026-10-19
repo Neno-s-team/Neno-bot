@@ -48,8 +48,10 @@ class MindOutbox:
             row = c.execute(
                 "SELECT * FROM mind_outbox WHERE delivery_id=?", (delivery_id,)
             ).fetchone()
-            if row is not None and (row["session_id"] != session_id or row["kind"] != kind):
-                # 同 id 但会话/类型不符：残留行（库被替换或测试写入），作废后按新项执行
+            if row is not None and (row["session_id"] != session_id or row["kind"] != kind
+                                    or not _same_content(row["payload_json"], payload_json)):
+                # 同 id 但会话/类型/内容不符：残留行（core 库被替换、id 重新计数或测试写入），
+                # 作废后按新项执行。core 对同一投递重发时内容不变，不会误伤。
                 logging.warning("mind outbox stale row replaced delivery=%s", delivery_id)
                 c.execute("DELETE FROM mind_outbox WHERE delivery_id=?", (delivery_id,))
                 c.execute(
@@ -141,3 +143,17 @@ class MindOutbox:
             "UPDATE mind_outbox SET attempts=attempts+1, updated_at=? WHERE delivery_id=?",
             (time.time(), delivery_id),
         )
+
+
+def _same_content(stored_json: str | None, new_json: str) -> bool:
+    """同一投递的内容是否一致：忽略 send_at；旧版本没存 payload 的行（空）视为一致。"""
+    try:
+        stored = json.loads(stored_json or "{}")
+        new = json.loads(new_json or "{}")
+    except ValueError:
+        return True
+    stored.pop("send_at", None)
+    new.pop("send_at", None)
+    if not stored:
+        return True
+    return stored == new
