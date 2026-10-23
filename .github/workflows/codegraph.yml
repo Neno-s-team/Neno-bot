@@ -1,0 +1,102 @@
+name: CodeGraphContext Index
+
+on:
+  push:
+    branches:
+      - main
+      - add-codegraph-ci
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to build from"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Install cgc CLI
+        run: |
+          pip install codegraphcontext
+          cgc version 2>&1 || true
+
+      - name: Build code graph index
+        run: |
+          chmod +x scripts/build_codegraph.sh
+          bash scripts/build_codegraph.sh
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegraph-${{ github.sha }}
+          path: codegraph-${{ github.sha }}.tar.gz
+          retention-days: 30
+          compression-level: 0
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cgc-${{ github.sha }}
+          name: "CodeGraph ${{ github.sha }}"
+          body: |
+            ## CodeGraphContext Index Bundle
+
+            - **Commit**: `${{ github.sha }}`
+            - **Branch**: `main`
+            - **DB Engine**: kuzudb
+            - **cgc version**: 0.4.11
+
+            ### Server Installation
+            ```bash
+            bash scripts/install_codegraph_bundle.sh codegraph-${{ github.sha }}.tar.gz
+            ```
+          files: codegraph-${{ github.sha }}.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # =====================================================
+      # 自动部署到服务器 (配置 Secrets 后取消注释)
+      # =====================================================
+      # - name: SCP bundle to server
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      #   uses: appleboy/scp-action@v0.1.7
+      #   with:
+      #     host: ${{ secrets.CGC_SERVER_HOST }}
+      #     username: ${{ secrets.CGC_SERVER_USER }}
+      #     key: ${{ secrets.CGC_SERVER_SSH_KEY }}
+      #     port: ${{ secrets.CGC_SERVER_PORT || 22 }}
+      #     source: codegraph-${{ github.sha }}.tar.gz
+      #     target: /tmp/codegraph-bundles/
+      #
+      # - name: Install on server via SSH
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      #   uses: appleboy/ssh-action@v1.2.0
+      #   with:
+      #     host: ${{ secrets.CGC_SERVER_HOST }}
+      #     username: ${{ secrets.CGC_SERVER_USER }}
+      #     key: ${{ secrets.CGC_SERVER_SSH_KEY }}
+      #     port: ${{ secrets.CGC_SERVER_PORT || 22 }}
+      #     script: |
+      #       cd ${{ secrets.CGC_SERVER_REPO_PATH || '/app/Neno-bot' }}
+      #       bash scripts/install_codegraph_bundle.sh \
+      #         /tmp/codegraph-bundles/codegraph-${{ github.sha }}.tar.gz

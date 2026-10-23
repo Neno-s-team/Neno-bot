@@ -1,0 +1,74 @@
+﻿# ============================================================
+# .cgcignore — CodeGraphContext 忽略规则
+# 基于仓库 .gitignore 扩展，排除不纳入代码图谱的文件/目录
+# ============================================================
+
+# --- 环境与密钥 ---
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+*.token
+*.session
+
+# --- 数据与数据库 ---
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# --- Python 依赖与缓存 ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node.js 依赖 ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- 日志与备份 ---
+*.log
+logs/
+backups/
+backup/
+*.bak
+*.tmp
+
+# --- OpenCLAW 运行时 ---
+.openclaw/
+openclaw.json
+openclaw.json.*
+sessions/
+
+# --- 用户列表（含敏感 ID） ---
+openclaw-plugins/neno-bridge/allowed_qq_users.json
+openclaw-plugins/neno-bridge/allowed_wx_users.json
+
+# --- Git 自身 ---
+.git/
+.gitignore
+.gitattributes
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- CodeGraphContext 自身产物 ---
+.codegraphcontext/
+.codegraphcontext.prev/
+manifest.json
+*.tar.gz

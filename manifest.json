@@ -1,0 +1,10 @@
+﻿{
+  "version": "1.0.0",
+  "commit": "1d09042100039d5978ffa02ecd6fcd5b1b4432e5",
+  "build_time": "2026-05-27T08:00:00Z",
+  "build_host": "github-actions-runner",
+  "cgc_version": "0.4.11",
+  "db_engine": "kuzudb",
+  "repo": "E-Neno/Neno-bot",
+  "bundle": "codegraph-1d09042100039d5978ffa02ecd6fcd5b1b4432e5.tar.gz"
+}
