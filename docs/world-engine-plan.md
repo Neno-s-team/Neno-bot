@@ -457,7 +457,7 @@ BDDL 官方文档说明其活动包含分类物品、初始状态和目标条件
 
 默认 WORLD_ENABLED=false，既有服务未为本次改动重启。独立启动、实际请求格式与明确边界见 docs/world-backend.md。没有修改 .env 或人设开关。
 
-用户已允许缓存体积适中的 3D 资产。官方 BEHAVIOR 3.9.0 ZIP 为约 31.46 GB，ZIP 目录核对的解压文件合计约 34.74 GB。下载任务仅缓存压缩包，完成条件为文件长度和官方 SHA256 同时一致；不解密、不解压，不接受或绕过其独立资产许可。实时状态位于 data/world-assets/download-status.json，不能把已启动下载写成已完成。
+（2026-11-09：3D 资产路线已放弃，半截下载包与 `scripts/download_world_assets.py` 已删除。）
 
 ## 15. LLM 决策接入实施记录
 

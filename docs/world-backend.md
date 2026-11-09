@@ -102,6 +102,6 @@ The script uses temporary databases only. It exercises failed/successful repairs
 
 The local normalized catalog in content/world is sufficient at runtime. The importer uses a pinned BDDL commit; --offline needs the cached source metadata under data/world-source. Omitting --offline retrieves missing metadata only. BDDL's MIT license is retained in content/world/BDDL-LICENSE.txt.
 
-The separate official BEHAVIOR 3.9.0 3D archive is being cached at data/world-assets, not loaded by this backend. Its compressed size is 31,457,673,073 bytes. The ZIP central directory contains 141,485 entries with 34,742,171,984 total uncompressed bytes (about 34.74 GB); keeping both forms would take about 66.20 GB before filesystem overhead. Only the archive is currently being cached. The downloader supports partial-file resume and verifies the official SHA256 before renaming the .part file to .zip. Read download-status.json for the actual state; a .part file is never evidence of a completed download.
+(2026-11-09: the 3D asset route was abandoned; the partial archive and `scripts/download_world_assets.py` were deleted.)
 
 Asset licensing is separate from the MIT code/metadata license. This work does not decrypt, extract or accept the asset EULA, and does not integrate those assets as general-purpose Neno visuals. There is no frontend implementation in this delivery; the snapshot/event/knowledge APIs are ready for the later 2D console.

@@ -155,22 +155,22 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 世界角色 LLM 决策：从受限动作选项组合计划，规则引擎结算；`WORLD_LLM_*` 独立配置（openai/gpt-6-luna，reasoning none）；默认每库每天 ≤48 次、间隔 ≥60s。
 - 成本：单次世界决策约 $0.00062；48 次/天约 $0.9/月（只是外推）。
 - 48 小时试运行两次（09-26、09-29），**2026-11-09 已复盘**，数据与结论见 `docs/world-trial.md`「复盘」。一句话：规则底盘可用，但角色没有需求/人设/目标，一半动作是无效 inspect，世界不会"过日子"。
-- **当前完全不运行**：`.env` 无 `WORLD_ENABLED`；冻结开关 `WORLD_RULE_SCHEDULER_ENABLED` / `WORLD_COGNITION_AUTOSTART` / `WORLD_LLM_ENABLED` 均为 false。`tests/` 下没有世界 pytest，只有 `scripts/verify_world_backend.py`（10 场景）和 `verify_world_cognition.py`（7 项）两个离线验收脚本，11-09 跑过全部通过。
+- **当前完全不运行**：`.env` 无 `WORLD_ENABLED`；冻结开关 `WORLD_RULE_SCHEDULER_ENABLED` / `WORLD_COGNITION_AUTOSTART` / `WORLD_LLM_ENABLED` 均为 false。世界测试在 `tests/unit/world/`（包住 `scripts/verify_world_backend.py` 10 场景、`verify_world_cognition.py` 7 项，加 W0 新增用例）。
 
 **去留评估（2026-11-09）**
 | 部分 | 处理 | 理由 |
 | --- | --- | --- |
 | world_store、事件账本、jobs、幂等命令、只读回放 | 保留 | "后果"需要可追溯因果链 |
-| 时钟 / tick | 保留，修 | 不再每秒写世界行（version 无界增长、锁的根源） |
+| 时钟 / tick | ✅ 已修（W0） | 无到期任务时不写库，最多 60s 落一次；version 只在真有事发生时 +1 |
 | randomness、冷却、额度 | 保留，扩展 | 就是 W5 扰动底座：加小/中/大三档、按状态条件抽样 |
-| `world_knowledge` 认知隔离 | 保留，修 | 观察要会过期/刷新（店员误以为商店一直关着） |
-| cognition 预算、租约、退避 | 保留，修 | 用于廉价 NPC；网络错误要退避，按用途分预算 |
+| `world_knowledge` 认知隔离 | ✅ 已修（W0） | 给角色的观察带"多久前看到"，不在眼前且超 30 分钟的标 may_have_changed |
+| cognition 预算、租约、退避 | ✅ 退避已修（W0） | 网络/超时连续失败 2→4→8…分钟退避、封顶 1h；决策被拒不算故障。按用途分预算留到 W4 |
 | 动作菜单 + 前置条件 | 保留，改 | 约束有效；但菜单要围绕需求（吃/买/睡/上班），而不是物品操作 |
 | actions.py 物品动词 | 降级 | 只留和需求相关的少数 |
 | director 自由文本建议 | 改 | 采纳 0/5 → 改为 W5 调节器（只调频率/尺度） |
 | threads（完成条件） | 冻结 | 两次 0 使用；W3 以后视需要承接"长事项" |
 | BDDL 目录、import 脚本 | 冻结 | 3,484 条零使用 |
-| `data/world-assets` 4.8G 半截 3D 包、下载脚本 | 删除（待用户确认） | 方向已放弃 |
+| `data/world-assets` 4.8G 半截 3D 包、下载脚本 | 已删除（2026-11-09 用户确认） | 方向已放弃 |
 | `neighborhood.json`、硬编码 shop/lamp/street | 丢弃 | W1 身份种子取代；扰动改数据驱动 |
 | 关系锁 | 新建 | 代码里没有 |
 

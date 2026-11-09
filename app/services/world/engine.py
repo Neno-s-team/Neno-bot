@@ -523,10 +523,18 @@ class WorldEngine:
         w["backlog"] = result["backlog"]
         return result
 
+    # 没有到期任务时，时钟只在内存里推进，最多隔这么久才落一次库（sim_time 可由 last_wall 推出）。
+    PERSIST_IDLE_SECONDS = 60
+
     def tick(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
         with self.store.transaction() as c:
-            ids = [r[0] for r in c.execute("SELECT world_id FROM world_worlds WHERE status='running' ORDER BY world_id LIMIT 1000")]
+            rows = c.execute("""SELECT w.world_id, w.sim_time, w.rate, w.last_wall,
+                (SELECT MIN(run_at) FROM world_jobs j WHERE j.world_id=w.world_id AND j.status='pending') AS due
+                FROM world_worlds w WHERE w.status='running' ORDER BY w.world_id LIMIT 1000""").fetchall()
+        ids = [r["world_id"] for r in rows
+               if (r["due"] is not None and r["due"] <= r["sim_time"] + max(0, now - r["last_wall"]) * r["rate"])
+               or now - r["last_wall"] >= self.PERSIST_IDLE_SECONDS]
         progressed, errors = [], []
         for wid in ids:
             try:
@@ -535,7 +543,8 @@ class WorldEngine:
                     if w["status"] != "running":
                         continue
                     result = self._wall_step(c, w, now)
-                    w["version"] += 1
+                    if result["processed"]:
+                        w["version"] += 1
                     self._save_world(c, w)
                     progressed.append({"world_id": wid, **result})
             except Exception as error:
