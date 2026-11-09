@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 
-from app.services.world import actions
+from app.services.world import actions, rhythms
 from app.services.world.catalog import Catalog
 from app.services.world.models import ActionRequest, WorldCreate
 from app.services.world.randomness import sample, stable_id
@@ -67,9 +67,20 @@ class WorldEngine:
             for value in values:
                 if value["kind"] == "actor":
                     actions.observe(c, w, value["entity_id"], event_id, "initial_sight")
-            for schedule in template.get("daily_schedules", []):
+            profile = rhythms.load(request.rhythms) if request.rhythms else None
+            schedules = template.get("daily_schedules", [])
+            if profile and profile.get("replace_template_schedules"):
+                schedules = []
+                for value in values:
+                    if value["entity_id"] == "shop":
+                        value["state"]["open"] = False
+                        save_entity(c, value)
+            for schedule in schedules:
                 when = self._next_hour(w, schedule["hour"])
                 job(c, w["world_id"], f"daily:{schedule['id']}:{int(when)}", when, "daily", schedule)
+            if profile:
+                rhythms.setup(c, w, request.rhythms, [v["entity_id"] for v in values if v["kind"] == "actor"])
+                self._save_world(c, w)
             when = w["sim_time"] + settings["random"]["interval_seconds"]
             job(c, w["world_id"], f"random:1:{int(when)}", when, "random", {})
         return {"world": w, "entities": len(values), "event_id": event_id, "chat_connected": False}
@@ -268,7 +279,7 @@ class WorldEngine:
         durations = {"move": 60, "take": 5, "put": 5, "open": 3, "close": 3,
                      "turn_on": 1, "turn_off": 1, "clean": 120, "consume": 60,
                      "pour": 5, "repair": 600, "read": 900, "inspect": 0,
-                     "cook": 900, "split": 2, "buy": 30}
+                     "cook": 900, "split": 2, "buy": 30, "activity": 0}
         duration = data["duration_seconds"] if data.get("duration_seconds") is not None else durations[data["operation"]]
         due = w["sim_time"] + duration
         c.execute("INSERT INTO world_actions VALUES (?,?,?,?,?,?,?)", (wid, action_id, actor_id, "running", due, encode(data), None))
@@ -365,6 +376,8 @@ class WorldEngine:
                 self._random(c, w, task)
             elif task["kind"] == "injection":
                 self._injected(c, w, task)
+            elif rhythms.handle(c, w, task):
+                pass
             else:
                 raise WorldError("Unknown persistent job kind")
             c.execute("UPDATE world_jobs SET status='done' WHERE world_id=? AND job_id=?", (w["world_id"], task["job_id"]))
@@ -383,7 +396,12 @@ class WorldEngine:
         request = json.loads(row["data"])
         c.execute("SAVEPOINT action_effect")
         try:
+            if request["operation"] == "move" and entity(c, wid, request["actor_id"])["state"].get("doing"):
+                rhythms.end_activity(c, w, request["actor_id"], reason="起身去别处")
             changes = actions.execute(c, w, aid, request, self.catalog)
+            if request["operation"] == "consume" and rhythms.config(w):
+                eaten = entity(c, wid, request["target_id"])
+                rhythms.on_consume(c, w, request["actor_id"], eaten["type_id"], request["params"].get("quantity", 1), aid)
             c.execute("RELEASE action_effect")
             result, status = {"changes": changes}, "completed"
         except WorldError as error:

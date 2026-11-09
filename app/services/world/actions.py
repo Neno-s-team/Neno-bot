@@ -143,6 +143,12 @@ def execute(c, w: dict, action_id: str, request: dict, catalog) -> list[dict]:
         if value["state"].get("quantity", 1) < count:
             raise WorldError("Insufficient quantity", 409)
 
+    if op == "activity":
+        from app.services.world import rhythms
+        if target["entity_id"] != actor["entity_id"]:
+            raise WorldError("An activity targets the actor itself")
+        rhythms.start_activity(c, w, actor["entity_id"], params.get("activity"), source="decision", key="activity:" + action_id)
+        return [entity(c, wid, actor["entity_id"])]
     if op == "move":
         route(c, wid, actor, target)
         actor["parent_id"] = target["entity_id"]

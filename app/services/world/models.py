@@ -31,6 +31,7 @@ class WorldCreate(Input):
     running: bool = False
     rate: float = Field(1, gt=0, le=3600)
     random: RandomSettings = Field(default_factory=RandomSettings)
+    rhythms: str | None = Field(None, pattern=r"^[a-zA-Z0-9_-]{1,64}$")
 
     @field_validator("start_at")
     @classmethod
@@ -58,7 +59,7 @@ class Advance(Command):
 class ActionRequest(Command):
     actor_id: str = Field(min_length=1, max_length=100)
     operation: Literal["move", "take", "put", "open", "close", "turn_on", "turn_off", "clean",
-                       "consume", "pour", "repair", "read", "inspect", "cook", "split", "buy"]
+                       "consume", "pour", "repair", "read", "inspect", "cook", "split", "buy", "activity"]
     target_id: str = Field(min_length=1, max_length=100)
     params: dict[str, Any] = Field(default_factory=dict)
     duration_seconds: float | None = Field(None, ge=0, le=86400)
@@ -68,7 +69,7 @@ class ActionRequest(Command):
     def validate_parameters(self):
         keys = {"put": {"destination_id"}, "pour": {"destination_id", "volume_ml"},
                 "repair": {"tool_id", "part_id"}, "cook": {"ingredients"},
-                "consume": {"quantity"}, "split": {"quantity"}, "buy": {"quantity"}}
+                "consume": {"quantity"}, "split": {"quantity"}, "buy": {"quantity"}, "activity": {"activity"}}
         if set(self.params) - keys.get(self.operation, set()):
             raise ValueError("Unexpected action parameters")
         for key in keys.get(self.operation, set()) - {"quantity"}:

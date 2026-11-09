@@ -1,0 +1,247 @@
+{
+  "version": "rhythms-placeholder-1",
+  "note": "占位参数：只为跑通框架，人设确定后由 W1 重填。需求 0=满足、1=到极限，速率为每小时。阈值/作息时刻/跳过/后果都按 seed 抽样，规则只产生感觉和代价，不替角色做决定。",
+  "replace_template_schedules": true,
+  "needs": {
+    "hunger": {
+      "label": "饥饿",
+      "initial": 0.2,
+      "rate_per_hour": 0.08,
+      "day_variation": 0.25,
+      "urge": [
+        0.45,
+        0.7
+      ],
+      "nag_hours": [
+        1.5,
+        4
+      ],
+      "felt": [
+        "",
+        "有点饿",
+        "很饿",
+        "饿得发慌"
+      ],
+      "habit": {
+        "probability": 0.6,
+        "options": [
+          "eat"
+        ]
+      }
+    },
+    "fatigue": {
+      "label": "疲劳",
+      "initial": 0.2,
+      "rate_per_hour": 0.05,
+      "day_variation": 0.3,
+      "urge": [
+        0.55,
+        0.8
+      ],
+      "nag_hours": [
+        1.5,
+        4
+      ],
+      "felt": [
+        "",
+        "有点累",
+        "很累",
+        "困得睁不开眼"
+      ],
+      "habit": {
+        "probability": 0.5,
+        "options": [
+          "rest"
+        ]
+      }
+    },
+    "social": {
+      "label": "社交",
+      "initial": 0.3,
+      "rate_per_hour": 0.02,
+      "day_variation": 0.5,
+      "urge": [
+        0.5,
+        0.85
+      ],
+      "nag_hours": [
+        3,
+        8
+      ],
+      "felt": [
+        "",
+        "有点想找人说话",
+        "很想找人聊天",
+        "闷得发慌"
+      ],
+      "habit": {
+        "probability": 0.4,
+        "options": [
+          "chat"
+        ]
+      }
+    }
+  },
+  "strain": [
+    {
+      "need": "fatigue",
+      "at": 0.9,
+      "probability": 0.35,
+      "label": "熬过头了",
+      "effect": {
+        "need": "fatigue",
+        "rate_mult": 1.4,
+        "hours": 20
+      }
+    },
+    {
+      "need": "hunger",
+      "at": 0.9,
+      "probability": 0.3,
+      "label": "饿得没力气",
+      "effect": {
+        "need": "fatigue",
+        "rate_mult": 1.25,
+        "hours": 6
+      }
+    }
+  ],
+  "food": {
+    "need": "hunger",
+    "variation": 0.25,
+    "relief": {
+      "neno:meal": 0.6,
+      "neno:bread": 0.35,
+      "neno:apple": 0.15,
+      "neno:egg": 0.1,
+      "default": 0.2
+    }
+  },
+  "activities": {
+    "sleep": {
+      "label": "睡觉",
+      "hours": [
+        6,
+        8.5
+      ],
+      "rates": {
+        "fatigue": -0.17,
+        "hunger": -0.05,
+        "social": -0.02
+      }
+    },
+    "rest": {
+      "label": "歇会儿",
+      "requires_type": "neno:sofa",
+      "hours": [
+        0.25,
+        0.75
+      ],
+      "rates": {
+        "fatigue": -0.1
+      }
+    },
+    "work": {
+      "label": "上班",
+      "hours": [
+        4,
+        8
+      ],
+      "wage_per_hour": 4,
+      "rates": {
+        "fatigue": 0.03,
+        "social": -0.02
+      }
+    },
+    "chat": {
+      "label": "跟人聊天",
+      "requires_company": true,
+      "hours": [
+        0.15,
+        0.6
+      ],
+      "rates": {
+        "social": -0.6
+      }
+    },
+    "stroll": {
+      "label": "散步",
+      "hours": [
+        0.4,
+        1.2
+      ],
+      "rates": {
+        "fatigue": 0.02,
+        "social": -0.03
+      }
+    }
+  },
+  "actors": {
+    "neno": {
+      "routine": [
+        {
+          "id": "sleep",
+          "activity": "sleep",
+          "place": "bedroom",
+          "start": "00:30",
+          "jitter_min": 45,
+          "skip": 0.0
+        }
+      ]
+    },
+    "shopkeeper": {
+      "initial": {
+        "fatigue": 0.1
+      },
+      "routine": [
+        {
+          "id": "work",
+          "days": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "activity": "work",
+          "place": "shop",
+          "start": "09:00",
+          "end": "18:00",
+          "jitter_min": 20,
+          "skip": 0.04,
+          "opens": "shop"
+        },
+        {
+          "id": "sleep",
+          "activity": "sleep",
+          "place": "shop",
+          "start": "23:30",
+          "jitter_min": 40,
+          "skip": 0.0
+        }
+      ]
+    },
+    "neighbor": {
+      "routine": [
+        {
+          "id": "walk",
+          "activity": "stroll",
+          "place": "park",
+          "start": "16:00",
+          "jitter_min": 30,
+          "skip": 0.25,
+          "then": "neighbor_home"
+        },
+        {
+          "id": "sleep",
+          "activity": "sleep",
+          "place": "neighbor_home",
+          "start": "23:00",
+          "jitter_min": 60,
+          "skip": 0.0
+        }
+      ]
+    }
+  }
+}

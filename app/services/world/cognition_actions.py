@@ -65,12 +65,16 @@ def build_menu(c, w, context, catalog):
                 free = ds.get('capacity_ml', 0) - ds.get('volume_ml', 0)
                 if dest['entity_id'] != key and 'container' in dest.get('capabilities', []) and free > 0:
                     add('pour', key, destination_id=dest['entity_id'], volume_ml=min(200, free, state['volume_ml']))
+    if (w['settings'].get('rhythms') or {}).get('activities'):
+        for name in w['settings']['rhythms']['activities']:
+            if name != 'work':
+                add('activity', aid, activity=name)
     # Prefer useful actions over inspection/placement combinations when a room is crowded.
     candidates.sort(key=lambda a: (a['operation'] in {'inspect', 'put'}, a['target_id'] not in visible))
     menu = []
     for candidate in candidates[:64]:
         refs = [candidate['target_id']] + [v for k, v in candidate['params'].items() if k.endswith('_id')] + candidate['params'].get('ingredients', [])
-        allowed_refs = visible | destinations if candidate['operation'] == 'move' else visible
+        allowed_refs = visible | destinations if candidate['operation'] == 'move' else visible | {aid}
         valid, reason = False, 'Not currently observed; requires movement or fresh observation'
         if all(ref in allowed_refs for ref in refs):
             request = ActionRequest(request_id='affordance', actor_id=aid, **candidate).model_dump(mode='json')

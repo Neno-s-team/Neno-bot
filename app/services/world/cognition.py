@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime, timezone, timedelta
 
-from app.services.world import actions
+from app.services.world import actions, rhythms
 from app.services.world.cognition_config import WorldLLMConfig
 from app.services.world.cognition_actions import actor_schema, build_menu, resolve_choices, strict_schema
 from app.services.world.cognition_models import ActorDecision, CognitionSettings, DirectorDecision
@@ -35,6 +35,8 @@ new_goal is {"title":"...","motivation":"...","conditions":[{"entity_id":"...",
 fields and describe a meaningful change. A new goal requires a first action. Continue existing goals
 instead unless explicitly abandoning one. Do not supply both new_goal and thread_id.
 Every action is only an attempt; the engine, not your words, determines its result.
+body is how you feel right now (e.g. hungry, tired, wanting company); doing is what you are in the middle of.
+They are feelings, not orders: you may act on them, put them off, or ignore them like a real person would.
 The profile describes preferences, NOT an already created objective. If threads is empty, thread_id
 and abandon_thread_id MUST be null. NEVER invent a UUID or any objective ID. To start a new objective,
 fill new_goal; the engine assigns its ID. To do an incidental action, leave both new_goal and thread_id null.
@@ -195,6 +197,7 @@ class WorldCognition:
                 if not x.get("considered_call_id") and w["sim_time"] - x["offered_at"] < 86400][-3:],
             "threads": threads, "allowed_thread_ids": [t["thread_id"] for t in threads if t["status"] in {"active", "blocked"}],
             "recent_actions": recent, "destinations": destinations, "observations": [],
+            "body": rhythms.felt(c, w, aid), "doing": (actor["state"].get("doing") or {}).get("label"),
             "cognition_revision": w["settings"].get("cognition_revision", 0)}
         observations.sort(key=lambda x: (x["fact"]["entity_id"] not in {aid, actor["parent_id"]}, -x["observed_at"]))
         here = {aid, actor["parent_id"]}

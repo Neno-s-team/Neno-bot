@@ -101,6 +101,10 @@ class WorldStore:
               kind TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL, created_at REAL NOT NULL,
               sim_time REAL NOT NULL, finished_at REAL, model TEXT NOT NULL,
               context TEXT NOT NULL, response TEXT, result TEXT);
+            CREATE TABLE IF NOT EXISTS world_need (
+              world_id TEXT NOT NULL REFERENCES world_worlds(world_id), actor_id TEXT NOT NULL,
+              need TEXT NOT NULL, value REAL NOT NULL, at REAL NOT NULL, base REAL NOT NULL,
+              data TEXT NOT NULL, PRIMARY KEY(world_id,actor_id,need));
             CREATE INDEX IF NOT EXISTS world_llm_budget ON world_llm_calls(created_at,status);
             CREATE INDEX IF NOT EXISTS world_llm_history ON world_llm_calls(world_id,id);
             """)
