@@ -8,6 +8,7 @@ from typing import Any
 
 from app import config
 from app.services.mind import clock
+from app.services.mind import concerns
 from app.services.mind.memory import retrieval
 from app.storage.db import fetch_all
 
@@ -103,8 +104,9 @@ def _render_episode(episode: dict[str, Any]) -> str:
         stamp = datetime.fromtimestamp(float(episode["ts"])).strftime("%m-%d %H:%M")
     valence = float(episode.get("valence") or 0.0)
     arousal = float(episode.get("arousal") or 0.0)
+    vague = "（只记得个大概）" if episode.get("faded_at") else ""
     return (
-        f"- #{episode['id']} [{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{episode['summary']}"
+        f"- #{episode['id']} [{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{vague}{episode['summary']}"
     )
 
 
@@ -163,7 +165,7 @@ def build_working_memory(
 
     memory = {
         "situation": situation,
-        "concerns": [],  # P2 留空；槽位保留
+        "concerns": concerns.render(concerns.top(session_id)),
         "episodes": episodes,
         "beliefs": beliefs,
         "recent_turns": recent_turns,

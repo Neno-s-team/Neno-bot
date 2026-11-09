@@ -139,7 +139,31 @@ def process_due_batch(limit: int = 50) -> dict[str, int]:
         except Exception as exc:
             log_event("mind", "scheduler_deferred_failed",
                       session_id=record["session_id"], error_type=type(exc).__name__)
+    if config.MIND_REFLECT_ENABLED:
+        done["reflections"] = process_reflections(ts)
     return done
+
+
+def process_reflections(ts: float) -> int:
+    """睡着了就给今天聊过的会话排一次反思；到点的领租约跑（与回复作业同一把 session 锁）。"""
+    from app.services.mind import reflection
+
+    for session_id in reflection.active_sessions(ts - 2 * 86400):
+        reflection.plan_tonight(session_id, ts)
+    ran = 0
+    for row in reflection.claim_due(ts):
+        with _lock(row["session_id"]):
+            try:
+                result = reflection.run(row)
+                reflection.finish(row, result)
+                log_event("mind", "reflection_done", session_id=row["session_id"], night=row["night"],
+                          **{k: v for k, v in result.items() if isinstance(v, (int, str))})
+                ran += 1
+            except Exception as exc:
+                reflection.finish(row, error=type(exc).__name__)
+                log_event("mind", "reflection_failed", session_id=row["session_id"], night=row["night"],
+                          attempts=row.get("attempts"), error_type=type(exc).__name__)
+    return ran
 
 
 def _fail_job_perceptions(deferred_id: int, session_id: str) -> None:

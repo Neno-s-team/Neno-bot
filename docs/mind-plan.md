@@ -1,6 +1,6 @@
 # Neno 多层大脑规划
 
-日期：2026-10-16 规划；2026-11-09 更新状态：P1–P3 已实现并通过真号实测，P4/P5 未开始。进度与遗留以 [`HANDOFF.md`](HANDOFF.md) 为准。
+日期：2026-10-16 规划；2026-11-10 更新状态：P1–P3 已实现并通过真号实测，P4 已实现待观察，P5 未开始。进度与遗留以 [`HANDOFF.md`](HANDOFF.md) 为准。
 
 关联文档：[`world-simulation-plan.md`](world-simulation-plan.md)（世界模拟规划）、[`world-engine-plan.md`](world-engine-plan.md)、[`world-cognition.md`](world-cognition.md)。
 
@@ -178,7 +178,8 @@
 | `mind_delivery` | 投递计划（已读 / 正在输入 / 文字 / 表情包） |
 | `mind_session_context` | 会话上下文（她在聊天里、最后活动时间等） |
 | `mind_episode` / `mind_belief` | 经历 / 认识（已实现） |
-| `mind_concern` / `mind_intent` / `mind_self` | 在意事项 / 意图 / 自我模型（P4 规划，未建） |
+| `mind_concern` / `mind_reflection` | 在意事项 / 夜间反思（P4） |
+| `mind_intent` / `mind_self` | 意图 / 自我模型（未建，等人设与 P5） |
 
 **幂等与回放**：`cycle_id` 由触发源 ID 派生；每层完成即落库，崩溃后从最后完成的层继续；回放使用已存输出，不重新调用模型。状态写入走世界统一提交入口并做版本检查。
 
@@ -218,7 +219,8 @@ app/services/mind/
   state.py          # 情绪、抑制力
   clock.py / schemas.py / store.py
   memory/           # store / retrieval / commit / importance / tokenize / wm_builder
-  （reflection.py   # L4，P4 新建）
+  reflection.py     # L4 夜间反思 + 遗忘
+  concerns.py       # 在意事项
 ```
 
 `telegram_gateway` 已在 P3b 支持：带发送时间的投递计划、按时机标记已读、“正在输入”、`mind_outbox` 幂等账本。
@@ -242,7 +244,7 @@ app/services/mind/
 | P2 深思与记忆 | L2/L3 + 一致性检查 + 工作记忆拼装 + episode/belief 存储（FTS5） | P1 | 已完成 |
 | P3a 感知与延迟（core） | L0（先用简易课表替代世界）+ 待想队列 + 投递计划 + 调度器 | P2 | 已完成 |
 | P3b 网关对接 | TG 已读 / 输入状态 / 按计划真实投递（改 telegram_gateway） | P3a | 已完成，2026-11-09 真号实测通过 |
-| P4 反思 | L4 + 遗忘 + 在意事项生命周期 | P2 | 未开始 |
+| P4 反思 | L4 + 遗忘 + 在意事项生命周期 | P2 | 已实现（2026-11-10），待真号观察 |
 | P5 接入世界 | 世界决策统一走 L2；主动联系意图 | 世界引擎解冻 | 未开始 |
 
 P1–P4 不依赖世界引擎。

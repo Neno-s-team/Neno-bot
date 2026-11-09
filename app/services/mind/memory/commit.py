@@ -106,56 +106,7 @@ def commit_memory(
                     )
 
                 for update in result.belief_updates:
-                    existing = existing_beliefs.get(update.subject)
-                    if existing is None:
-                        # 首插：confidence = min(模型值, MIND_BELIEF_INIT_MAX)
-                        new_confidence = min(
-                            max(0.0, min(1.0, update.confidence)),
-                            float(config.MIND_BELIEF_INIT_MAX),
-                        )
-                        cursor = conn.execute(
-                            """INSERT INTO mind_belief(
-                                 session_id, subject, content, confidence, evidence_json,
-                                 updated_at, version)
-                               VALUES (?, ?, ?, ?, ?, ?, 1)
-                               ON CONFLICT(session_id, subject) DO NOTHING""",
-                            (session_id, update.subject, update.content, new_confidence,
-                             json.dumps(update.evidence, ensure_ascii=False), time.time()),
-                        )
-                        if cursor.rowcount:
-                            conn.execute(
-                                "INSERT INTO mind_belief_fts(rowid, idx_text) VALUES (?, ?)",
-                                (int(cursor.lastrowid),
-                                 to_index_text(f"{update.subject} {update.content}")),
-                            )
-                        continue
-
-                    # confidence 单次变化 ≤ ±0.3
-                    existing_confidence = float(existing["confidence"])
-                    min_confidence = max(0.0, existing_confidence - 0.3)
-                    max_confidence = min(1.0, existing_confidence + 0.3)
-                    new_confidence = max(min_confidence, min(max_confidence, update.confidence))
-                    existing_evidence = json.loads(existing["evidence_json"] or "[]")
-                    merged_evidence = list(dict.fromkeys([*existing_evidence, *update.evidence]))
-                    conn.execute(
-                        "INSERT INTO mind_belief_fts(mind_belief_fts, rowid, idx_text)"
-                        " VALUES ('delete', ?, ?)",
-                        (existing["id"],
-                         to_index_text(f"{existing['subject']} {existing['content']}")),
-                    )
-                    conn.execute(
-                        """UPDATE mind_belief
-                           SET content = ?, confidence = ?, evidence_json = ?,
-                               updated_at = ?, version = version + 1
-                           WHERE id = ?""",
-                        (update.content, new_confidence,
-                         json.dumps(merged_evidence, ensure_ascii=False),
-                         time.time(), existing["id"]),
-                    )
-                    conn.execute(
-                        "INSERT INTO mind_belief_fts(rowid, idx_text) VALUES (?, ?)",
-                        (existing["id"], to_index_text(f"{update.subject} {update.content}")),
-                    )
+                    apply_belief_update(conn, session_id, update, existing_beliefs.get(update.subject))
 
                 if result.state_delta_valence or result.state_delta_arousal:
                     written = state.apply_affect_delta_in_conn(
@@ -210,3 +161,42 @@ def commit_memory(
         retries=_MAX_COMMIT_RETRIES,
     )
     return {"episode_ids": [], "skipped": "conflict"}
+
+
+def apply_belief_update(conn, session_id: str, update, existing: dict[str, Any] | None) -> None:
+    """事务内写一条认识：首插 confidence ≤ MIND_BELIEF_INIT_MAX；更新单次变化 ≤ ±0.3，证据取并集。"""
+    if existing is None:
+        new_confidence = min(max(0.0, min(1.0, update.confidence)), float(config.MIND_BELIEF_INIT_MAX))
+        cursor = conn.execute(
+            """INSERT INTO mind_belief(
+                 session_id, subject, content, confidence, evidence_json, updated_at, version)
+               VALUES (?, ?, ?, ?, ?, ?, 1)
+               ON CONFLICT(session_id, subject) DO NOTHING""",
+            (session_id, update.subject, update.content, new_confidence,
+             json.dumps(update.evidence, ensure_ascii=False), time.time()),
+        )
+        if cursor.rowcount:
+            conn.execute(
+                "INSERT INTO mind_belief_fts(rowid, idx_text) VALUES (?, ?)",
+                (int(cursor.lastrowid), to_index_text(f"{update.subject} {update.content}")),
+            )
+        return
+    existing_confidence = float(existing["confidence"])
+    new_confidence = max(max(0.0, existing_confidence - 0.3),
+                         min(min(1.0, existing_confidence + 0.3), update.confidence))
+    existing_evidence = json.loads(existing["evidence_json"] or "[]")
+    merged_evidence = list(dict.fromkeys([*existing_evidence, *update.evidence]))
+    conn.execute(
+        "INSERT INTO mind_belief_fts(mind_belief_fts, rowid, idx_text) VALUES ('delete', ?, ?)",
+        (existing["id"], to_index_text(f"{existing['subject']} {existing['content']}")),
+    )
+    conn.execute(
+        """UPDATE mind_belief SET content = ?, confidence = ?, evidence_json = ?,
+               updated_at = ?, version = version + 1 WHERE id = ?""",
+        (update.content, new_confidence, json.dumps(merged_evidence, ensure_ascii=False),
+         time.time(), existing["id"]),
+    )
+    conn.execute(
+        "INSERT INTO mind_belief_fts(rowid, idx_text) VALUES (?, ?)",
+        (existing["id"], to_index_text(f"{update.subject} {update.content}")),
+    )

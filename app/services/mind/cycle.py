@@ -9,6 +9,7 @@ from app import config
 from app.services.chat import llm_gateway as _llm_gateway
 from app.services.mind import (
     appraisal,
+    concerns,
     consistency,
     deliberation,
     expression,
@@ -309,11 +310,13 @@ def run_cycle(
                 recent_turns=recent_turns,
                 trace_id=trace_id,
                 session_id=session_id,
+                concern_titles=[item["title"] for item in concerns.top(session_id)],
             )
             l1_json = json.dumps(l1.to_dict(), ensure_ascii=False)
             update_cycle(cycle_id, l1_json=l1_json)
             state.apply_affect_delta(session_id, l1.affect_delta.valence, l1.affect_delta.arousal)
             mind_state = state.read_state(session_id)
+            concerns.rewarm(session_id, list(l1.cues or []), message, trace_id)
         except Exception as exc:
             log_event(
                 "mind",

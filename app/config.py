@@ -123,6 +123,19 @@ MIND_MEMORY_SCOPE = os.getenv("MIND_MEMORY_SCOPE", "session").strip() or "sessio
 # 认识首插可信度上限：min(模型值, 该值)
 MIND_BELIEF_INIT_MAX = _env_float("MIND_BELIEF_INIT_MAX", 0.6)
 
+# ── 多层大脑 P4（L4 夜间反思 + 遗忘 + 在意事项） ───────────────────────────
+MIND_REFLECT_ENABLED = _env_bool("MIND_REFLECT_ENABLED", True)
+# 留空 = 复用 L2 模型
+MIND_REFLECT_MODEL = os.getenv("MIND_REFLECT_MODEL", "").strip()
+MIND_REFLECT_MAX_TOKENS = _env_int("MIND_REFLECT_MAX_TOKENS", 6000)
+# 入睡后多久开始反思（分钟，区间内按 seed 抽）
+MIND_REFLECT_DELAY_MIN = json.loads(os.getenv("MIND_REFLECT_DELAY_MIN", "").strip() or "[10, 60]")
+# 遗忘：有效强度低于阈值只留大意；阈值每晚在区间内抽
+MIND_FADE_THRESHOLD = json.loads(os.getenv("MIND_FADE_THRESHOLD", "").strip() or "[0.2, 0.35]")
+# 在意事项：工作记忆里最多几条；强度低于该值自动放下
+MIND_WM_CONCERNS = _env_int("MIND_WM_CONCERNS", 3)
+MIND_CONCERN_DROP_BELOW = _env_float("MIND_CONCERN_DROP_BELOW", 0.08)
+
 # ── 多层大脑 P3a（L0 感知/课表/待想队列/投递/调度器） ────────────────────────
 # false 时 /chat 行为与 P2 完全一致，L0 不参与
 MIND_ASYNC_DELIVERY = _env_bool("MIND_ASYNC_DELIVERY", False)

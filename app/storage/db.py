@@ -208,6 +208,59 @@ def init_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mind_episode_session ON mind_episode(session_id, ts)"
         )
+        # P4 加列：淡忘后 summary 换成大意、原文移到 full_summary（不再参与检索）；source 区分来源
+        episode_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mind_episode)").fetchall()
+        }
+        for column, ddl in (
+            ("full_summary", "full_summary TEXT"),
+            ("faded_at", "faded_at REAL"),
+            ("source", "source TEXT NOT NULL DEFAULT 'cycle'"),
+        ):
+            if column not in episode_columns:
+                conn.execute(f"ALTER TABLE mind_episode ADD COLUMN {ddl}")
+        # P4：在意事项与夜间反思
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_concern (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                intensity REAL NOT NULL DEFAULT 0.5,
+                decay_per_day REAL NOT NULL DEFAULT 0.2,
+                status TEXT NOT NULL DEFAULT 'open',
+                evidence_json TEXT NOT NULL DEFAULT '[]',
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                touched_at REAL NOT NULL DEFAULT 0.0,
+                closed_at REAL,
+                close_reason TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_concern_session ON mind_concern(session_id, status)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_reflection (
+                session_id TEXT NOT NULL,
+                night TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                window_start REAL NOT NULL DEFAULT 0.0,
+                window_end REAL NOT NULL DEFAULT 0.0,
+                due_at REAL NOT NULL DEFAULT 0.0,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                lease_until REAL,
+                result_json TEXT,
+                error TEXT,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                PRIMARY KEY(session_id, night)
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS mind_belief (

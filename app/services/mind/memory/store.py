@@ -18,6 +18,7 @@ _EPISODE_FIELDS = [
     "id", "session_id", "cycle_id", "note_idx", "ts", "participants_json",
     "summary", "tags_json", "valence", "arousal", "importance", "strength",
     "recall_count", "last_recalled_at", "refs_json", "created_at",
+    "full_summary", "faded_at", "source",
 ]
 
 

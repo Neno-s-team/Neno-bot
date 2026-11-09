@@ -15,6 +15,7 @@ def _build_l1_messages(
     state: dict[str, Any],
     self_card: str,
     recent_turns: list[dict],
+    concern_titles: list[str] | None = None,
 ) -> list[dict]:
     recent_text = "\n".join(
         f"{item['role']}: {str(item.get('content',''))[:200]}"
@@ -23,6 +24,7 @@ def _build_l1_messages(
     prompt = f"""你是 Neno 的直觉层（L1）。快速判断当前消息的情绪意义和紧急程度。
 
 当前情绪状态：valence={state['valence']:.2f}, arousal={state['arousal']:.2f}
+心里记挂着：{"；".join(concern_titles) if concern_titles else "无"}
 
 自我卡（精简）：
 {self_card[:600]}
@@ -48,8 +50,9 @@ def run_l1(
     *,
     trace_id: str | None = None,
     session_id: str | None = None,
+    concern_titles: list[str] | None = None,
 ) -> L1Appraisal:
-    messages = _build_l1_messages(message, state, self_card, recent_turns)
+    messages = _build_l1_messages(message, state, self_card, recent_turns, concern_titles)
     extra = {
         **config.MIND_L1_EXTRA_BODY,
         "response_format": L1_JSON_SCHEMA,
