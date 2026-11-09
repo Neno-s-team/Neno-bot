@@ -1,6 +1,6 @@
 # Neno 多层大脑规划
 
-日期：2026-10-16。状态：规划，尚未实现。不修改现有聊天主链、Gateway、env 或人设开关。
+日期：2026-10-16 规划；2026-11-09 更新状态：P1–P3 已实现并通过真号实测，P4/P5 未开始。进度与遗留以 [`HANDOFF.md`](HANDOFF.md) 为准。
 
 关联文档：[`world-simulation-plan.md`](world-simulation-plan.md)（世界模拟规划）、[`world-engine-plan.md`](world-engine-plan.md)、[`world-cognition.md`](world-cognition.md)。
 
@@ -175,8 +175,10 @@
 | `mind_cycle` | 每个周期：触发源、各层输出、模型、token、执行状态 |
 | `mind_perception` | 感知记录 |
 | `mind_deferred` | 待想队列 |
-| `mind_episode` / `mind_belief` / `mind_concern` / `mind_intent` | 经历 / 认识 / 在意事项 / 意图 |
-| `mind_self` | 自我模型 |
+| `mind_delivery` | 投递计划（已读 / 正在输入 / 文字 / 表情包） |
+| `mind_session_context` | 会话上下文（她在聊天里、最后活动时间等） |
+| `mind_episode` / `mind_belief` | 经历 / 认识（已实现） |
+| `mind_concern` / `mind_intent` / `mind_self` | 在意事项 / 意图 / 自我模型（P4 规划，未建） |
 
 **幂等与回放**：`cycle_id` 由触发源 ID 派生；每层完成即落库，崩溃后从最后完成的层继续；回放使用已存输出，不重新调用模型。状态写入走世界统一提交入口并做版本检查。
 
@@ -203,17 +205,23 @@
 ```text
 app/services/mind/
   cycle.py          # 周期调度、按层断点续跑
-  perception.py     # L0
+  orchestration.py  # 异步路径：点开 → 等停顿 → 周期 → 投递；被打断合批重想
+  perception.py     # L0（指数风险抽样、她在聊天里）
+  schedule.py       # 临时课表（P5 由世界状态替换）
+  scheduler.py      # 后台调度：glance / 作业 / 恢复
+  deferred.py       # 待想队列（作业租约）
+  delivery.py       # 投递计划
   appraisal.py      # L1
-  deliberation.py   # L2 + L3 + 一致性检查
+  deliberation.py   # L2 + L3
+  consistency.py    # 一致性检查
   expression.py     # E2 + E3
-  reflection.py     # L4
-  state.py          # 情绪、抑制力、在意事项
-  memory/           # store / retrieval / consolidation / wm_builder
-  deferred.py       # 待想队列
+  state.py          # 情绪、抑制力
+  clock.py / schemas.py / store.py
+  memory/           # store / retrieval / commit / importance / tokenize / wm_builder
+  （reflection.py   # L4，P4 新建）
 ```
 
-`telegram_gateway` 需支持：带发送时间的投递计划、按时机标记已读、“正在输入”状态。
+`telegram_gateway` 已在 P3b 支持：带发送时间的投递计划、按时机标记已读、“正在输入”、`mind_outbox` 幂等账本。
 
 ## 11. 验收情境
 
@@ -231,11 +239,11 @@ app/services/mind/
 | 阶段 | 内容 | 依赖 | 状态 |
 | --- | --- | --- | --- |
 | P1 骨架 | 认知周期 + 状态 + L1 + E2 + E3 文本检查，保持同步返回 | 无 | 已完成 |
-| P2 深思与记忆 | L2/L3 + 一致性检查 + 工作记忆拼装 + episode/belief 存储（FTS5） | P1 | 已实现 |
-| P3a 感知与延迟（core） | L0（先用简易课表替代世界）+ 待想队列 + 投递计划 + 调度器（只改 app/，不改 Gateway） | P2 |
-| P3b 网关对接 | TG 已读 / 输入状态 / 按计划真实投递（改 telegram_gateway） | P3a |
-| P4 反思 | L4 + 遗忘 + 在意事项生命周期 | P2 |
-| P5 接入世界 | 世界决策统一走 L2；主动联系意图 | 世界引擎解冻 |
+| P2 深思与记忆 | L2/L3 + 一致性检查 + 工作记忆拼装 + episode/belief 存储（FTS5） | P1 | 已完成 |
+| P3a 感知与延迟（core） | L0（先用简易课表替代世界）+ 待想队列 + 投递计划 + 调度器 | P2 | 已完成 |
+| P3b 网关对接 | TG 已读 / 输入状态 / 按计划真实投递（改 telegram_gateway） | P3a | 已完成，2026-11-09 真号实测通过 |
+| P4 反思 | L4 + 遗忘 + 在意事项生命周期 | P2 | 未开始 |
+| P5 接入世界 | 世界决策统一走 L2；主动联系意图 | 世界引擎解冻 | 未开始 |
 
 P1–P4 不依赖世界引擎。
 
