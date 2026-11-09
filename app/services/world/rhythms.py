@@ -106,10 +106,13 @@ def _reschedule(c, w, row):
 
 
 def felt(c, w, aid) -> dict:
-    """给角色看的身体感觉（文字，不给数值）；没感觉的需求不列。"""
+    """给角色看的身体感觉（文字，不给数值）；没感觉的需求不列；身上的病痛一并列出。"""
     if not config(w):
         return {}
     result = {}
+    for condition in entity(c, w["world_id"], aid)["state"].get("conditions", []):
+        if condition["until"] > w["sim_time"]:
+            result.setdefault("身体", condition["label"])
     for need, row in _rows(c, w["world_id"], aid).items():
         cfg, value = config(w)["needs"][need], _value_at(row, w["sim_time"])
         level = 0 if value < row["data"]["urge"] - EPS else 1 if value < 0.75 else 2 if value < 0.9 else 3

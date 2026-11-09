@@ -243,5 +243,374 @@
         }
       ]
     }
+  },
+  "perturbations": {
+    "note": "占位扰动池：通用日常小事，人设确定后由 W1 重写。概率每次机会按档位抽，调节器只改频率与冷却，不选事件。",
+    "interval_hours": [
+      1,
+      3
+    ],
+    "tiers": {
+      "small": {
+        "probability": 0.25,
+        "weight": 1
+      },
+      "medium": {
+        "probability": 0.025,
+        "weight": 3
+      },
+      "large": {
+        "probability": 0.006,
+        "weight": 8
+      }
+    },
+    "regulator": {
+      "window_hours": 48,
+      "calm_target": 4,
+      "min_mult": 0.3,
+      "max_mult": 2.0
+    },
+    "pool": [
+      {
+        "id": "rain",
+        "tier": "small",
+        "label": "下起了雨",
+        "target": "place:street",
+        "weight": 1.2,
+        "cooldown_hours": 6,
+        "require": {
+          "weather_not": "rain"
+        },
+        "effects": [
+          {
+            "type": "weather",
+            "value": "rain"
+          }
+        ]
+      },
+      {
+        "id": "clear_up",
+        "tier": "small",
+        "label": "雨停了，放晴",
+        "target": "place:street",
+        "weight": 1.5,
+        "cooldown_hours": 3,
+        "require": {
+          "weather_is": "rain"
+        },
+        "effects": [
+          {
+            "type": "weather",
+            "value": "clear"
+          }
+        ]
+      },
+      {
+        "id": "clouds_part",
+        "tier": "small",
+        "label": "云散了，出太阳了",
+        "target": "place:street",
+        "weight": 1.0,
+        "cooldown_hours": 4,
+        "require": {
+          "weather_is": "cloudy"
+        },
+        "effects": [
+          {
+            "type": "weather",
+            "value": "clear"
+          }
+        ]
+      },
+      {
+        "id": "clouds",
+        "tier": "small",
+        "label": "天阴了",
+        "target": "place:street",
+        "weight": 0.8,
+        "cooldown_hours": 6,
+        "require": {
+          "weather_is": "clear"
+        },
+        "effects": [
+          {
+            "type": "weather",
+            "value": "cloudy"
+          }
+        ]
+      },
+      {
+        "id": "lost_change",
+        "tier": "small",
+        "label": "丢了点零钱",
+        "target": "actor",
+        "weight": 0.6,
+        "cooldown_hours": 72,
+        "effects": [
+          {
+            "type": "credits",
+            "range": [
+              -8,
+              -2
+            ]
+          }
+        ],
+        "awake": true
+      },
+      {
+        "id": "bad_sleep",
+        "tier": "small",
+        "label": "没睡好",
+        "target": "actor",
+        "weight": 1,
+        "cooldown_hours": 24,
+        "local_hours": [
+          6,
+          11
+        ],
+        "boost": [
+          {
+            "need": "fatigue",
+            "above": 0.5,
+            "mult": 2
+          },
+          {
+            "mod": "熬过头了",
+            "mult": 2
+          }
+        ],
+        "effects": [
+          {
+            "type": "need_add",
+            "need": "fatigue",
+            "range": [
+              0.1,
+              0.25
+            ]
+          }
+        ]
+      },
+      {
+        "id": "treat",
+        "tier": "small",
+        "label": "吃到了点好吃的",
+        "target": "actor",
+        "weight": 0.7,
+        "cooldown_hours": 24,
+        "local_hours": [
+          10,
+          22
+        ],
+        "boost": [
+          {
+            "need": "hunger",
+            "above": 0.6,
+            "mult": 1.5
+          }
+        ],
+        "effects": [
+          {
+            "type": "need_add",
+            "need": "hunger",
+            "range": [
+              -0.4,
+              -0.2
+            ]
+          }
+        ],
+        "awake": true
+      },
+      {
+        "id": "thing_broke",
+        "tier": "small",
+        "label": "有个东西坏了",
+        "target": "actor",
+        "weight": 0.4,
+        "cooldown_hours": 96,
+        "effects": [
+          {
+            "type": "break_item",
+            "capabilities": [
+              "toggleable",
+              "repairable"
+            ]
+          }
+        ],
+        "awake": true
+      },
+      {
+        "id": "cold",
+        "tier": "medium",
+        "label": "感冒了",
+        "target": "actor",
+        "weight": 1,
+        "cooldown_hours": 240,
+        "boost": [
+          {
+            "need": "fatigue",
+            "above": 0.75,
+            "mult": 3
+          },
+          {
+            "mod": "熬过头了",
+            "mult": 4
+          },
+          {
+            "weather": "rain",
+            "mult": 1.5
+          }
+        ],
+        "effects": [
+          {
+            "type": "condition",
+            "label": "感冒了，嗓子疼",
+            "hours": [
+              36,
+              96
+            ]
+          },
+          {
+            "type": "need_mod",
+            "need": "fatigue",
+            "mult": [
+              1.3,
+              1.6
+            ],
+            "hours": [
+              36,
+              96
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sprain",
+        "tier": "medium",
+        "label": "扭到脚了",
+        "target": "actor",
+        "weight": 0.6,
+        "cooldown_hours": 240,
+        "boost": [
+          {
+            "weather": "rain",
+            "mult": 2
+          },
+          {
+            "doing": "stroll",
+            "mult": 2
+          }
+        ],
+        "effects": [
+          {
+            "type": "condition",
+            "label": "脚踝有点疼",
+            "hours": [
+              24,
+              72
+            ]
+          },
+          {
+            "type": "need_mod",
+            "need": "fatigue",
+            "mult": [
+              1.1,
+              1.3
+            ],
+            "hours": [
+              24,
+              72
+            ]
+          }
+        ],
+        "awake": true
+      },
+      {
+        "id": "windfall_small",
+        "tier": "medium",
+        "label": "收到一笔小钱",
+        "target": "actor",
+        "weight": 0.8,
+        "cooldown_hours": 168,
+        "effects": [
+          {
+            "type": "credits",
+            "range": [
+              20,
+              60
+            ]
+          }
+        ]
+      },
+      {
+        "id": "fever",
+        "tier": "large",
+        "label": "发高烧",
+        "target": "actor",
+        "weight": 1,
+        "cooldown_hours": 720,
+        "boost": [
+          {
+            "condition": "感冒",
+            "mult": 6
+          },
+          {
+            "need": "fatigue",
+            "above": 0.85,
+            "mult": 2
+          }
+        ],
+        "effects": [
+          {
+            "type": "condition",
+            "label": "发烧，浑身没力气",
+            "hours": [
+              72,
+              168
+            ]
+          },
+          {
+            "type": "need_mod",
+            "need": "fatigue",
+            "mult": [
+              1.6,
+              2.2
+            ],
+            "hours": [
+              72,
+              168
+            ]
+          },
+          {
+            "type": "need_mod",
+            "need": "hunger",
+            "mult": [
+              0.5,
+              0.8
+            ],
+            "hours": [
+              72,
+              168
+            ]
+          }
+        ]
+      },
+      {
+        "id": "windfall_big",
+        "tier": "large",
+        "label": "意外之财",
+        "target": "actor",
+        "weight": 0.5,
+        "cooldown_hours": 1440,
+        "effects": [
+          {
+            "type": "credits",
+            "range": [
+              150,
+              400
+            ]
+          }
+        ]
+      }
+    ]
   }
 }
