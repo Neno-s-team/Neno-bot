@@ -96,6 +96,9 @@ MIND_AFFECT_HALF_LIFE_MINUTES = _env_int("MIND_AFFECT_HALF_LIFE_MINUTES", 180)
 MIND_TIMEZONE = os.getenv("MIND_TIMEZONE", "Asia/Shanghai").strip()
 MIND_E3_MAX_MESSAGES = _env_int("MIND_E3_MAX_MESSAGES", 4)
 MIND_E3_MAX_SINGLE_CHARS = _env_int("MIND_E3_MAX_SINGLE_CHARS", 200)
+# 说话方式语料（只给措辞层当参考片段，与人设分开）；文件不存在或条数为 0 时不启用
+MIND_STYLE_CORPUS_PATH = os.getenv("MIND_STYLE_CORPUS_PATH", "data/corpus/style.jsonl").strip()
+MIND_STYLE_EXAMPLES = _env_int("MIND_STYLE_EXAMPLES", 6)
 # 一轮发几条的基础分布（1..N 条的权重）；默认取自真实私聊统计：六成一条、两成多两条、4 条以上不到一成
 MIND_BURST_WEIGHTS = json.loads(os.getenv("MIND_BURST_WEIGHTS", "").strip() or "[0.59, 0.256, 0.098, 0.036, 0.02]")
 

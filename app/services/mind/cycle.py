@@ -426,6 +426,7 @@ def run_cycle(
                 sticker_hint=l2.sticker if l2 is not None else None,
                 trace_id=trace_id,
                 session_id=session_id,
+                style_seed=cycle_id,
             )
             update_cycle(cycle_id, expr_text=expr_text)
         except Exception as exc:

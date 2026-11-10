@@ -33,3 +33,9 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture(autouse=True)
 def trusted_test_media_spool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "IMAGE_LOCAL_SPOOL_ROOTS", (tmp_path.resolve(),))
+
+
+@pytest.fixture(autouse=True)
+def no_local_style_corpus(monkeypatch: pytest.MonkeyPatch):
+    """本地真人语料（data/corpus）不进测试；需要的测试自己指定临时语料。"""
+    monkeypatch.setattr(config, "MIND_STYLE_EXAMPLES", 0)

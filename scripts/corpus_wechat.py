@@ -1,8 +1,9 @@
 """把微信私聊导出洗成"说话方式"语料：连续小段、去垃圾、脱敏、打场景标签。只在本地，data/ 已 gitignore。
 
-用法：python scripts/corpus_wechat.py <文字消息-分类 目录> <输出名> <学谁:them|me> <会话名前缀...>
-输出 data/corpus/wechat/<输出名>.jsonl，每行一段：{"source","lines":[["她"|"他", 文本],...],"tags":[...]}
-"她" = 要学的那一侧，"他" = 另一侧。
+用法：python scripts/corpus_wechat.py <文字消息-分类 目录> <输出名> <学谁:them|me|both> <会话名前缀...>
+输出 data/corpus/<输出名>.jsonl，每行一段：{"source","lines":[[说话人, 文本],...],"tags":[...]}
+them/me：要学的一侧记"她"、另一侧记"他"；both：两侧都学，记"甲"/"乙"（不分谁是谁）。
+可选环境变量 CORPUS_MASK=<文件>：每行一个要替换成 <人名> 的词（人工维护；联系人昵称多是普通词，不能自动用）。
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ DROP = re.compile(r"https?://|<msg|<appmsg|当前版本不支持|\[通话\]|转�
 CODE = re.compile(r"[A-Za-z0-9\-]{14,}")
 PHONE = re.compile(r"(?<!\d)1\d{10}(?!\d)")
 NUMBER_ID = re.compile(r"(?<!\d)\d{6,}(?!\d)")
+PLACE = re.compile(r"[一-鿿]{2,8}(大学|学院|中学|小学|医院|公司|小区|广场|市|县|区|镇|村|路|街)(?![一-鿿])")
+NAMES: list[str] = []
 GAP_MIN = 25
 MIN_LINES, MAX_LINES = 4, 12
 TAGS = {
@@ -44,7 +47,16 @@ def clean(text: str) -> str | None:
         return None
     text = PHONE.sub("<手机号>", text)
     text = NUMBER_ID.sub("<数字>", text)
+    text = PLACE.sub(lambda m: "<学校>" if m.group(1) in ("大学", "学院", "中学", "小学") else "<地名>", text)
+    for name in NAMES:
+        if name in text:
+            text = text.replace(name, "<人名>")
     return text[:120]
+
+
+def load_mask(path: str) -> list[str]:
+    words = [line.strip() for line in open(path, encoding="utf-8") if line.strip() and not line.startswith("#")]
+    return sorted(set(words), key=len, reverse=True)
 
 
 def segments(path: str, target_is_me: bool):
@@ -62,7 +74,10 @@ def segments(path: str, target_is_me: bool):
         text = clean(text)
         if text is None:
             continue
-        side = "她" if (who == "我") == target_is_me else "他"
+        if target_is_me is None:
+            side = "甲" if who == "我" else "乙"
+        else:
+            side = "她" if (who == "我") == target_is_me else "他"
         if len(chunk) >= 2 and chunk[-1] == [side, text] and chunk[-2] == [side, text]:
             continue  # 连发同一句只留两次
         chunk.append([side, text])
@@ -72,13 +87,16 @@ def segments(path: str, target_is_me: bool):
 def windows(chunk):
     for start in range(0, len(chunk), MAX_LINES):
         part = chunk[start:start + MAX_LINES]
-        if len(part) >= MIN_LINES and sum(1 for s, _ in part if s == "她") >= 2 and any(s == "他" for s, _ in part):
+        speakers = {s for s, _ in part}
+        if len(part) >= MIN_LINES and len(speakers) == 2:
             yield part
 
 
 def main():
     root, name, side, prefixes = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
-    out = os.path.join(os.path.dirname(__file__), "..", "data", "corpus", "wechat", name + ".jsonl")
+    if os.getenv("CORPUS_MASK"):
+        NAMES.extend(load_mask(os.environ["CORPUS_MASK"]))
+    out = os.path.join(os.path.dirname(__file__), "..", "data", "corpus", name + ".jsonl")
     kept = lines = 0
     with open(out, "w", encoding="utf-8") as f:
         for path in sorted(glob.glob(os.path.join(root, "私聊", "*.txt"))):
@@ -86,7 +104,7 @@ def main():
             if not any(title.startswith(p) for p in prefixes):
                 continue
             source = f"s{prefixes.index(next(p for p in prefixes if title.startswith(p)))}"
-            for chunk in segments(path, side == "me"):
+            for chunk in segments(path, None if side == "both" else side == "me"):
                 for part in windows(chunk):
                     joined = " ".join(t for _, t in part)
                     tags = [k for k, pat in TAGS.items() if re.search(pat, joined)]

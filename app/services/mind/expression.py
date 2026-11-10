@@ -20,6 +20,7 @@ def _build_e2_messages(
     *,
     hidden: list[str] | None = None,
     sticker_hint: str | None = None,
+    style_examples: str = "",
 ) -> list[dict]:
     recent_text = "\n".join(
         f"{item['role']}: {str(item.get('content',''))[:300]}"
@@ -64,6 +65,9 @@ def _build_e2_messages(
     if sticker_table_text:
         system_blocks.append({"type": "text", "text": sticker_table_text[:2000]})
     system_blocks[-1]["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
+    if style_examples:
+        # 每轮挑的片段不同，放在缓存块之后，不破坏风格卡/表情包表的缓存
+        system_blocks.append({"type": "text", "text": style_examples[:4000]})
     return [
         {"role": "system", "content": system_blocks},
         {"role": "user", "content": prompt},
@@ -81,10 +85,15 @@ def run_e2(
     sticker_hint: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
+    style_seed: str | None = None,
 ) -> str:
+    from app.services.mind import style_corpus
+
+    situation = " ".join([message, *plan.say_points, plan.tone])
+    examples = style_corpus.render(style_corpus.pick(situation, style_seed or trace_id or ""))
     messages = _build_e2_messages(
         plan, style_card, sticker_table_text, recent_turns, message,
-        hidden=hidden, sticker_hint=sticker_hint,
+        hidden=hidden, sticker_hint=sticker_hint, style_examples=examples,
     )
     raw = request_model_response(
         model_name=config.MIND_EXPR_MODEL,
