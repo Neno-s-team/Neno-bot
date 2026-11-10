@@ -138,7 +138,7 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 ## 5.5 表达真人化（2026-11-10 进行中）
 
 - **一轮发几条**按真实分布抽（`cycle._draw_burst`，`MIND_BURST_WEIGHTS`，默认取自用户私聊统计：1 条 59% / 2 条 26% / 3 条 10% / 4+ 不到 6%）。激动（arousal）或 L3/规则建议条数多时往多偏，抽签按 cycle_id 派生可重放；E3 按计划条数（+1 条表情包）截断。
-- **语料**：用户只用自己与"💗"（用户唯一的异性好友）这一个会话。`scripts/corpus_wechat.py` 洗成连续小段（去链接/通话/转账/兑换码，手机号与长数字脱敏），输出 `data/corpus/wechat/heart.jsonl`（学对方）、`me.jsonl`（学用户自己），**只在本地，data/ 已 gitignore**；原始导出在 `D:\WeChatDump61110\`。人名/地名脱敏未做。
+- **语料**：用户只用自己与"💗"（用户唯一的异性好友）这一个会话。`scripts/corpus_wechat.py` 洗成连续小段（去链接/通话/转账/兑换码，手机号与长数字脱敏），输出 `data/corpus/wechat/heart.jsonl`（学对方）、`me.jsonl`（学用户自己），**只在本地，data/ 已 gitignore**；原始导出在 `D:/WeChatDump/20261110/`。人名/地名脱敏未做。
 - 试验：检索 6 段相似片段作风格示例 + 抽到的条数 → 回复从"AI 扮女友"（"辛苦了宝 心疼你"、长句带逗号）变成短、碎、带方言（"要的要的，就是不晓得吃哪家[裂开]"）。
 - 待定：用哪份语料作她的口吻；接入方式（措辞层检索示例，只影响怎么说、不进记忆）；接入前做人名脱敏并给用户看抽样。
 
