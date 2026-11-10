@@ -123,12 +123,16 @@ def segment_at(t: float | None = None, session_id: str | None = None) -> dict[st
     升到等级 4（她在这个聊天里刚活动过）。不传 session_id 不做升级。
     """
     ts = clock.now() if t is None else t
-    local = datetime.fromtimestamp(ts, tz=clock.local_now().tzinfo)
-    seg = _segment_on_day(local, local.hour * 60 + local.minute)
-    if seg is None:
-        return _unavailable()
-    result = dict(seg)
-    result["world"] = "schedule"
+    live = _from_world(ts)
+    if live is not None:
+        result = live
+    else:
+        local = datetime.fromtimestamp(ts, tz=clock.local_now().tzinfo)
+        seg = _segment_on_day(local, local.hour * 60 + local.minute)
+        if seg is None:
+            return _unavailable()
+        result = dict(seg)
+        result["world"] = "schedule"
     if session_id is not None and result["level"] >= 3:
         window = max(0, int(config.MIND_FOCUS_WINDOW_MIN)) * 60
         last = store.last_self_activity(session_id, ts)
@@ -137,8 +141,26 @@ def segment_at(t: float | None = None, session_id: str | None = None) -> dict[st
     return result
 
 
+def _from_world(ts: float) -> dict[str, Any] | None:
+    """世界接上时（MIND_WORLD_ID）：只对"现在附近"读世界，过去/远未来仍走课表。"""
+    from app.services.mind import world_link
+
+    if not world_link.enabled() or abs(ts - clock.now()) > 120:
+        return None
+    return world_link.now_segment(ts)
+
+
 def iter_segments(t0: float, t1: float) -> Iterator[tuple[float, float, dict[str, Any]]]:
-    """[t0, t1) 内的绝对时段流，供 L0 抽样沿时间推进。"""
+    """[t0, t1) 内的绝对时段流，供 L0 抽样沿时间推进。世界接上时从世界读。"""
+    from app.services.mind import world_link
+
+    if world_link.enabled() and abs(t0 - clock.now()) <= 120:
+        produced = False
+        for item in world_link.iter_future(t0, t1):
+            produced = True
+            yield item
+        if produced:
+            return
     tz = clock.local_now().tzinfo
     day = datetime.fromtimestamp(t0, tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
     while day.timestamp() < t1:

@@ -23,6 +23,7 @@ def _build_e2_messages(
     sticker_hint: str | None = None,
     style_examples: str = "",
     line_lengths: list[int] | None = None,
+    doing: str = "",
 ) -> list[dict]:
     recent_text = "\n".join(
         f"{'对方' if item['role'] == 'user' else '你'}：{str(item.get('content',''))[:300]}"
@@ -48,7 +49,7 @@ def _build_e2_messages(
 你想回的意思：{points}{inner}{hidden_line}
 发 {plan.n_messages} 条。{length_line}{sticker_line}
 像平时手机上随手回那样打字，别解释、别总结、别为了显得自然而加戏。
-不知道自己此刻具体在干嘛就别编具体的事。一条一行，只输出要发的内容。"""
+{f"（你此刻：{doing}。被问到可以照实说，没问就不用提。）" if doing else "不知道自己此刻具体在干嘛就别编具体的事。"}一条一行，只输出要发的内容。"""
 
     system_blocks = [
         {"type": "text", "text": style_card[:1200]},
@@ -98,6 +99,7 @@ def run_e2(
     trace_id: str | None = None,
     session_id: str | None = None,
     style_seed: str | None = None,
+    doing: str = "",
 ) -> str:
     from app.services.mind import style_corpus
 
@@ -107,7 +109,7 @@ def run_e2(
     messages = _build_e2_messages(
         plan, style_card, sticker_table_text, recent_turns, message,
         hidden=hidden, sticker_hint=sticker_hint, style_examples=examples,
-        line_lengths=draw_line_lengths(seed, plan.n_messages, plan.length),
+        line_lengths=draw_line_lengths(seed, plan.n_messages, plan.length), doing=doing,
     )
     raw = request_model_response(
         model_name=config.MIND_EXPR_MODEL,

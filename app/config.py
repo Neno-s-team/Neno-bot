@@ -145,6 +145,10 @@ MIND_FADE_THRESHOLD = json.loads(os.getenv("MIND_FADE_THRESHOLD", "").strip() or
 MIND_WM_CONCERNS = _env_int("MIND_WM_CONCERNS", 3)
 MIND_CONCERN_DROP_BELOW = _env_float("MIND_CONCERN_DROP_BELOW", 0.08)
 
+# ── 世界 → 大脑（D3）：她此刻在干嘛从世界读，替代临时课表；空 = 不接 ────────────
+MIND_WORLD_ID = os.getenv("MIND_WORLD_ID", "").strip()
+MIND_WORLD_ACTOR = os.getenv("MIND_WORLD_ACTOR", "neno").strip() or "neno"
+
 # ── 多层大脑 P3a（L0 感知/课表/待想队列/投递/调度器） ────────────────────────
 # false 时 /chat 行为与 P2 完全一致，L0 不参与
 MIND_ASYNC_DELIVERY = _env_bool("MIND_ASYNC_DELIVERY", False)

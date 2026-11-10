@@ -68,6 +68,10 @@ def _render_situation(situation: dict[str, Any]) -> str:
     gap = situation.get("seconds_since_last_user_message")
     if gap is not None:
         lines.append(f"距上一条用户消息：{int(gap // 60)} 分钟")
+    if situation.get("doing"):
+        lines.append(f"你此刻在{situation.get('place') or '某处'}，{situation['doing']}")
+        if situation.get("body"):
+            lines.append(f"身上：{situation['body']}")
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
     for notice in situation.get("retracted") or []:
         lines.append(notice)
@@ -132,10 +136,20 @@ def build_working_memory(
         "weekday": _WEEKDAYS[local.weekday()],
         "period": period_word(local.hour),
         "seconds_since_last_user_message": _seconds_since_last_user_message(history),
-        # P2 没有 L0/世界：默认打断等级 3，明确标注世界不可用
         "interrupt_level": 3,
         "world": "unavailable",
     }
+    from app.services.mind import schedule as mind_schedule
+
+    seg = mind_schedule.segment_at(current, session_id=session_id)
+    situation["interrupt_level"] = int(seg.get("level", 3))
+    situation["world"] = seg.get("world", "unavailable")
+    if seg.get("world") == "live":
+        # 世界里她真实在做的事：她知道自己在干嘛，不用编
+        situation["doing"] = seg.get("activity")
+        situation["place"] = seg.get("place")
+        if seg.get("body"):
+            situation["body"] = seg["body"]
     if retracted is not None:
         situation["retracted"] = retracted
     # 已撤回且被看到过的消息：即使调用方没传，也补进当前情境

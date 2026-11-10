@@ -35,6 +35,12 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
         log.exception("World backend initialization failed; chat lifecycle remains independent")
         return
     app.state.world_engine = engine
+    life_world = os.getenv("MIND_WORLD_ID", "").strip()
+    if life_world:
+        try:
+            await asyncio.to_thread(_ensure_life_world, engine, life_world)
+        except Exception as error:
+            log.warning("Life world bootstrap failed: %s", str(error)[:200])
     try:
         app.state.world_cognition = WorldCognition(engine, WorldLLMConfig.from_env())
     except (ValueError, TypeError) as error:
@@ -77,3 +83,16 @@ async def stop_world(app) -> None:
         await app.state.world_task
     if app.state.world_cognition_task is not None:
         await app.state.world_cognition_task
+
+
+def _ensure_life_world(engine, world_id: str) -> None:
+    """她的生活世界不存在就按 life 模板建一个（时间 1:1，从现在开始跑）。"""
+    from datetime import datetime, timezone
+    from app.services.world.models import WorldCreate
+
+    with engine.store.transaction() as c:
+        if c.execute("SELECT 1 FROM world_worlds WHERE world_id=?", (world_id,)).fetchone():
+            return
+    engine.create(WorldCreate(world_id=world_id, name="Neno 的生活", seed=os.getenv("MIND_WORLD_SEED", world_id),
+                              template="life", rhythms="life", running=True, start_at=datetime.now(timezone.utc)))
+    log.info("Life world %s created", world_id)

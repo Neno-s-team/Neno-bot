@@ -113,6 +113,17 @@ def _draw_burst(cycle_id: str, suggested: int, arousal: float) -> int:
     return cap
 
 
+def _doing_now() -> str:
+    """世界接上时：她此刻在哪、在干嘛（一句话），给措辞层照实说用。"""
+    from app.services.mind import world_link
+
+    seg = world_link.now_segment()
+    if not seg:
+        return ""
+    text = f"在{seg['place']}，{seg['activity']}" if seg.get("place") else seg["activity"]
+    return text + (f"，{seg['body']}" if seg.get("body") else "")
+
+
 def _compute_tone(valence: float, arousal: float) -> str:
     """valence/arousal → 5 档中文语气词。"""
     if valence < -0.2 and arousal > 0.4:
@@ -427,6 +438,7 @@ def run_cycle(
                 trace_id=trace_id,
                 session_id=session_id,
                 style_seed=cycle_id,
+                doing=_doing_now(),
             )
             update_cycle(cycle_id, expr_text=expr_text)
         except Exception as exc:
