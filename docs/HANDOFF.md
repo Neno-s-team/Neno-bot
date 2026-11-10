@@ -144,7 +144,8 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 每轮多约 1–2k 输入 token（片段不缓存）。
 - **措辞去表演（2026-11-10）**：E2 提示不再写"真人口语回复"，改为只给最近对话 + 想回的意思 + 条数 + 每条长度上限 + "别解释别总结别加戏、不知道自己在干嘛就别编"；L1 的心里话只在 leak ≥ 0.35 时给，且"说不说随你"。每条长度按 `MIND_LINE_LENGTH_BANDS`（默认取自语料：中位 4–5 字、九成 ≤10 字）逐条抽档，length=long 时偏长。
 - **措辞模型**：用户要求试 `google/gemini-4-argon`（`.env` 里 `MIND_EXPR_MODEL`）。离线对比同四轮：Gemini 更平更短（"上了 你快点"），Opus 略带戏（"等你半天了"）。
-- **人设**：旧角色卡在 `assets/neno/neno-persona-card.json`（chara_card_v2，约 2.8 万字；`prompts/system.txt` 是其 7.7 万字扩写），**仍不作参考**。按层拆的填写模板见 `docs/persona-template.md`（A 自我卡 / B 风格卡 / C 世界身份种子 / D 临时课表），等用户填。
+- **人设**：旧角色卡在 `assets/neno/neno-persona-card.json`（chara_card_v2，约 2.8 万字；`prompts/system.txt` 是其 7.7 万字扩写），**仍不作参考**。按层拆的填写模板见 `docs/persona-template.md`（A 自我卡 / B 风格卡 / C 世界身份种子 / D 临时课表）。
+- **人设 A 已定（2026-11-10，用户选）**：`prompts/mind/self_card.md`——研究生；和用户是**很好的朋友（不是恋人，关系锁按此）**；嘴硬心软 + 独立有主见；情绪很藏得住（抑制基线 0.8）；被冷落时闹一下就好。在乎什么/讨厌什么/底线**刻意留空**，用户不想靠勾选预设，让它在相处中显出来。B 风格卡不填（语料已覆盖）。C/D 待定。
 
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
