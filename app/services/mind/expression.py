@@ -46,7 +46,7 @@ def _build_e2_messages(
     prompt = f"""根据以下规划写出真人口语回复。
 
 规划：{say_points_line}
-- 条数：{plan.n_messages} 条
+- 条数：{plan.n_messages} 条（就发这么多，宁少勿多；一条能说完就别拆）
 - 长度：{plan.length}
 - 语气：{plan.tone}{gut_hint}{hidden_hint}{sticker_line}
 
@@ -174,13 +174,14 @@ def _split_messages(text: str, max_total: int = 4, max_single: int = 200) -> lis
     return result
 
 
-def run_e3(text: str, sticker_names: set[str] | None = None) -> str:
+def run_e3(text: str, sticker_names: set[str] | None = None, max_messages: int | None = None) -> str:
     sticker_names = sticker_names or set()
     text = _replace_sticker_marks(text, sticker_names)
     text = _strip_markdown(text)
+    limit = config.MIND_E3_MAX_MESSAGES if max_messages is None else max(1, min(max_messages, config.MIND_E3_MAX_MESSAGES))
     messages = _split_messages(
         text,
-        max_total=config.MIND_E3_MAX_MESSAGES,
+        max_total=limit,
         max_single=config.MIND_E3_MAX_SINGLE_CHARS,
     )
     # 去掉空行

@@ -96,6 +96,8 @@ MIND_AFFECT_HALF_LIFE_MINUTES = _env_int("MIND_AFFECT_HALF_LIFE_MINUTES", 180)
 MIND_TIMEZONE = os.getenv("MIND_TIMEZONE", "Asia/Shanghai").strip()
 MIND_E3_MAX_MESSAGES = _env_int("MIND_E3_MAX_MESSAGES", 4)
 MIND_E3_MAX_SINGLE_CHARS = _env_int("MIND_E3_MAX_SINGLE_CHARS", 200)
+# 一轮发几条的基础分布（1..N 条的权重）；默认取自真实私聊统计：六成一条、两成多两条、4 条以上不到一成
+MIND_BURST_WEIGHTS = json.loads(os.getenv("MIND_BURST_WEIGHTS", "").strip() or "[0.59, 0.256, 0.098, 0.036, 0.02]")
 
 # ── 多层大脑 P2（L2 深思 + L3 自我 + 工作记忆 + 记忆存储） ────────────────────
 # L2 模型；留空 = 复用聊天主模型。开思考，JSON Schema 约束输出。

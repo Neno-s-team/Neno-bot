@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import json
 import re
 from typing import Any
@@ -91,6 +92,25 @@ def _build_e1_plan(l1: L1Appraisal) -> E1Plan:
         n_messages=n_messages,
         tone="中性",
     )
+
+
+def _draw_burst(cycle_id: str, suggested: int, arousal: float) -> int:
+    """一轮发几条：按真实分布抽，激动或想说的多时往多的那边偏，不写死。
+
+    偏移 lean ∈ [0, 1.5]：情绪激动（arousal>0）与 L3/规则建议的条数各贡献一部分；
+    权重 w[k] × e^(lean·(k−1)·0.6)。抽签按 cycle_id 派生，断点续跑结果不变。
+    """
+    weights = [max(0.0, float(x)) for x in (config.MIND_BURST_WEIGHTS or [1.0])]
+    cap = max(1, min(len(weights), int(config.MIND_E3_MAX_MESSAGES)))
+    lean = max(0.0, min(1.5, max(arousal, 0.0) + 0.3 * (max(1, suggested) - 1)))
+    adjusted = [weights[k] * math.exp(lean * k * 0.6) for k in range(cap)]
+    draw = int.from_bytes(hashlib.sha256(f"{cycle_id}:burst".encode()).digest()[:8], "big") / 2**64
+    cursor = draw * sum(adjusted)
+    for k, weight in enumerate(adjusted):
+        cursor -= weight
+        if cursor < 0:
+            return k + 1
+    return cap
 
 
 def _compute_tone(valence: float, arousal: float) -> str:
@@ -382,6 +402,7 @@ def run_cycle(
             plan = _build_e1_plan(l1)
             plan.leak = state.compute_leak(arousal=mind_state["arousal"], base_inhibition=inhibition_base)
             plan.tone = _compute_tone(mind_state["valence"], mind_state["arousal"])
+        plan.n_messages = _draw_burst(cycle_id, plan.n_messages, mind_state["arousal"])
         if plan_patch:
             for key, value in plan_patch.items():
                 if hasattr(plan, key) and value is not None:
@@ -424,7 +445,9 @@ def run_cycle(
     # ── E3 渲染 ───────────────────────────────────────────────────────────────
     if existing.get("final_text") is None:
         try:
-            final_text = expression.run_e3(expr_text, sticker_names=sticker_names)
+            # 表情包单独占一条，不算进文字条数
+            final_text = expression.run_e3(expr_text, sticker_names=sticker_names,
+                                           max_messages=plan.n_messages + 1)
             update_cycle(cycle_id, final_text=final_text, status="completed")
         except Exception as exc:
             log_event(
