@@ -8,7 +8,7 @@ from typing import Any
 
 from app import config
 from app.services.mind import clock
-from app.services.mind import concerns
+from app.services.mind import concerns, relationship
 from app.services.mind.memory import retrieval
 from app.storage.db import fetch_all
 
@@ -165,6 +165,7 @@ def build_working_memory(
 
     memory = {
         "situation": situation,
+        "relationship": relationship.describe(session_id),
         "concerns": concerns.render(concerns.top(session_id)),
         "episodes": episodes,
         "beliefs": beliefs,
@@ -177,6 +178,7 @@ def build_working_memory(
     text = render_working_memory(memory, include_self_card=False)
     return {
         "situation": situation,
+        "relationship": memory.get("relationship", ""),
         "concerns": memory["concerns"],
         "episodes": memory["episodes"],
         "beliefs": memory["beliefs"],
@@ -233,6 +235,8 @@ def _trim_to_budget(memory: dict[str, Any]) -> list[str]:
 def render_working_memory(memory: dict[str, Any], *, include_self_card: bool = True) -> str:
     sections: list[str] = []
     sections.append("【当前情境】\n" + _render_situation(memory["situation"]))
+    if memory.get("relationship"):
+        sections.append("【你和他】\n" + memory["relationship"])
     concerns = memory.get("concerns") or []
     if concerns:
         sections.append("【在意事项】\n" + "\n".join(f"- {item}" for item in concerns))

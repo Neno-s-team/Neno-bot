@@ -224,3 +224,34 @@ def test_sleep_settles_mood_by_drawn_amount(p4, monkeypatch):
     assert after["arousal"] < raw["arousal"] * 0.45  # 一觉醒来激动退了大半
     assert raw["valence"] < after["valence"] < 0.4  # 朝睡前心情靠，但不是一步到位
     assert before["valence"] < 0
+
+
+def test_relationship_moves_slowly_only_through_reflection(p4, monkeypatch):
+    from app.services.mind import relationship
+
+    assert "很好的朋友" in relationship.describe(S)
+    _use(monkeypatch, Reflector({"relation": {"closer": 1, "attraction": 1, "distance": 0, "view": "他今天挺暖的"}}))
+    _say("user", "今天陪你聊到很晚 开心", at("2026-11-09 22:00"))
+    _cycle(at("2026-11-09 22:00"))
+    row = _run_now(p4)
+    moved = json.loads(row["result_json"])["relation"]
+    rel = relationship.get(S)
+    assert 0.7 + 0.04 - 1e-9 <= rel["closeness"] <= 0.7 + 0.08 + 1e-9  # 一晚最多挪 0.08，且按抽样打折
+    assert 0.1 < rel["attraction"] <= 0.18 + 1e-9
+    assert moved["closeness"] == round(rel["closeness"], 3)
+    assert "他今天挺暖的" in relationship.describe(S)
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    memory = wm_builder.build_working_memory(S, l1=L1Appraisal.from_dict({"cues": []}), message="hi", history=[], self_card="")
+    assert "【你和他】" in wm_builder.render_working_memory(memory)
+
+
+def test_relationship_scale_is_drawn(p4):
+    from app.services.mind import relationship
+    steps = set()
+    for n in range(6):
+        sid = f"tg:rel{n}"
+        with get_conn() as conn:
+            relationship.nudge(conn, sid, "2026-11-10", {"closer": 1, "attraction": 0, "distance": 0, "view": ""})
+        steps.add(round(relationship.get(sid)["closeness"] - 0.7, 4))
+    assert len(steps) > 3 and all(0.04 - 1e-9 <= x <= 0.08 + 1e-9 for x in steps)

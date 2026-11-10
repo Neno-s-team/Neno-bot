@@ -16,7 +16,7 @@ from typing import Any
 
 from app import config
 from app.services.chat.llm_gateway import request_model_response
-from app.services.mind import clock, concerns, schedule, state
+from app.services.mind import clock, concerns, relationship, schedule, state
 from app.services.mind.deliberation import BeliefUpdate, strip_think
 from app.services.mind.memory import importance as importance_rules
 from app.services.mind.memory.commit import apply_belief_update
@@ -138,6 +138,7 @@ def _day_material(session_id: str, start: float, end: float) -> dict[str, Any]:
         "episodes": [dict(r) for r in episodes],
         "beliefs": [dict(r) for r in beliefs],
         "concerns": concerns.list_open(session_id, end),
+        "session_id": session_id,
     }
 
 
@@ -153,7 +154,7 @@ REFLECT_SCHEMA = {
     "type": "json_schema",
     "json_schema": {"name": "mind_l4_reflection", "strict": True, "schema": {
         "type": "object", "additionalProperties": False,
-        "required": ["day_summary", "new_notes", "belief_updates", "concern_updates", "new_concerns", "mood", "tomorrow"],
+        "required": ["day_summary", "new_notes", "belief_updates", "concern_updates", "new_concerns", "mood", "relation", "tomorrow"],
         "properties": {
             "day_summary": {"type": "string"},
             "new_notes": {"type": "array", "items": {
@@ -173,6 +174,9 @@ REFLECT_SCHEMA = {
                                "evidence": {"type": "array", "items": {"type": "integer"}}}}},
             "mood": {"type": "object", "additionalProperties": False, "required": ["valence", "settle"],
                      "properties": {"valence": {"type": "number"}, "settle": {"type": "number"}}},
+            "relation": {"type": "object", "additionalProperties": False, "required": ["closer", "attraction", "distance", "view"],
+                         "properties": {"closer": {"type": "number"}, "attraction": {"type": "number"},
+                                        "distance": {"type": "number"}, "view": {"type": "string"}}},
             "tomorrow": {"type": "array", "items": {"type": "string"}},
         }}},
 }
@@ -182,6 +186,7 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
     turns = "\n".join(f"[{t['at']}] {'对方' if t['role'] == 'user' else '我'}：{t['content']}" for t in material["turns"]) or "（今天没聊天）"
     episodes = "\n".join(f"#{e['id']} {e['summary']}" for e in material["episodes"]) or "（无）"
     beliefs = "\n".join(f"- {b['subject']}：{b['content']}（把握 {b['confidence']:.2f}）" for b in material["beliefs"]) or "（无）"
+    bond = relationship.describe(material["session_id"])
     worries = "\n".join(f"- id={c['id']} {c['title']}（强度 {c['effective']:.2f}）{c['detail']}" for c in material["concerns"]) or "（无）"
     prompt = f"""现在是夜里，你躺下了，在脑子里过一遍今天。用你自己的视角想，不要写成报告。
 
@@ -197,6 +202,9 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
 【心里记挂着的事】
 {worries}
 
+【你和他现在的关系】
+{bond}
+
 【此刻心情】valence={mood['valence']:.2f} arousal={mood['arousal']:.2f}
 
 【输出要求】只输出一个 JSON 对象。
@@ -206,6 +214,8 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
 - concern_updates：对每条记挂的事选 keep（还挂着）/ ease（松了些）/ grow（更在意了）/ let_go（放下了），intensity 是你觉得现在的在意程度 0–1。
 - new_concerns：≤2 条今天新冒出来、明天可能还会想起的事；没有就空。
 - mood.valence：睡前心情（-1 到 1）；mood.settle：情绪平复了多少（0 没平复，1 完全平复）。
+- relation：今天和对方的相处让你们的关系怎么动了，各项 -1 到 1，没变化就填 0（大多数日子都在 0 附近）。
+  closer 更近还是更远；attraction 心动多了还是少了；distance 多了隔阂还是解开了；view 一句话说你现在怎么看他。
 - tomorrow：≤3 条明天想做或想记得的事，可以为空。"""
     return [{"role": "system", "content": self_card or "你是一个普通人，在睡前回想今天。"},
             {"role": "user", "content": prompt}]
@@ -242,6 +252,7 @@ def _apply(session_id: str, night: str, window_end: float, thought: dict[str, An
             _apply_notes(conn, session_id, night, window_end, thought, material, known_ids, summary, now)
             _apply_beliefs(conn, session_id, thought, known_ids, summary)
             _apply_concerns(conn, session_id, night, thought, material, known_ids, summary, now)
+            summary["relation"] = relationship.nudge(conn, session_id, night, thought.get("relation"))
         summary["concerns_faded"] = concerns.drop_faded(conn, session_id, now)
         summary["episodes_faded"] = _fade(conn, session_id, night, now)
     summary["mood"] = _settle_mood(session_id, night, thought)

@@ -244,6 +244,18 @@ def init_db():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS mind_relationship (
+                session_id TEXT PRIMARY KEY,
+                closeness REAL NOT NULL DEFAULT 0.7,
+                attraction REAL NOT NULL DEFAULT 0.1,
+                distance REAL NOT NULL DEFAULT 0.1,
+                view TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS mind_reflection (
                 session_id TEXT NOT NULL,
                 night TEXT NOT NULL,
