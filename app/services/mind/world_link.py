@@ -93,6 +93,10 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
     conditions = [c["label"] for c in actor["state"].get("conditions", []) if c.get("until", 0) > (ts or clock.now())]
     if conditions:
         seg["body"] = "，".join(conditions)
+    contacts = [x for x in actor["state"].get("recent_contacts", []) if (ts or clock.now()) - x["at"] < 12 * 3600]
+    if contacts:
+        seg["contacts"] = [x["note"] or f"{x['from']}{'打电话' if x['channel'] == 'call' else '发消息'}来过"
+                           for x in contacts[-3:]]
     return seg
 
 

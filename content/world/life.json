@@ -455,6 +455,28 @@
     "quantity": 99
    },
    "label": "冰箱里的吃的"
+  },
+  {
+   "entity_id": "advisor",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "导师",
+   "parent_id": "advisor_office",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "senior",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "同门师姐",
+   "parent_id": "library",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
   }
  ],
  "daily_schedules": [],

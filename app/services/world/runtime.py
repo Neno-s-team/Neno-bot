@@ -22,6 +22,7 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
     app.state.world_cognition = None
     app.state.world_cognition_task = None
     app.state.world_cognition_error = None
+    app.state.world_npc_task = None
     app.state.world_stop = asyncio.Event()
     app.state.world_rules_enabled = os.getenv("WORLD_RULE_SCHEDULER_ENABLED", "false").lower() in {"true", "1", "yes", "on"}
     app.state.world_cognition_autostart = os.getenv("WORLD_COGNITION_AUTOSTART", "false").lower() in {"true", "1", "yes", "on"}
@@ -72,6 +73,23 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
             except TimeoutError:
                 pass
 
+    async def npc_loop():
+        from app.services.world import npcs
+        while not app.state.world_stop.is_set():
+            try:
+                result = await asyncio.to_thread(npcs.step, engine.store)
+                wait = 2 if "idle" not in result else 20
+            except Exception:
+                log.exception("World NPC step failed; physics and time remain independent")
+                wait = 60
+            try:
+                await asyncio.wait_for(app.state.world_stop.wait(), timeout=wait)
+            except TimeoutError:
+                pass
+
+    if os.getenv("WORLD_NPC_ENABLED", "false").lower() in {"true", "1", "yes", "on"}:
+        app.state.world_npc_task = asyncio.create_task(npc_loop(), name="world-npcs")
+
     if (app.state.world_cognition and app.state.world_cognition.config.enabled
             and app.state.world_cognition_autostart):
         app.state.world_cognition_task = asyncio.create_task(cognition_loop(), name="independent-world-cognition")
@@ -83,6 +101,8 @@ async def stop_world(app) -> None:
         await app.state.world_task
     if app.state.world_cognition_task is not None:
         await app.state.world_cognition_task
+    if getattr(app.state, "world_npc_task", None) is not None:
+        await app.state.world_npc_task
 
 
 def _ensure_life_world(engine, world_id: str) -> None:
@@ -100,7 +120,14 @@ def _ensure_life_world(engine, world_id: str) -> None:
         log.info("Life world %s created", world_id)
     with engine.store.transaction(write=True) as c:
         w = load_world(c, world_id)
+        changed = False
         if not w["settings"].get("mind_linked"):
             # 标记：这个世界接着她的大脑（挑事会读她的打算/心愿）
             w["settings"]["mind_linked"] = True
+            changed = True
+        if not w["settings"].get("npcs"):
+            from app.services.world import npcs
+            npcs.setup(c, w, "life")
+            changed = True
+        if changed:
             engine._save_world(c, w)

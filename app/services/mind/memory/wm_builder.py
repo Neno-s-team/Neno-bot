@@ -72,6 +72,8 @@ def _render_situation(situation: dict[str, Any]) -> str:
         lines.append(f"你此刻在{situation.get('place') or '某处'}，{situation['doing']}")
         if situation.get("body"):
             lines.append(f"身上：{situation['body']}")
+        for note in situation.get("contacts") or []:
+            lines.append(f"今天：{note}")
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
     for notice in situation.get("retracted") or []:
         lines.append(notice)
@@ -150,6 +152,8 @@ def build_working_memory(
         situation["place"] = seg.get("place")
         if seg.get("body"):
             situation["body"] = seg["body"]
+        if seg.get("contacts"):
+            situation["contacts"] = seg["contacts"]
     if retracted is not None:
         situation["retracted"] = retracted
     # 已撤回且被看到过的消息：即使调用方没传，也补进当前情境

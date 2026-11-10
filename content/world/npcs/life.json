@@ -1,0 +1,88 @@
+{
+ "version": "npcs-placeholder-1",
+ "note": "占位角色卡：只为跑通 W4 框架。人设定了再改；卡越短越好，缺点和立场比优点重要。",
+ "npcs": {
+  "mom": {
+   "label": "妈妈",
+   "tier": "core",
+   "relation": "她妈妈",
+   "card": "五十出头，在老家上班。爱操心，嘴上唠叨，常问吃了没、穿够没、什么时候回家。不太懂她读的东西，但为她骄傲。",
+   "wake": "07:00",
+   "contact": {
+    "per_week": [
+     2,
+     5
+    ],
+    "hours": [
+     12,
+     21
+    ],
+    "channels": [
+     "call",
+     "message"
+    ]
+   }
+  },
+  "dad": {
+   "label": "爸爸",
+   "tier": "core",
+   "relation": "她爸爸",
+   "card": "话少，关心都藏在转账和'注意身体'里。偶尔发一条养生文章或者天气预报截图。",
+   "wake": "06:30",
+   "contact": {
+    "per_week": [
+     0,
+     2
+    ],
+    "hours": [
+     8,
+     21
+    ],
+    "channels": [
+     "message"
+    ]
+   }
+  },
+  "advisor": {
+   "label": "导师",
+   "tier": "secondary",
+   "relation": "她的研究生导师",
+   "card": "文学院副教授，要求严但不刻薄，回消息慢，常在深夜批改。会突然要材料、催进度，偶尔夸人。",
+   "wake": "08:00",
+   "contact": {
+    "per_week": [
+     1,
+     3
+    ],
+    "hours": [
+     9,
+     23
+    ],
+    "channels": [
+     "message"
+    ]
+   }
+  },
+  "senior": {
+   "label": "同门师姐",
+   "tier": "secondary",
+   "relation": "同一个导师的师姐",
+   "card": "博二，忙到飞起，嘴碎爱吐槽导师和食堂，但很照顾师妹，会转发资料、拉她吃饭。",
+   "wake": "09:00",
+   "contact": {
+    "per_week": [
+     1,
+     4
+    ],
+    "hours": [
+     10,
+     23
+    ],
+    "channels": [
+     "message",
+     "call"
+    ]
+   }
+  }
+ }
+}
