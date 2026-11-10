@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 
-from app.services.world import actions, perturbations, rhythms
+from app.services.world import actions, life, perturbations, rhythms
 from app.services.world.catalog import Catalog
 from app.services.world.models import ActionRequest, WorldCreate
 from app.services.world.randomness import sample, stable_id
@@ -81,6 +81,9 @@ class WorldEngine:
             if profile:
                 rhythms.setup(c, w, request.rhythms, [v["entity_id"] for v in values if v["kind"] == "actor"])
                 perturbations.setup(c, w)
+                for value in values:
+                    if value["kind"] == "actor":
+                        life.schedule_choice(c, w, value["entity_id"], 1)
                 self._save_world(c, w)
             if not perturbations.config(w):
                 # 有扰动池时由它负责天气与意外；否则沿用旧的每小时随机机会
@@ -379,7 +382,7 @@ class WorldEngine:
                 self._random(c, w, task)
             elif task["kind"] == "injection":
                 self._injected(c, w, task)
-            elif rhythms.handle(c, w, task) or perturbations.handle(c, w, task):
+            elif rhythms.handle(c, w, task) or perturbations.handle(c, w, task) or life.handle(c, w, task):
                 pass
             else:
                 raise WorldError("Unknown persistent job kind")

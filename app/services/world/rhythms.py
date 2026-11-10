@@ -199,9 +199,14 @@ def _schedule_routine(c, w, aid, entry, after, include_running=False):
         if occ is None:
             continue
         begin, finish = occ
-        if begin > after or (include_running and finish and begin <= after < finish - 600):
-            job(c, w["world_id"], f"routine:{aid}:{entry['id']}:{d}", max(begin, after), "routine",
-                {"actor_id": aid, "entry": entry["id"], "day": d, "until": finish})
+        lead = 0.0
+        if entry.get("commute"):
+            from app.services.world import life
+            here = entity(c, w["world_id"], aid)["parent_id"]
+            lead = life.travel_minutes(w, here, entry["place"]) * 60
+        if begin - lead > after or (include_running and finish and begin <= after < finish - 600):
+            job(c, w["world_id"], f"routine:{aid}:{entry['id']}:{d}", max(begin - lead, after), "routine",
+                {"actor_id": aid, "entry": entry["id"], "day": d, "until": finish, "begin": begin})
             return
 
 
@@ -221,6 +226,12 @@ def _routine(c, w, task):
             end_activity(c, w, aid, reason="作息到点")
             actor = entity(c, w["world_id"], aid)
         place = entity(c, w["world_id"], entry["place"])
+        if entry.get("commute") and p.get("begin") and p["begin"] - w["sim_time"] > 60 and actor["parent_id"] != place["entity_id"]:
+            after = {"activity": entry["activity"], "place": entry["place"], "source": "routine:" + entry["id"],
+                     "hours": (p["until"] - p["begin"]) / 3600 if p.get("until") else None}
+            start_activity(c, w, aid, "commute", source="routine:" + entry["id"], key=key + ":go",
+                           hours=(p["begin"] - w["sim_time"]) / 3600, after=after)
+            return
         if actor["parent_id"] != place["entity_id"]:
             actor["parent_id"] = place["entity_id"]
             save_entity(c, actor)
@@ -256,7 +267,7 @@ def _company(c, w, actor):
         (w["world_id"], actor["parent_id"], actor["entity_id"])) if json.loads(r["state"]).get("active", True)]
 
 
-def start_activity(c, w, aid, name, source, hours=None, opens=None, then=None, key=None):
+def start_activity(c, w, aid, name, source, hours=None, opens=None, then=None, key=None, after=None):
     actor = entity(c, w["world_id"], aid)
     if actor["state"].get("doing"):
         end_activity(c, w, aid, reason="换去做别的")
@@ -280,6 +291,8 @@ def start_activity(c, w, aid, name, source, hours=None, opens=None, then=None, k
         changes.append(place)
     actor["state"]["doing"] = {"activity": name, "label": spec["label"], "since": w["sim_time"], "until": until,
                                "source": source, "opens": opens, "then": then, "job": key + ":end"}
+    if after:
+        actor["state"]["doing"]["after"] = after
     save_entity(c, actor)
     changes.append(actor)
     job(c, w["world_id"], key + ":end", until, "activity_end", {"actor_id": aid, "job": key + ":end"})
@@ -318,6 +331,18 @@ def end_activity(c, w, aid, reason="到时间了"):
                  {"activity": doing["activity"], "reason": reason, "hours": round(worked, 2), "changes": changes}, aid)
     actions.observe(c, w, aid, event, "activity_end")
     _nudge(c, w, aid)
+    from app.services.world import life
+    if doing.get("after") and reason == "到时间了":
+        follow = doing["after"]
+        if follow.get("hours") is None:
+            follow = {**follow, "hours": None}
+        try:
+            life.arrive(c, w, aid, follow, doing["job"] + ":arrive")
+        except WorldError as error:
+            emit(c, w, doing["job"] + ":arrive-blocked", "life.blocked", {"reason": str(error)}, aid)
+            life.schedule_choice(c, w, aid)
+    elif reason == "到时间了":
+        life.schedule_choice(c, w, aid)
     return event
 
 

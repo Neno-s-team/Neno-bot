@@ -1,0 +1,990 @@
+{
+ "version": "life-placeholder-1",
+ "note": "她的生活（占位）：住家里、文学研究生。义务时间、地点、偏好初值都是占位，人设细化后再改。需求/扰动沿用通用参数。",
+ "replace_template_schedules": true,
+ "needs": {
+  "hunger": {
+   "label": "饥饿",
+   "initial": 0.2,
+   "rate_per_hour": 0.08,
+   "day_variation": 0.25,
+   "urge": [
+    0.45,
+    0.7
+   ],
+   "nag_hours": [
+    1.5,
+    4
+   ],
+   "felt": [
+    "",
+    "有点饿",
+    "很饿",
+    "饿得发慌"
+   ],
+   "habit": {
+    "probability": 0.6,
+    "options": [
+     "eat"
+    ]
+   }
+  },
+  "fatigue": {
+   "label": "疲劳",
+   "initial": 0.2,
+   "rate_per_hour": 0.05,
+   "day_variation": 0.3,
+   "urge": [
+    0.55,
+    0.8
+   ],
+   "nag_hours": [
+    1.5,
+    4
+   ],
+   "felt": [
+    "",
+    "有点累",
+    "很累",
+    "困得睁不开眼"
+   ],
+   "habit": {
+    "probability": 0.5,
+    "options": [
+     "rest"
+    ]
+   }
+  },
+  "social": {
+   "label": "社交",
+   "initial": 0.3,
+   "rate_per_hour": 0.02,
+   "day_variation": 0.5,
+   "urge": [
+    0.5,
+    0.85
+   ],
+   "nag_hours": [
+    3,
+    8
+   ],
+   "felt": [
+    "",
+    "有点想找人说话",
+    "很想找人聊天",
+    "闷得发慌"
+   ],
+   "habit": {
+    "probability": 0.4,
+    "options": [
+     "chat"
+    ]
+   }
+  }
+ },
+ "strain": [
+  {
+   "need": "fatigue",
+   "at": 0.9,
+   "probability": 0.35,
+   "label": "熬过头了",
+   "effect": {
+    "need": "fatigue",
+    "rate_mult": 1.4,
+    "hours": 20
+   }
+  },
+  {
+   "need": "hunger",
+   "at": 0.9,
+   "probability": 0.3,
+   "label": "饿得没力气",
+   "effect": {
+    "need": "fatigue",
+    "rate_mult": 1.25,
+    "hours": 6
+   }
+  }
+ ],
+ "food": {
+  "need": "hunger",
+  "variation": 0.25,
+  "relief": {
+   "neno:meal": 0.6,
+   "neno:bread": 0.35,
+   "neno:apple": 0.15,
+   "neno:egg": 0.1,
+   "default": 0.2
+  }
+ },
+ "perturbations": {
+  "note": "占位扰动池：通用日常小事，人设确定后由 W1 重写。概率每次机会按档位抽，调节器只改频率与冷却，不选事件。",
+  "interval_hours": [
+   1,
+   3
+  ],
+  "tiers": {
+   "small": {
+    "probability": 0.25,
+    "weight": 1
+   },
+   "medium": {
+    "probability": 0.025,
+    "weight": 3
+   },
+   "large": {
+    "probability": 0.006,
+    "weight": 8
+   }
+  },
+  "regulator": {
+   "window_hours": 48,
+   "calm_target": 4,
+   "min_mult": 0.3,
+   "max_mult": 2.0
+  },
+  "pool": [
+   {
+    "id": "rain",
+    "tier": "small",
+    "label": "下起了雨",
+    "target": "place:street",
+    "weight": 1.2,
+    "cooldown_hours": 6,
+    "require": {
+     "weather_not": "rain"
+    },
+    "effects": [
+     {
+      "type": "weather",
+      "value": "rain"
+     }
+    ]
+   },
+   {
+    "id": "clear_up",
+    "tier": "small",
+    "label": "雨停了，放晴",
+    "target": "place:street",
+    "weight": 1.5,
+    "cooldown_hours": 3,
+    "require": {
+     "weather_is": "rain"
+    },
+    "effects": [
+     {
+      "type": "weather",
+      "value": "clear"
+     }
+    ]
+   },
+   {
+    "id": "clouds_part",
+    "tier": "small",
+    "label": "云散了，出太阳了",
+    "target": "place:street",
+    "weight": 1.0,
+    "cooldown_hours": 4,
+    "require": {
+     "weather_is": "cloudy"
+    },
+    "effects": [
+     {
+      "type": "weather",
+      "value": "clear"
+     }
+    ]
+   },
+   {
+    "id": "clouds",
+    "tier": "small",
+    "label": "天阴了",
+    "target": "place:street",
+    "weight": 0.8,
+    "cooldown_hours": 6,
+    "require": {
+     "weather_is": "clear"
+    },
+    "effects": [
+     {
+      "type": "weather",
+      "value": "cloudy"
+     }
+    ]
+   },
+   {
+    "id": "lost_change",
+    "tier": "small",
+    "label": "丢了点零钱",
+    "target": "actor",
+    "weight": 0.6,
+    "cooldown_hours": 72,
+    "effects": [
+     {
+      "type": "credits",
+      "range": [
+       -8,
+       -2
+      ]
+     }
+    ],
+    "awake": true
+   },
+   {
+    "id": "bad_sleep",
+    "tier": "small",
+    "label": "没睡好",
+    "target": "actor",
+    "weight": 1,
+    "cooldown_hours": 24,
+    "local_hours": [
+     6,
+     11
+    ],
+    "boost": [
+     {
+      "need": "fatigue",
+      "above": 0.5,
+      "mult": 2
+     },
+     {
+      "mod": "熬过头了",
+      "mult": 2
+     }
+    ],
+    "effects": [
+     {
+      "type": "need_add",
+      "need": "fatigue",
+      "range": [
+       0.1,
+       0.25
+      ]
+     }
+    ]
+   },
+   {
+    "id": "treat",
+    "tier": "small",
+    "label": "吃到了点好吃的",
+    "target": "actor",
+    "weight": 0.7,
+    "cooldown_hours": 24,
+    "local_hours": [
+     10,
+     22
+    ],
+    "boost": [
+     {
+      "need": "hunger",
+      "above": 0.6,
+      "mult": 1.5
+     }
+    ],
+    "effects": [
+     {
+      "type": "need_add",
+      "need": "hunger",
+      "range": [
+       -0.4,
+       -0.2
+      ]
+     }
+    ],
+    "awake": true
+   },
+   {
+    "id": "thing_broke",
+    "tier": "small",
+    "label": "有个东西坏了",
+    "target": "actor",
+    "weight": 0.4,
+    "cooldown_hours": 96,
+    "effects": [
+     {
+      "type": "break_item",
+      "capabilities": [
+       "toggleable",
+       "repairable"
+      ]
+     }
+    ],
+    "awake": true
+   },
+   {
+    "id": "cold",
+    "tier": "medium",
+    "label": "感冒了",
+    "target": "actor",
+    "weight": 1,
+    "cooldown_hours": 240,
+    "boost": [
+     {
+      "need": "fatigue",
+      "above": 0.75,
+      "mult": 3
+     },
+     {
+      "mod": "熬过头了",
+      "mult": 4
+     },
+     {
+      "weather": "rain",
+      "mult": 1.5
+     }
+    ],
+    "effects": [
+     {
+      "type": "condition",
+      "label": "感冒了，嗓子疼",
+      "hours": [
+       36,
+       96
+      ]
+     },
+     {
+      "type": "need_mod",
+      "need": "fatigue",
+      "mult": [
+       1.3,
+       1.6
+      ],
+      "hours": [
+       36,
+       96
+      ]
+     }
+    ]
+   },
+   {
+    "id": "sprain",
+    "tier": "medium",
+    "label": "扭到脚了",
+    "target": "actor",
+    "weight": 0.6,
+    "cooldown_hours": 240,
+    "boost": [
+     {
+      "weather": "rain",
+      "mult": 2
+     },
+     {
+      "doing": "stroll",
+      "mult": 2
+     }
+    ],
+    "effects": [
+     {
+      "type": "condition",
+      "label": "脚踝有点疼",
+      "hours": [
+       24,
+       72
+      ]
+     },
+     {
+      "type": "need_mod",
+      "need": "fatigue",
+      "mult": [
+       1.1,
+       1.3
+      ],
+      "hours": [
+       24,
+       72
+      ]
+     }
+    ],
+    "awake": true
+   },
+   {
+    "id": "windfall_small",
+    "tier": "medium",
+    "label": "收到一笔小钱",
+    "target": "actor",
+    "weight": 0.8,
+    "cooldown_hours": 168,
+    "effects": [
+     {
+      "type": "credits",
+      "range": [
+       20,
+       60
+      ]
+     }
+    ]
+   },
+   {
+    "id": "fever",
+    "tier": "large",
+    "label": "发高烧",
+    "target": "actor",
+    "weight": 1,
+    "cooldown_hours": 720,
+    "boost": [
+     {
+      "condition": "感冒",
+      "mult": 6
+     },
+     {
+      "need": "fatigue",
+      "above": 0.85,
+      "mult": 2
+     }
+    ],
+    "effects": [
+     {
+      "type": "condition",
+      "label": "发烧，浑身没力气",
+      "hours": [
+       72,
+       168
+      ]
+     },
+     {
+      "type": "need_mod",
+      "need": "fatigue",
+      "mult": [
+       1.6,
+       2.2
+      ],
+      "hours": [
+       72,
+       168
+      ]
+     },
+     {
+      "type": "need_mod",
+      "need": "hunger",
+      "mult": [
+       0.5,
+       0.8
+      ],
+      "hours": [
+       72,
+       168
+      ]
+     }
+    ]
+   },
+   {
+    "id": "windfall_big",
+    "tier": "large",
+    "label": "意外之财",
+    "target": "actor",
+    "weight": 0.5,
+    "cooldown_hours": 1440,
+    "effects": [
+     {
+      "type": "credits",
+      "range": [
+       150,
+       400
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "activities": {
+  "sleep": {
+   "label": "睡觉",
+   "hours": [
+    6.5,
+    8.5
+   ],
+   "rates": {
+    "fatigue": -0.17,
+    "hunger": -0.05,
+    "social": -0.02
+   }
+  },
+  "rest": {
+   "label": "歇会儿",
+   "hours": [
+    0.25,
+    0.75
+   ],
+   "rates": {
+    "fatigue": -0.1
+   }
+  },
+  "study": {
+   "label": "看文献写论文",
+   "hours": [
+    1,
+    3
+   ],
+   "rates": {
+    "fatigue": 0.06,
+    "social": 0.02
+   }
+  },
+  "class": {
+   "label": "上课",
+   "hours": [
+    2,
+    3
+   ],
+   "rates": {
+    "fatigue": 0.04,
+    "social": -0.05
+   }
+  },
+  "meeting": {
+   "label": "组会",
+   "hours": [
+    1.5,
+    2.5
+   ],
+   "rates": {
+    "fatigue": 0.07,
+    "social": -0.08
+   }
+  },
+  "read": {
+   "label": "看闲书",
+   "hours": [
+    0.5,
+    2
+   ],
+   "rates": {
+    "fatigue": -0.02
+   }
+  },
+  "scroll": {
+   "label": "刷手机",
+   "hours": [
+    0.2,
+    1
+   ],
+   "rates": {
+    "fatigue": 0.01,
+    "social": -0.05
+   }
+  },
+  "stroll": {
+   "label": "散步",
+   "hours": [
+    0.4,
+    1.2
+   ],
+   "rates": {
+    "fatigue": 0.02,
+    "social": -0.03
+   }
+  },
+  "family": {
+   "label": "和爸妈吃饭聊天",
+   "requires_company": true,
+   "hours": [
+    0.5,
+    1
+   ],
+   "rates": {
+    "social": -0.4,
+    "hunger": -0.8
+   }
+  },
+  "chat": {
+   "label": "跟人聊天",
+   "requires_company": true,
+   "hours": [
+    0.15,
+    0.6
+   ],
+   "rates": {
+    "social": -0.6
+   }
+  },
+  "commute": {
+   "label": "在路上",
+   "hours": [
+    0.3,
+    0.8
+   ],
+   "rates": {
+    "fatigue": 0.04
+   }
+  },
+  "work": {
+   "label": "上班",
+   "hours": [
+    4,
+    8
+   ],
+   "wage_per_hour": 4,
+   "rates": {
+    "fatigue": 0.03,
+    "social": -0.02
+   }
+  },
+  "eat": {
+   "label": "吃东西",
+   "hours": [
+    0.25,
+    0.5
+   ],
+   "rates": {}
+  }
+ },
+ "travel_minutes": {
+  "campus": 45,
+  "library": 50,
+  "seminar_room": 50,
+  "advisor_office": 50,
+  "canteen": 50,
+  "cafe": 5,
+  "convenience": 4,
+  "riverside": 12,
+  "street": 2,
+  "home_living": 0,
+  "my_room": 0,
+  "home_kitchen": 0
+ },
+ "actors": {
+  "neno": {
+   "routine": [
+    {
+     "id": "sleep",
+     "activity": "sleep",
+     "place": "my_room",
+     "start": "00:40",
+     "jitter_min": 50,
+     "skip": 0.0
+    },
+    {
+     "id": "class",
+     "days": [
+      2
+     ],
+     "activity": "class",
+     "place": "seminar_room",
+     "start": "09:00",
+     "end": "11:30",
+     "jitter_min": 8,
+     "skip": 0.06,
+     "commute": true
+    },
+    {
+     "id": "meeting",
+     "days": [
+      4
+     ],
+     "activity": "meeting",
+     "place": "seminar_room",
+     "start": "14:00",
+     "end": "16:00",
+     "jitter_min": 5,
+     "skip": 0.03,
+     "commute": true
+    },
+    {
+     "id": "dinner",
+     "activity": "family",
+     "place": "home_living",
+     "start": "18:40",
+     "jitter_min": 25,
+     "skip": 0.25
+    }
+   ],
+   "life": true
+  },
+  "mom": {
+   "routine": [
+    {
+     "id": "sleep",
+     "activity": "sleep",
+     "place": "parents_room",
+     "start": "22:40",
+     "jitter_min": 30,
+     "skip": 0.0
+    },
+    {
+     "id": "dinner",
+     "activity": "family",
+     "place": "home_living",
+     "start": "18:40",
+     "jitter_min": 20,
+     "skip": 0.05
+    }
+   ]
+  },
+  "dad": {
+   "routine": [
+    {
+     "id": "sleep",
+     "activity": "sleep",
+     "place": "parents_room",
+     "start": "23:10",
+     "jitter_min": 30,
+     "skip": 0.0
+    },
+    {
+     "id": "dinner",
+     "activity": "family",
+     "place": "home_living",
+     "start": "18:40",
+     "jitter_min": 20,
+     "skip": 0.1
+    }
+   ]
+  },
+  "barista": {
+   "routine": [
+    {
+     "id": "work",
+     "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "activity": "work",
+     "place": "cafe",
+     "start": "08:00",
+     "end": "20:00",
+     "jitter_min": 10,
+     "skip": 0.02,
+     "opens": "cafe"
+    }
+   ]
+  },
+  "clerk": {
+   "routine": [
+    {
+     "id": "work",
+     "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "activity": "work",
+     "place": "convenience",
+     "start": "07:00",
+     "end": "23:00",
+     "jitter_min": 10,
+     "skip": 0.0
+    }
+   ]
+  },
+  "canteen_staff": {
+   "routine": [
+    {
+     "id": "work",
+     "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "activity": "work",
+     "place": "canteen",
+     "start": "10:30",
+     "end": "19:30",
+     "jitter_min": 10,
+     "skip": 0.0,
+     "opens": "canteen"
+    }
+   ]
+  }
+ },
+ "choices": [
+  {
+   "id": "study_desk",
+   "activity": "study",
+   "place": "my_room",
+   "base": 1.0,
+   "hours": [
+    9,
+    23
+   ],
+   "pref": "my_room"
+  },
+  {
+   "id": "study_library",
+   "activity": "study",
+   "place": "library",
+   "base": 0.7,
+   "hours": [
+    9,
+    21
+   ],
+   "pref": "library",
+   "weather_not": "rain"
+  },
+  {
+   "id": "study_cafe",
+   "activity": "study",
+   "place": "cafe",
+   "base": 0.4,
+   "hours": [
+    9,
+    19
+   ],
+   "pref": "cafe",
+   "cost": 4
+  },
+  {
+   "id": "read_bed",
+   "activity": "read",
+   "place": "my_room",
+   "base": 0.6,
+   "hours": [
+    10,
+    24
+   ],
+   "pref": "novel"
+  },
+  {
+   "id": "scroll",
+   "activity": "scroll",
+   "place": "here",
+   "base": 0.7,
+   "hours": [
+    0,
+    24
+   ],
+   "pref": "phone"
+  },
+  {
+   "id": "rest_sofa",
+   "activity": "rest",
+   "place": "home_living",
+   "base": 0.4,
+   "hours": [
+    8,
+    23
+   ],
+   "relieves": {
+    "fatigue": 1.5
+   }
+  },
+  {
+   "id": "nap",
+   "activity": "rest",
+   "place": "my_room",
+   "base": 0.2,
+   "hours": [
+    12,
+    17
+   ],
+   "relieves": {
+    "fatigue": 2.0
+   },
+   "cooldown_hours": 4
+  },
+  {
+   "id": "walk_river",
+   "activity": "stroll",
+   "place": "riverside",
+   "base": 0.35,
+   "hours": [
+    7,
+    22
+   ],
+   "pref": "riverside",
+   "weather_not": "rain",
+   "relieves": {
+    "social": 0.5
+   }
+  },
+  {
+   "id": "eat_home",
+   "eat": "home_food",
+   "place": "home_kitchen",
+   "base": 0.6,
+   "hours": [
+    7,
+    24
+   ],
+   "relieves": {
+    "hunger": 2.0
+   },
+   "cooldown_hours": 2.5
+  },
+  {
+   "id": "eat_canteen",
+   "eat": "canteen_meal",
+   "place": "canteen",
+   "base": 0.5,
+   "hours": [
+    11,
+    19
+   ],
+   "relieves": {
+    "hunger": 2.0
+   },
+   "campus_only": true,
+   "cooldown_hours": 2.5
+  },
+  {
+   "id": "snack",
+   "eat": "conv_snack",
+   "place": "convenience",
+   "base": 0.15,
+   "hours": [
+    7,
+    23
+   ],
+   "relieves": {
+    "hunger": 1.0
+   },
+   "cooldown_hours": 2
+  },
+  {
+   "id": "coffee",
+   "eat": "cafe_latte",
+   "place": "cafe",
+   "base": 0.35,
+   "hours": [
+    8,
+    19
+   ],
+   "pref": "cafe",
+   "relieves": {
+    "fatigue": 0.6
+   },
+   "cooldown_hours": 3
+  },
+  {
+   "id": "chat_mom",
+   "activity": "chat",
+   "place": "home_living",
+   "base": 0.3,
+   "hours": [
+    8,
+    22
+   ],
+   "relieves": {
+    "social": 1.5
+   },
+   "cooldown_hours": 3
+  }
+ ],
+ "preferences": {
+  "my_room": 0.3,
+  "library": 0.1,
+  "cafe": 0.0,
+  "novel": 0.2,
+  "phone": 0.1,
+  "riverside": 0.2
+ },
+ "chooser": {
+  "temperature": 0.35,
+  "noise": 0.25,
+  "habit_weight": 0.4,
+  "idle_minutes": [
+   20,
+   60
+  ]
+ }
+}

@@ -215,6 +215,10 @@ def test_mind_e2_input_isolation(mind_db, fake_mind_env, monkeypatch):
     monkeypatch.setattr("app.services.mind.appraisal.request_model_response", fake_request)
     monkeypatch.setattr("app.services.mind.expression.request_model_response", fake_request)
 
+    # 抑制力看本地时刻（深夜更容易漏），固定在白天，免得半夜跑测试结果不同
+    import app.services.mind.state as mind_state_mod
+    from datetime import datetime as _dt
+    monkeypatch.setattr(mind_state_mod, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: _dt(2026, 11, 10, 15, 0, tzinfo=tz))}))
     run_chat_turn("s7", "测试隔离", trace_id="t7")
 
     user_content = ""

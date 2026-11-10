@@ -1,0 +1,465 @@
+{
+ "version": "life-placeholder-1",
+ "description": "她的生活（占位）：住家里、文学研究生。地点与物品只是骨架，城市与细节待定。",
+ "entities": [
+  {
+   "entity_id": "home_living",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "家里客厅",
+   "owner_id": "neno",
+   "state": {
+    "exits": [
+     "home_kitchen",
+     "my_room",
+     "home_bath",
+     "parents_room",
+     "street"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "home_kitchen",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "厨房",
+   "owner_id": "neno",
+   "state": {
+    "exits": [
+     "home_living"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "my_room",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "她的房间",
+   "owner_id": "neno",
+   "state": {
+    "exits": [
+     "home_living"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "home_bath",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "卫生间",
+   "owner_id": "neno",
+   "state": {
+    "exits": [
+     "home_living"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "parents_room",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "爸妈的房间",
+   "owner_id": "mom",
+   "state": {
+    "exits": [
+     "home_living"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "street",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "小区门口",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "home_living",
+     "metro",
+     "convenience",
+     "riverside",
+     "cafe"
+    ],
+    "open": true,
+    "weather": "clear"
+   }
+  },
+  {
+   "entity_id": "metro",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "地铁",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "street",
+     "campus"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "campus",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "学校",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "metro",
+     "library",
+     "seminar_room",
+     "advisor_office",
+     "canteen"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "library",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "图书馆",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "campus"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "seminar_room",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "研讨室",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "campus"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "advisor_office",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "导师办公室",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "campus"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "canteen",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "食堂",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "campus"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "cafe",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "楼下咖啡店",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "street"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "convenience",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "便利店",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "street"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "riverside",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "江边",
+   "owner_id": null,
+   "state": {
+    "exits": [
+     "street"
+    ],
+    "open": true
+   }
+  },
+  {
+   "entity_id": "neno",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "Neno",
+   "parent_id": "my_room",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "mom",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "妈妈",
+   "parent_id": "home_living",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "dad",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "爸爸",
+   "parent_id": "home_living",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "barista",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "咖啡店店员",
+   "parent_id": "cafe",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "clerk",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "便利店店员",
+   "parent_id": "convenience",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "desk",
+   "kind": "item",
+   "type_id": "neno:desk",
+   "parent_id": "my_room",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "bed",
+   "kind": "item",
+   "type_id": "neno:bed",
+   "parent_id": "my_room",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "laptop",
+   "kind": "item",
+   "type_id": "neno:computer",
+   "parent_id": "desk",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "thesis_notes",
+   "kind": "item",
+   "type_id": "neno:notebook",
+   "parent_id": "desk",
+   "owner_id": "neno",
+   "state": {},
+   "label": "论文笔记"
+  },
+  {
+   "entity_id": "novel",
+   "kind": "item",
+   "type_id": "neno:book",
+   "parent_id": "bed",
+   "owner_id": "neno",
+   "state": {},
+   "label": "在读的小说"
+  },
+  {
+   "entity_id": "lamp",
+   "kind": "item",
+   "type_id": "neno:lamp",
+   "parent_id": "desk",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "water",
+   "kind": "item",
+   "type_id": "neno:bottle",
+   "parent_id": "desk",
+   "owner_id": "neno",
+   "state": {
+    "volume_ml": 300,
+    "liquid": "water"
+   }
+  },
+  {
+   "entity_id": "sofa",
+   "kind": "item",
+   "type_id": "neno:sofa",
+   "parent_id": "home_living",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "fridge",
+   "kind": "item",
+   "type_id": "neno:fridge",
+   "parent_id": "home_kitchen",
+   "owner_id": "mom",
+   "state": {}
+  },
+  {
+   "entity_id": "fruit",
+   "kind": "item",
+   "type_id": "neno:apple",
+   "parent_id": "home_kitchen",
+   "state": {
+    "quantity": 4
+   }
+  },
+  {
+   "entity_id": "umbrella",
+   "kind": "item",
+   "type_id": "neno:umbrella",
+   "parent_id": "home_living",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "lib_seat",
+   "kind": "item",
+   "type_id": "neno:desk",
+   "parent_id": "library",
+   "state": {},
+   "label": "靠窗的座位"
+  },
+  {
+   "entity_id": "lib_book",
+   "kind": "item",
+   "type_id": "neno:book",
+   "parent_id": "library",
+   "state": {},
+   "label": "馆藏书"
+  },
+  {
+   "entity_id": "cafe_latte",
+   "kind": "item",
+   "type_id": "neno:cup",
+   "parent_id": "cafe",
+   "owner_id": "barista",
+   "state": {
+    "price_credits": 4,
+    "quantity": 30,
+    "liquid": "latte",
+    "volume_ml": 300
+   },
+   "label": "拿铁"
+  },
+  {
+   "entity_id": "cafe_bread",
+   "kind": "item",
+   "type_id": "neno:bread",
+   "parent_id": "cafe",
+   "owner_id": "barista",
+   "state": {
+    "price_credits": 3,
+    "quantity": 10
+   },
+   "label": "可颂"
+  },
+  {
+   "entity_id": "conv_bread",
+   "kind": "item",
+   "type_id": "neno:bread",
+   "parent_id": "convenience",
+   "owner_id": "clerk",
+   "state": {
+    "price_credits": 2,
+    "quantity": 12
+   }
+  },
+  {
+   "entity_id": "conv_snack",
+   "kind": "item",
+   "type_id": "neno:apple",
+   "parent_id": "convenience",
+   "owner_id": "clerk",
+   "state": {
+    "price_credits": 1,
+    "quantity": 20
+   },
+   "label": "零食"
+  },
+  {
+   "entity_id": "canteen_meal",
+   "kind": "item",
+   "type_id": "neno:meal",
+   "parent_id": "canteen",
+   "state": {
+    "price_credits": 2,
+    "quantity": 99
+   },
+   "label": "食堂饭",
+   "owner_id": "canteen_staff"
+  },
+  {
+   "entity_id": "canteen_staff",
+   "kind": "actor",
+   "type_id": "neno:actor",
+   "label": "食堂阿姨",
+   "parent_id": "canteen",
+   "state": {
+    "active": true,
+    "credits": 100
+   }
+  },
+  {
+   "entity_id": "home_food",
+   "kind": "item",
+   "type_id": "neno:meal",
+   "parent_id": "home_kitchen",
+   "owner_id": null,
+   "state": {
+    "quantity": 99
+   },
+   "label": "家里的饭菜"
+  }
+ ],
+ "daily_schedules": [],
+ "variants": []
+}
