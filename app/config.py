@@ -99,6 +99,10 @@ MIND_E3_MAX_SINGLE_CHARS = _env_int("MIND_E3_MAX_SINGLE_CHARS", 200)
 # 说话方式语料（只给措辞层当参考片段，与人设分开）；文件不存在或条数为 0 时不启用
 MIND_STYLE_CORPUS_PATH = os.getenv("MIND_STYLE_CORPUS_PATH", "data/corpus/style.jsonl").strip()
 MIND_STYLE_EXAMPLES = _env_int("MIND_STYLE_EXAMPLES", 6)
+# 每条多长（字，不含表情）的分档：[上限, 权重]；默认取自真实私聊统计（中位 4–5 字，九成 ≤10 字）
+MIND_LINE_LENGTH_BANDS = json.loads(
+    os.getenv("MIND_LINE_LENGTH_BANDS", "").strip() or "[[3, 0.35], [6, 0.3], [10, 0.22], [18, 0.1], [30, 0.03]]"
+)
 # 一轮发几条的基础分布（1..N 条的权重）；默认取自真实私聊统计：六成一条、两成多两条、4 条以上不到一成
 MIND_BURST_WEIGHTS = json.loads(os.getenv("MIND_BURST_WEIGHTS", "").strip() or "[0.59, 0.256, 0.098, 0.036, 0.02]")
 

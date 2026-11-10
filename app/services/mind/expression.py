@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -21,43 +22,33 @@ def _build_e2_messages(
     hidden: list[str] | None = None,
     sticker_hint: str | None = None,
     style_examples: str = "",
+    line_lengths: list[int] | None = None,
 ) -> list[dict]:
     recent_text = "\n".join(
-        f"{item['role']}: {str(item.get('content',''))[:300]}"
+        f"{'对方' if item['role'] == 'user' else '你'}：{str(item.get('content',''))[:300]}"
         for item in recent_turns[-config.MIND_RECENT_TURNS:]
     )
-    gut_hint = ""
-    if plan.leak > 0.05 and plan.gut:
-        gut_hint = f"\n注意：你的真实想法是「{plan.gut}」，可以按 leak={plan.leak:.2f} 的强度不经意地漏一点进回复里。"
-    hidden_hint = ""
+    # 真实想法：只在漏得明显时才给，而且只说"心里是这么想的"，不要求"漏出来"
+    inner = ""
+    if plan.gut and plan.leak >= 0.35:
+        inner = f"\n（你心里其实在想：{plan.gut}。说不说、说多少随你。）"
+    hidden_line = ""
     if hidden:
-        hidden_hint = (
-            f"\n没打算直说的话（不要说出口，最多按 leak={plan.leak:.2f} 的强度含蓄流露）："
-            + "；".join(hidden)
-        )
-    say_points_line = ""
-    if plan.say_points:
-        say_points_line = "\n- 说话要点（按顺序自然表达，不要逐条复述）：" + "；".join(plan.say_points)
+        hidden_line = "\n（这些不打算说：" + "；".join(hidden) + "）"
+    points = "；".join(plan.say_points) if plan.say_points else "随便回一下"
+    lengths = "、".join(str(n) for n in (line_lengths or []))
+    length_line = f"\n每条大概多长（字）：{lengths}。这是上限，更短也行。" if lengths else ""
     sticker_line = ""
     if sticker_hint:
-        sticker_line = (
-            f"\n如果你想发表情包，可以单独占一行输出 [表情包：{sticker_hint}]（名字必须精确）。"
-        )
+        sticker_line = f"\n想发表情包就单独一行写 [表情包：{sticker_hint}]。"
 
-    prompt = f"""根据以下规划写出真人口语回复。
+    prompt = f"""{recent_text}
+对方：{message[:800]}
 
-规划：{say_points_line}
-- 条数：{plan.n_messages} 条（就发这么多，宁少勿多；一条能说完就别拆）
-- 长度：{plan.length}
-- 语气：{plan.tone}{gut_hint}{hidden_hint}{sticker_line}
-
-最近原话：
-{recent_text}
-
-当前消息：
-{message[:800]}
-
-请输出多行纯文本，每行一条消息。不要加 markdown 格式。"""
+你想回的意思：{points}{inner}{hidden_line}
+发 {plan.n_messages} 条。{length_line}{sticker_line}
+像平时手机上随手回那样打字，别解释、别总结、别为了显得自然而加戏。
+不知道自己此刻具体在干嘛就别编具体的事。一条一行，只输出要发的内容。"""
 
     system_blocks = [
         {"type": "text", "text": style_card[:1200]},
@@ -72,6 +63,27 @@ def _build_e2_messages(
         {"role": "system", "content": system_blocks},
         {"role": "user", "content": prompt},
     ]
+
+
+def draw_line_lengths(seed: str, n: int, length: str = "short") -> list[int]:
+    """每条多长：按真实分布逐条抽档（上限字数），想说得多（length=long）时往长档偏。可重放。"""
+    bands = [(int(cap), max(0.0, float(w))) for cap, w in (config.MIND_LINE_LENGTH_BANDS or [])]
+    if not bands:
+        return []
+    lean = {"short": 0.0, "medium": 0.5, "long": 1.0}.get(length, 0.0)
+    weights = [w * (1 + lean) ** k for k, (_, w) in enumerate(bands)]
+    result = []
+    for i in range(max(1, n)):
+        draw = int.from_bytes(hashlib.sha256(f"{seed}:len:{i}".encode()).digest()[:8], "big") / 2**64
+        cursor = draw * sum(weights)
+        cap = bands[-1][0]
+        for (band_cap, _), weight in zip(bands, weights):
+            cursor -= weight
+            if cursor < 0:
+                cap = band_cap
+                break
+        result.append(cap)
+    return result
 
 
 def run_e2(
@@ -89,11 +101,13 @@ def run_e2(
 ) -> str:
     from app.services.mind import style_corpus
 
+    seed = style_seed or trace_id or ""
     situation = " ".join([message, *plan.say_points, plan.tone])
-    examples = style_corpus.render(style_corpus.pick(situation, style_seed or trace_id or ""))
+    examples = style_corpus.render(style_corpus.pick(situation, seed))
     messages = _build_e2_messages(
         plan, style_card, sticker_table_text, recent_turns, message,
         hidden=hidden, sticker_hint=sticker_hint, style_examples=examples,
+        line_lengths=draw_line_lengths(seed, plan.n_messages, plan.length),
     )
     raw = request_model_response(
         model_name=config.MIND_EXPR_MODEL,

@@ -55,3 +55,13 @@ def test_cycle_sends_no_more_than_drawn(mind_db, fake_mind_env, monkeypatch):
     plan = json.loads(fetch_one("SELECT plan_json FROM mind_cycle WHERE session_id='burst'")["plan_json"])
     assert plan["n_messages"] == 2
     assert len(result["reply"].split("\n")) <= 3  # 计划 2 条 + 至多 1 条表情包
+
+
+def test_line_lengths_follow_real_bands(monkeypatch):
+    from app.services.mind.expression import draw_line_lengths
+    monkeypatch.setattr(config, "MIND_LINE_LENGTH_BANDS", [[3, 0.35], [6, 0.3], [10, 0.22], [18, 0.1], [30, 0.03]])
+    short = Counter(x for i in range(2000) for x in draw_line_lengths(f"c{i}", 1, "short"))
+    long = Counter(x for i in range(2000) for x in draw_line_lengths(f"c{i}", 1, "long"))
+    assert (short[3] + short[6]) / 2000 > 0.6 and short[30] < 80
+    assert long[18] + long[30] > 2 * (short[18] + short[30])
+    assert draw_line_lengths("x", 3) == draw_line_lengths("x", 3) and len(draw_line_lengths("x", 3)) == 3

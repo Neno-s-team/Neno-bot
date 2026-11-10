@@ -232,9 +232,16 @@ def test_mind_e2_input_isolation(mind_db, fake_mind_env, monkeypatch):
     assert "urgency" not in user_content
     assert "depth" not in user_content
     assert "cues" not in user_content
-    assert "他想聊聊" in user_content  # gut 在
+    # gut 只在泄露明显（leak ≥ 0.35）时给；默认白天抑制力高，不给
+    assert "他想聊聊" not in user_content
     # 自我卡全文不应出现（超过 600 字的部分）
     assert "自传式记忆" not in user_content
+
+    from app.services.mind.expression import _build_e2_messages
+    from app.services.mind.schemas import E1Plan
+    loud = _build_e2_messages(E1Plan(gut="他想聊聊", leak=0.5), "", "", [], "hi")[1]["content"]
+    quiet = _build_e2_messages(E1Plan(gut="他想聊聊", leak=0.2), "", "", [], "hi")[1]["content"]
+    assert "他想聊聊" in loud and "随你" in loud and "他想聊聊" not in quiet
 
 
 # ── 测试 8：E3 markdown 清理、超长切开、表情包校验 ──────────────────────────────

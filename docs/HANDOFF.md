@@ -48,6 +48,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| `docs/persona-template.md` | 人设按层填写模板（待用户填） |
 | `docs/mind-plan.md` | 多层大脑总规划（L0–L4、表达层、状态、记忆、P1–P5）。**第 12 节状态表和开头"尚未实现"已过期**，以本文件为准 |
 | `docs/mind-memory.md` | P2 记忆：分词、检索打分、工作记忆裁剪 |
 | `docs/mind-delivery.md` | P3 异步投递：表、接口、时间算法、专注窗口、调度器、网关对接 |
@@ -141,6 +142,9 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - **语料（与人设分开）**：只用用户与"💗"（用户唯一的异性好友）这一个会话，**两边混用**、说话人只记"甲/乙"。`scripts/corpus_wechat.py`（`both` 模式）洗成连续小段：去链接/通话/转账/兑换码，手机号/长数字/学校/地名脱敏，人名按 `data/corpus/mask.txt`（人工维护，联系人昵称多是普通词不能自动用）。产物 `data/corpus/style.jsonl`，**只在本地**（data/ 不进 git）；原始导出在 `D:/WeChatDump/20261110/`。
 - **怎么用**：`app/services/mind/style_corpus.py`，只进措辞层 E2——按情境挑 6 段（词重叠 + 按 cycle 派生的抖动，压掉长串连发），放在 system 最后一块（不破坏风格卡缓存），并写明"甲乙与你无关、不要当成你的经历"。不进记忆、L1/L2、自我卡。`MIND_STYLE_EXAMPLES=0` 或文件不存在即关闭；测试默认关闭（conftest）。
 - 每轮多约 1–2k 输入 token（片段不缓存）。
+- **措辞去表演（2026-11-10）**：E2 提示不再写"真人口语回复"，改为只给最近对话 + 想回的意思 + 条数 + 每条长度上限 + "别解释别总结别加戏、不知道自己在干嘛就别编"；L1 的心里话只在 leak ≥ 0.35 时给，且"说不说随你"。每条长度按 `MIND_LINE_LENGTH_BANDS`（默认取自语料：中位 4–5 字、九成 ≤10 字）逐条抽档，length=long 时偏长。
+- **措辞模型**：用户要求试 `google/gemini-4-argon`（`.env` 里 `MIND_EXPR_MODEL`）。离线对比同四轮：Gemini 更平更短（"上了 你快点"），Opus 略带戏（"等你半天了"）。
+- **人设**：旧角色卡在 `assets/neno/neno-persona-card.json`（chara_card_v2，约 2.8 万字；`prompts/system.txt` 是其 7.7 万字扩写），**仍不作参考**。按层拆的填写模板见 `docs/persona-template.md`（A 自我卡 / B 风格卡 / C 世界身份种子 / D 临时课表），等用户填。
 
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
