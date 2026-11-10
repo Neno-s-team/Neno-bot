@@ -147,3 +147,45 @@ def _obligations(t0: float, t1: float) -> list[tuple[float, float, dict[str, Any
             continue
         merged.append(span)
     return merged
+
+
+def day_events(start: float, end: float, limit: int = 60) -> list[str]:
+    """[start, end) 内她在世界里过的日子，压成几十行"几点 做了什么 / 谁找过她 / 出了什么事"，给夜间反思回想。"""
+    if not enabled():
+        return []
+    from datetime import datetime
+    try:
+        rows = [dict(r) for r in _fetch_events(start, end)]
+    except Exception:
+        return []
+    tz = clock.local_now().tzinfo
+    lines, last = [], None
+    for row in rows:
+        p = json.loads(row["payload"])
+        at = datetime.fromtimestamp(row["sim_time"], tz).strftime("%H:%M")
+        kind = row["kind"]
+        text = None
+        if kind == "activity.started" and p.get("activity") not in (None, "commute"):
+            text = _LABELS.get(p["activity"], p["activity"])
+        elif kind == "npc.contacted":
+            text = p.get("note") or "有人找过她"
+        elif kind == "perturb.happened" and (row["actor_id"] == config.MIND_WORLD_ACTOR or p.get("target") == "street"):
+            text = p.get("label")
+        elif kind == "need.consequence":
+            text = p.get("label")
+        elif kind == "routine.skipped":
+            text = f"没去{_LABELS.get(p.get('activity'), p.get('activity'))}"
+        if text and text != last:
+            lines.append(f"{at} {text}")
+            last = text
+    return lines[-limit:]
+
+
+def _fetch_events(start: float, end: float):
+    from app.storage.db import fetch_all
+    return fetch_all(
+        """SELECT kind, actor_id, payload, sim_time FROM world_events
+           WHERE world_id = ? AND sim_time >= ? AND sim_time < ?
+             AND (actor_id = ? OR (kind = 'perturb.happened' AND actor_id IS NULL))
+           ORDER BY id""",
+        (config.MIND_WORLD_ID, start, end, config.MIND_WORLD_ACTOR))

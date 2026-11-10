@@ -221,7 +221,8 @@ def step(store, max_calls_per_day: int | None = None) -> dict:
     with store.transaction(write=True) as c:
         used = c.execute("SELECT count(*) FROM world_llm_calls WHERE kind LIKE 'npc_%' AND status NOT IN ('queued','dropped')"
                          " AND created_at >= ?", (int(now // 86400) * 86400,)).fetchone()[0]
-        row = c.execute("SELECT * FROM world_llm_calls WHERE status='queued' AND kind LIKE 'npc_%' ORDER BY id LIMIT 1").fetchone()
+        row = c.execute("SELECT * FROM world_llm_calls WHERE status='queued' AND (kind LIKE 'npc_%' OR kind LIKE 'neno_%')"
+                        " ORDER BY id LIMIT 1").fetchone()
         if row is None:
             return {"idle": "nothing_queued"}
         streak = 0
@@ -233,16 +234,25 @@ def step(store, max_calls_per_day: int | None = None) -> dict:
         last_fail = c.execute("SELECT max(finished_at) FROM world_llm_calls WHERE kind LIKE 'npc_%' AND status='failed'").fetchone()[0]
         if streak and last_fail and now - last_fail < min(3600, 120 * 2 ** (streak - 1)):
             return {"idle": "provider_failure_backoff"}
-        if used >= limit:
+        if used >= limit and row["kind"].startswith("npc_"):
             c.execute("UPDATE world_llm_calls SET status='dropped', finished_at=?, result=? WHERE id=?",
                       (now, encode({"reason": "daily_npc_budget"}), row["id"]))
             return {"idle": "daily_npc_budget"}
         c.execute("UPDATE world_llm_calls SET status='requesting', created_at=? WHERE id=?", (now, row["id"]))
         row = dict(row)
-    schema, name, tokens = (PLAN_SCHEMA, "npc_day", 600) if row["kind"] == "npc_plan" else (CONTACT_SCHEMA, "npc_contact", 900)
     raw, error = None, None
     try:
-        raw = _request(_messages(row), schema, name, tokens)
+        if row["kind"].startswith("neno_"):
+            from app.services.world import self_mind
+            ctx = json.loads(row["context"])
+            if row["kind"] == "neno_decide":
+                raw = self_mind._request(self_mind.decide_prompt(ctx), self_mind.DECIDE_SCHEMA, "neno_decide")
+            else:
+                raw = self_mind._request(self_mind.reply_prompt(ctx, ctx["their_lines"]), self_mind.REPLY_SCHEMA, "neno_reply")
+        else:
+            schema, name, tokens = ((PLAN_SCHEMA, "npc_day", 600) if row["kind"] == "npc_plan"
+                                    else (CONTACT_SCHEMA, "npc_contact", 900))
+            raw = _request(_messages(row), schema, name, tokens)
     except Exception as exc:
         error = type(exc).__name__
     return finish(store, row, raw, error)
@@ -265,7 +275,9 @@ def finish(store, row: dict, raw: str | None, error: str | None) -> dict:
                 emit(c, w, f"npc-lock:{row['id']}", "npc.relationship_lock", {"npc": row["subject"], "call_id": row["id"]},
                      row["subject"])
                 raise WorldError("relationship lock: romance content dropped")
-            result = (_apply_plan if row["kind"] == "npc_plan" else _apply_contact)(c, w, row, ctx, data)
+            appliers = {"npc_plan": _apply_plan, "npc_contact": _apply_contact,
+                        "neno_reply": _apply_reply, "neno_decide": _apply_decide}
+            result = appliers[row["kind"]](c, w, row, ctx, data)
             status = "applied"
         except (ValueError, WorldError, KeyError, TypeError) as exc:
             result = {"reason": str(exc)[:300]}
@@ -273,10 +285,34 @@ def finish(store, row: dict, raw: str | None, error: str | None) -> dict:
                 result["provider_error"] = True
         c.execute("UPDATE world_llm_calls SET status=?, finished_at=?, response=?, result=? WHERE id=?",
                   (status, time.time(), (raw or "")[:20000], encode(result), row["id"]))
-        if status == "applied":
+        if status != "applied" and row["kind"] == "neno_decide":
+            # 她没想成（模型失败/输出坏）：别让她干等着，回到规则挑事
+            from app.services.world import life
+            life.schedule_choice(c, w, json.loads(row["context"])["aid"], 1, tag=f":fallback{row['id']}")
+            status_save = True
+        else:
+            status_save = status == "applied"
+        if status_save:
             from app.services.world.engine import WorldEngine
             WorldEngine._save_world(c, w)
         return {"call_id": row["id"], "kind": row["kind"], "status": status, **result}
+
+
+def land_contact(c, w, ctx, lines, note, key) -> int:
+    """一次联络落地：她记一句（进【当前情境】"今天：…"），打电话缓解社交需求。"""
+    neno = entity(c, w["world_id"], "neno")
+    inbox = neno["state"].setdefault("recent_contacts", [])
+    inbox.append({"from": ctx["label"], "channel": ctx["channel"], "at": w["sim_time"], "note": note,
+                  "lines": [[ctx["label"] if s == "A" else "我", t] for s, t in lines]})
+    neno["state"]["recent_contacts"] = inbox[-6:]
+    save_entity(c, neno)
+    if ctx["channel"] == "call":
+        rows = rhythms.settle(c, w, "neno")
+        if "social" in rows:
+            rows["social"]["value"] = max(0.0, rows["social"]["value"] - 0.25)
+            rhythms._reschedule(c, w, rows["social"])
+    return emit(c, w, key, "npc.contacted",
+                {"npc": ctx.get("npc_id") or ctx["npc"], "channel": ctx["channel"], "note": note, "lines": lines}, "neno")
 
 
 def _apply_plan(c, w, row, ctx, data) -> dict:
@@ -308,21 +344,39 @@ def _apply_contact(c, w, row, ctx, data) -> dict:
     lines = [[("A" if s == "A" else "B"), str(t)[:120]] for s, t in data.get("lines", [])][:10]
     if not lines:
         raise ValueError("empty exchange")
+    from app.services.world import self_mind
+    if self_mind.enabled(w) and self_mind.used_today(c, w) < self_mind.per_day() * 2:
+        # 她有自己的脑子：NPC 只留自己的台词，她那边交给她自己回
+        theirs = [t for s, t in lines if s == "A"][:4]
+        if data.get("npc_note"):
+            _memory(w, npc_id).append(f"{ctx['time']}：{data['npc_note'][:80]}")
+            del _memory(w, npc_id)[:-12]
+        reply_ctx = {**ctx, "their_lines": theirs, "npc_id": npc_id}
+        c.execute("INSERT INTO world_llm_calls(world_id,kind,subject,status,created_at,sim_time,model,context)"
+                  " VALUES (?,?,?,'queued',?,?,?,?)",
+                  (w["world_id"], "neno_reply", npc_id, time.time(), w["sim_time"], self_mind._model(), encode(reply_ctx)))
+        return {"handoff": "neno_reply", "their_lines": len(theirs)}
     if data.get("npc_note"):
         _memory(w, npc_id).append(f"{ctx['time']}：{data['npc_note'][:80]}")
         del _memory(w, npc_id)[:-12]
     note = str(data.get("neno_note") or "")[:120]
-    neno = entity(c, w["world_id"], "neno")
-    inbox = neno["state"].setdefault("recent_contacts", [])
-    inbox.append({"from": ctx["label"], "channel": ctx["channel"], "at": w["sim_time"], "note": note,
-                  "lines": [[ctx["label"] if s == "A" else "我", t] for s, t in lines]})
-    neno["state"]["recent_contacts"] = inbox[-6:]
-    save_entity(c, neno)
-    if ctx["channel"] == "call":
-        rows = rhythms.settle(c, w, "neno")
-        if "social" in rows:
-            rows["social"]["value"] = max(0.0, rows["social"]["value"] - 0.25)
-            rhythms._reschedule(c, w, rows["social"])
-    event = emit(c, w, f"npc-contact:{row['id']}", "npc.contacted",
-                 {"npc": npc_id, "channel": ctx["channel"], "note": note, "lines": lines}, "neno")
+    event = land_contact(c, w, ctx, lines, note, f"npc-contact:{row['id']}")
     return {"event_id": event, "lines": len(lines)}
+
+
+def _apply_reply(c, w, row, ctx, data) -> dict:
+    """她自己回了：双方台词交错落地（对方先说，她接；多出来的放后面）。"""
+    theirs, mine = ctx["their_lines"], [str(x)[:120] for x in (data.get("replies") or [])][:4]
+    lines = []
+    for i in range(max(len(theirs), len(mine))):
+        if i < len(theirs):
+            lines.append(["A", theirs[i]])
+        if i < len(mine):
+            lines.append(["B", mine[i]])
+    event = land_contact(c, w, ctx, lines, str(data.get("note") or "")[:120], f"neno-reply:{row['id']}")
+    return {"event_id": event, "replies": len(mine)}
+
+
+def _apply_decide(c, w, row, ctx, data) -> dict:
+    from app.services.world import self_mind
+    return self_mind.apply_decision(c, w, row, data)

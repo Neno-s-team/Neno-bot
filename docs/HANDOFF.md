@@ -169,6 +169,15 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 模型调用不在世界事务里：到期任务只排队（world_llm_calls.status=queued），后台 `npc_loop` 领取→调用→落地；日上限、连续失败退避。
 - 选型（2026-11-11）：同提示对比 Luna / DeepSeek v4-flash / v4.1-flash-1017（带日期的是加强版，不是快照——用户纠正）。1017 最好：不替她编经历、她的总结视角正确、生活细节最真；约 $0.00011/次、13s（后台不影响聊天）。约 $0.01–0.02/月。
 
+## 5.8 她在世界里有自己的脑子（2026-11-11）
+
+用户要求：她在世界里拿主意、接电话都用**她聊天的深思模型（Opus 5.5）**，不是 NPC 的廉价模型。`.env`：`MIND_WORLD_DECISIONS=true`、`MIND_WORLD_DECISIONS_PER_DAY=6`、`MIND_HOME_SESSION=tg:5580304227`。
+- **世界的一天进记忆**：夜间反思多一块【你今天过的日子】（`world_link.day_events`：做了什么、谁找过她、出了什么事），只给她"本人"那条会话（MIND_HOME_SESSION）；世界接上后这条会话没聊天也照样每晚反思。
+- **关键时刻自己选**（`world/self_mind.py`）：规则挑事前检测冲突（生病还想出门、很累还要写、下雨想出门、饿着有打算），才排一次给她：规则列候选，她选一个 + 心里嘀咕一句（存 `last_thought`）。普通时刻仍由规则按惯性过。想不成（失败/坏输出）就退回规则；每天上限。
+- **别人找她时她自己回**：NPC 只留对方台词，她用自我卡接话、记一句自己视角的话。
+- 坑：严格 JSON schema 里字段叫 `thought` 会被服务商当成套取思考过程拦截（content_filter），改叫 `murmur`。
+- 成本：Opus 单次约 $0.003，每天 ≤6 次决定 + 几次接电话，约 $0.5–1/月。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

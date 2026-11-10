@@ -16,7 +16,7 @@ from typing import Any
 
 from app import config
 from app.services.chat.llm_gateway import request_model_response
-from app.services.mind import clock, concerns, intents, relationship, schedule, state, wishes
+from app.services.mind import clock, concerns, intents, relationship, schedule, state, wishes, world_link
 from app.services.mind.deliberation import BeliefUpdate, strip_think
 from app.services.mind.memory import importance as importance_rules
 from app.services.mind.memory.commit import apply_belief_update
@@ -88,7 +88,11 @@ def active_sessions(since: float) -> list[str]:
         "SELECT DISTINCT session_id FROM mind_cycle WHERE created_at >= ? AND status = 'completed'",
         (since,),
     )
-    return [row["session_id"] for row in rows]
+    sessions = [row["session_id"] for row in rows]
+    home = config.MIND_HOME_SESSION
+    if home and world_link.enabled() and home not in sessions:
+        sessions.append(home)  # 世界接上后，没聊天的日子她也照样睡前回想
+    return sessions
 
 
 def claim_due(now: float) -> list[dict[str, Any]]:
@@ -139,6 +143,7 @@ def _day_material(session_id: str, start: float, end: float) -> dict[str, Any]:
         "beliefs": [dict(r) for r in beliefs],
         "concerns": concerns.list_open(session_id, end),
         "session_id": session_id,
+        "lived": world_link.day_events(start, end) if session_id == config.MIND_HOME_SESSION else [],
     }
 
 
@@ -188,7 +193,11 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
     beliefs = "\n".join(f"- {b['subject']}：{b['content']}（把握 {b['confidence']:.2f}）" for b in material["beliefs"]) or "（无）"
     bond = relationship.describe(material["session_id"])
     worries = "\n".join(f"- id={c['id']} {c['title']}（强度 {c['effective']:.2f}）{c['detail']}" for c in material["concerns"]) or "（无）"
+    lived = "\n".join(material.get("lived") or []) or "（没记下什么）"
     prompt = f"""现在是夜里，你躺下了，在脑子里过一遍今天。用你自己的视角想，不要写成报告。
+
+【你今天过的日子】
+{lived}
 
 【今天的聊天原话】
 {turns}
@@ -209,7 +218,7 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
 
 【输出要求】只输出一个 JSON 对象。
 - day_summary：一两句话，今天对你来说是怎样的一天。
-- new_notes：≤{_MAX_NEW_NOTES} 条。聊天原话里值得记住、但【今天已经记下的事】里没有的事（闲聊里的小事也算），"我"的视角。没有就空。
+- new_notes：≤{_MAX_NEW_NOTES} 条。今天过的日子和聊天原话里值得记住、但【今天已经记下的事】里没有的事（小事也算，比如谁打来电话、去了哪、出了点什么状况），"我"的视角。没有就空。
 - belief_updates：≤3 条，对人或事的认识变化；evidence 只能填上面出现过的 #id 数字。
 - concern_updates：对每条记挂的事选 keep（还挂着）/ ease（松了些）/ grow（更在意了）/ let_go（放下了），intensity 是你觉得现在的在意程度 0–1。
 - new_concerns：≤2 条今天新冒出来、明天可能还会想起的事；没有就空。
@@ -399,7 +408,7 @@ def run(row: dict[str, Any]) -> dict[str, Any]:
     session_id, night = row["session_id"], row["night"]
     material = _day_material(session_id, float(row["window_start"]), float(row["window_end"]))
     thought, error = None, None
-    if material["turns"] or material["episodes"] or material["concerns"]:
+    if material["turns"] or material["episodes"] or material["concerns"] or material.get("lived"):
         try:
             thought = _think(session_id, material, state.read_state(session_id))
         except Exception as exc:

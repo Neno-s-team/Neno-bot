@@ -148,6 +148,8 @@ MIND_CONCERN_DROP_BELOW = _env_float("MIND_CONCERN_DROP_BELOW", 0.08)
 # ── 世界 → 大脑（D3）：她此刻在干嘛从世界读，替代临时课表；空 = 不接 ────────────
 MIND_WORLD_ID = os.getenv("MIND_WORLD_ID", "").strip()
 MIND_WORLD_ACTOR = os.getenv("MIND_WORLD_ACTOR", "neno").strip() or "neno"
+# 她"本人"所在的会话（世界里的日子记在这条会话的记忆里；没聊天的晚上也照样反思）
+MIND_HOME_SESSION = os.getenv("MIND_HOME_SESSION", "").strip()
 
 # ── 多层大脑 P3a（L0 感知/课表/待想队列/投递/调度器） ────────────────────────
 # false 时 /chat 行为与 P2 完全一致，L0 不参与

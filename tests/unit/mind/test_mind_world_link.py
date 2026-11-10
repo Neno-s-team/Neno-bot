@@ -104,3 +104,22 @@ def test_live_world_advances_and_brain_sees_it(linked):
     with linked.store.transaction() as c:
         sim = c.execute("SELECT sim_time FROM world_worlds WHERE world_id='life'").fetchone()[0]
     assert sim == T0 + 4 * 3600
+
+
+def test_lived_day_reaches_reflection(linked, monkeypatch):
+    from app.services.mind import reflection
+    from app.services.world.npcs import land_contact
+    from app.storage.world_store import world as load_world
+    monkeypatch.setattr(config, "MIND_HOME_SESSION", "tg:home")
+    linked.advance("life", Advance(request_id="d", seconds=3 * 3600))
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        land_contact(c, w, {"label": "妈妈", "channel": "call", "npc": "mom"}, [["A", "吃了没"]], "妈打电话来问吃了没", "k")
+    lived = world_link.day_events(T0 - 60, T0 + 4 * 3600)
+    assert lived and any("妈打电话来问吃了没" in x for x in lived)
+    assert "tg:home" in reflection.active_sessions(T0)
+    material = reflection._day_material("tg:home", T0 - 60, T0 + 4 * 3600)
+    assert material["lived"] == lived
+    prompt = reflection._messages("", material, {"valence": 0, "arousal": 0})[1]["content"]
+    assert "【你今天过的日子】" in prompt and "妈打电话来问吃了没" in prompt
+    assert reflection._day_material("tg:other", T0 - 60, T0 + 4 * 3600)["lived"] == []
