@@ -10,6 +10,7 @@ from app import config
 from app.services.chat import llm_gateway as _llm_gateway
 from app.services.mind import (
     appraisal,
+    clock,
     concerns,
     consistency,
     deliberation,
@@ -111,6 +112,17 @@ def _draw_burst(cycle_id: str, suggested: int, arousal: float) -> int:
         if cursor < 0:
             return k + 1
     return cap
+
+
+def _record_intents(session_id: str, cycle_id: str, l2: L2Result) -> None:
+    """聊天里冒出来的"一会儿去……"→ 打算（当天到期，强度较弱）。"""
+    from app.services.mind import intents
+    from app.storage.db import get_conn
+
+    with get_conn() as conn:
+        for idx, item in enumerate(l2.intents[:3]):
+            intents.add(conn, session_id, item.action, source="chat", strength=0.45,
+                        due_at=clock.now() + 6 * 3600, key=f"chat:{cycle_id}:{idx}")
 
 
 def _doing_now() -> str:
@@ -489,6 +501,7 @@ def run_cycle(
                 result=l2,
                 trace_id=trace_id,
             )
+            _record_intents(session_id, cycle_id, l2)
         except Exception as exc:
             log_event(
                 "mind", "memory_commit_failed", trace_id=trace_id,

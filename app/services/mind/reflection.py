@@ -16,7 +16,7 @@ from typing import Any
 
 from app import config
 from app.services.chat.llm_gateway import request_model_response
-from app.services.mind import clock, concerns, relationship, schedule, state
+from app.services.mind import clock, concerns, intents, relationship, schedule, state, wishes
 from app.services.mind.deliberation import BeliefUpdate, strip_think
 from app.services.mind.memory import importance as importance_rules
 from app.services.mind.memory.commit import apply_belief_update
@@ -253,6 +253,9 @@ def _apply(session_id: str, night: str, window_end: float, thought: dict[str, An
             _apply_beliefs(conn, session_id, thought, known_ids, summary)
             _apply_concerns(conn, session_id, night, thought, material, known_ids, summary, now)
             summary["relation"] = relationship.nudge(conn, session_id, night, thought.get("relation"))
+            summary["intents"] = _apply_tomorrow(conn, session_id, night, thought, now)
+            summary["wishes"] = wishes.observe(conn, session_id, night, thought, now)
+        summary["intents_lapsed"] = intents.expire(conn, now)
         summary["concerns_faded"] = concerns.drop_faded(conn, session_id, now)
         summary["episodes_faded"] = _fade(conn, session_id, night, now)
     summary["mood"] = _settle_mood(session_id, night, thought)
@@ -260,6 +263,17 @@ def _apply(session_id: str, night: str, window_end: float, thought: dict[str, An
         summary["day_summary"] = str(thought.get("day_summary") or "")[:200]
         summary["tomorrow"] = [str(x)[:80] for x in (thought.get("tomorrow") or [])][:3]
     return summary
+
+
+def _apply_tomorrow(conn, session_id, night, thought, now) -> int:
+    """睡前想的"明天做什么" → 打算（明天到期）；强度按 seed 抽 0.4–0.8。"""
+    added = 0
+    for idx, text in enumerate((thought.get("tomorrow") or [])[:3]):
+        strength = _between([0.4, 0.8], session_id, night, str(idx), "intent")
+        if intents.add(conn, session_id, str(text), source="reflection", strength=strength,
+                       due_at=now + 86400, key=f"reflect:{session_id}:{night}:{idx}"):
+            added += 1
+    return added
 
 
 def _apply_notes(conn, session_id, night, window_end, thought, material, known_ids, summary, now):

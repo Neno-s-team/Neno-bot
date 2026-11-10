@@ -332,6 +332,7 @@ def end_activity(c, w, aid, reason="到时间了"):
     actions.observe(c, w, aid, event, "activity_end")
     _nudge(c, w, aid)
     from app.services.world import life
+    life.taste(c, w, aid, doing, reason)
     if doing.get("after") and reason == "到时间了":
         follow = doing["after"]
         if follow.get("hours") is None:

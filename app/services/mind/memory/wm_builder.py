@@ -8,7 +8,7 @@ from typing import Any
 
 from app import config
 from app.services.mind import clock
-from app.services.mind import concerns, relationship
+from app.services.mind import concerns, intents, relationship, wishes
 from app.services.mind.memory import retrieval
 from app.storage.db import fetch_all
 
@@ -180,7 +180,7 @@ def build_working_memory(
     memory = {
         "situation": situation,
         "relationship": relationship.describe(session_id),
-        "concerns": concerns.render(concerns.top(session_id)),
+        "concerns": concerns.render(concerns.top(session_id)) + intents.render(session_id) + wishes.render(session_id),
         "episodes": episodes,
         "beliefs": beliefs,
         "recent_turns": recent_turns,

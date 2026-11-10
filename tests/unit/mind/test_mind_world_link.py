@@ -42,7 +42,7 @@ def test_level_and_place_come_from_world(linked):
     _set_doing(linked, "study")
     seg = schedule.segment_at(T0)
     assert seg["world"] == "live" and seg["level"] == 2 and seg["activity"] == "看文献写论文"
-    assert seg["place"] == "她的房间"
+    assert seg["place"] == "卧室"
     _set_doing(linked, "scroll")
     assert schedule.segment_at(T0)["level"] == 4
     _set_doing(linked, "sleep", hours=7)
@@ -66,7 +66,7 @@ def test_working_memory_knows_what_she_is_doing(linked):
     memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="在干嘛",
                                              history=[], self_card="")
     text = wm_builder.render_working_memory(memory)
-    assert "你此刻在她的房间，看闲书" in text and "身上：感冒了，嗓子疼" in text
+    assert "你此刻在卧室，看闲书" in text and "身上：感冒了，嗓子疼" in text
     assert memory["situation"]["interrupt_level"] == 3
 
 

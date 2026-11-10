@@ -1,6 +1,7 @@
 """她的一天（D1 种子世界 + D2 空档挑事）：义务按时、挑的事不越过义务、可重放、做不成就先不想、习惯会积累。"""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from app.services.world.engine import WorldEngine
@@ -72,7 +73,7 @@ def test_habits_accumulate_and_company_is_required(tmp_path):
         habits = world(c, "w")["settings"]["life_habits"]["neno"]
     assert max(habits.values()) > 2
     for e in [e for e in events if e["kind"] == "activity.started" and e["payload"]["activity"] == "chat"]:
-        assert e["payload"]["source"] in {"life:chat_mom", "habit"}
+        assert e["payload"]["source"] in {"habit"} or e["payload"]["source"].startswith("life:")
 
 
 def _choose_at(engine, hour, minute=0):
@@ -140,28 +141,72 @@ def test_failed_choice_cools_down(tmp_path, monkeypatch):
 
 
 def test_chat_needs_someone_awake_there(tmp_path):
+    """需要有人陪的事（聊天）只有身边有醒着的人才会进候选。她一个人住，所以平时在家不会有。"""
     from app.services.world import life
     from app.storage.world_store import entity, save_entity
     engine = make(tmp_path, "company")
     run(engine, 1)
     with engine.store.transaction(write=True) as c:
         w = world(c, "w")
-        w["sim_time"] += 6 * 3600  # 13:00，chat_mom 的时段内
+        w["sim_time"] += 6 * 3600  # 13:00
+        w["settings"]["rhythms"]["choices"].append(
+            {"id": "chat_here", "activity": "chat", "place": "riverside", "base": 0.5, "hours": [0, 24]})
         neno = entity(c, "w", "neno")
         neno["state"].pop("doing", None)
-        neno["parent_id"] = "home_living"
         save_entity(c, neno)
 
         def ids():
             return [ch["id"] for ch, _, _ in life._candidates(c, w, "neno", entity(c, "w", "neno"))]
 
-        for parent in ("mom", "dad"):
-            p = entity(c, "w", parent)
-            p["parent_id"] = "parents_room"
-            save_entity(c, p)
-        assert "chat_mom" not in ids()
-        mom = entity(c, "w", "mom")
-        mom["parent_id"] = "home_living"
-        mom["state"].pop("doing", None)
-        save_entity(c, mom)
-        assert "chat_mom" in ids()
+        barista = entity(c, "w", "barista")
+        barista["parent_id"] = "street"
+        save_entity(c, barista)
+        assert "chat_here" not in ids()
+        barista["parent_id"] = "riverside"
+        barista["state"].pop("doing", None)
+        save_entity(c, barista)
+        assert "chat_here" in ids()
+
+
+def test_preferences_drift_with_experience(tmp_path):
+    engine = make(tmp_path, "taste")
+    events = run(engine, 5)
+    tastes = [e for e in events if e["kind"] == "life.taste"]
+    assert len(tastes) > 10
+    assert all(abs(e["payload"]["to"] - e["payload"]["from"]) <= 0.08 + 1e-9 for e in tastes)
+    assert {e["payload"]["to"] > e["payload"]["from"] for e in tastes} == {True, False}  # 有喜欢上的也有腻了的
+    with engine.store.transaction() as c:
+        prefs = world(c, "w")["settings"]["life_prefs"]["neno"]
+    start = json.load(open("content/world/rhythms/life.json", encoding="utf-8"))["preferences"]
+    assert any(abs(prefs[k] - start[k]) > 0.02 for k in start)
+
+
+def test_rain_spoils_outdoor_things(tmp_path):
+    from app.services.world import life
+    from app.storage.world_store import entity, save_entity
+    engine = make(tmp_path, "rain")
+    run(engine, 1)
+    deltas, signs = {}, set()
+    for weather in ("clear", "rain"):
+        total = 0.0
+        for n in range(20):
+            with engine.store.transaction(write=True) as c:
+                c.execute("SAVEPOINT p")
+                w = world(c, "w")
+                w["sim_time"] += n * 600
+                street = entity(c, "w", "street")
+                street["state"]["weather"] = weather
+                save_entity(c, street)
+                neno = entity(c, "w", "neno")
+                neno["parent_id"] = "riverside"
+                save_entity(c, neno)
+                before = w["settings"]["life_prefs"]["neno"]["riverside"]
+                life.taste(c, w, "neno", {"source": "life:walk_river"}, "到时间了")
+                step = w["settings"]["life_prefs"]["neno"]["riverside"] - before
+                total += step
+                if weather == "clear":
+                    signs.add(step > 0)
+                c.execute("ROLLBACK TO p")
+        deltas[weather] = total
+    assert deltas["rain"] < deltas["clear"] - 0.3
+    assert signs == {True, False}  # 晴天去江边也不是每次都觉得好

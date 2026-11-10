@@ -15,7 +15,7 @@ from app.services.world import rhythms
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
 _AREAS = {
-    "home": {"home_living", "home_kitchen", "my_room", "home_bath", "parents_room"},
+    "home": {"home_living", "home_kitchen", "my_room", "home_bath"},
     "campus": {"campus", "library", "seminar_room", "advisor_office", "canteen", "metro"},
 }
 
@@ -78,6 +78,7 @@ def _candidates(c, w, aid, actor):
     prefs = w["settings"].setdefault("life_prefs", {}).setdefault(aid, dict(cfg.get("preferences", {})))
     habits = w["settings"].setdefault("life_habits", {}).setdefault(aid, {})
     sick = bool(actor["state"].get("conditions"))
+    plans = _plan_boosts(w)
     result = []
     cooling = w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})
     for choice in cfg["choices"]:
@@ -93,7 +94,7 @@ def _candidates(c, w, aid, actor):
         place = here if choice["place"] == "here" else choice["place"]
         if not _has(c, w, place) or not entity(c, w["world_id"], place)["state"].get("open", True):
             continue
-        score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0)
+        score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0) + plans.get(choice["id"], 0.0)
         for need, weight in choice.get("relieves", {}).items():
             score += weight * max(0.0, needs.get(need, 0.0) - 0.3)
         score += cfg["chooser"]["habit_weight"] * min(1.0, habits.get(_habit_key(w, place), 0.0) / 5)
@@ -106,6 +107,17 @@ def _candidates(c, w, aid, actor):
             score -= 1.0  # 不舒服时不太想出门，但不是不能
         result.append((choice, place, score))
     return result
+
+
+def _plan_boosts(w) -> dict[str, float]:
+    """她的打算/心愿（大脑侧）给候选加分；没接大脑（独立世界、测试）时为空。"""
+    if not w["settings"].get("mind_linked"):
+        return {}
+    try:
+        from app.services.mind import intents
+        return intents.boosts(w["sim_time"])
+    except Exception:
+        return {}
 
 
 def _someone_at(c, w, aid, place) -> bool:
@@ -152,6 +164,12 @@ def choose(c, w, task) -> None:
          "options": sorted(([o[0]["id"], round(o[2], 2)] for o in scored), key=lambda x: -x[1])[:5]}, aid)
     try:
         _do(c, w, aid, actor, choice, place, room, key)
+        if w["settings"].get("mind_linked"):
+            try:
+                from app.services.mind import intents
+                intents.mark_done(choice["id"], w["sim_time"])
+            except Exception:
+                pass
         if choice.get("cooldown_hours"):
             w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})[choice["id"]] =                 w["sim_time"] + choice["cooldown_hours"] * 3600
     except WorldError as error:
@@ -204,6 +222,37 @@ def _eat(c, w, aid, item_id, key) -> None:
         item["state"]["quantity"] = item["state"].get("quantity", 1) - 1
         save_entity(c, item)
     rhythms.on_consume(c, w, aid, item["type_id"], 1, key)
+
+
+def taste(c, w, aid, doing, reason) -> None:
+    """做完一件自己挑的事，按"过得怎样"小幅调喜好（D5）：不能一次定性，带抽样。
+
+    好不好 = 抽样基调 + 天气（外面下雨减分）+ 身体（做着做着更累/更饿减分）+ 被打断减分。
+    每次调 ±0.08 以内，喜好夹在 [-0.6, 0.8]。
+    """
+    source = doing.get("source", "")
+    if not enabled(w, aid) or not source.startswith("life:") or source == "life:travel":
+        return
+    choice = next((ch for ch in rhythms.config(w)["choices"] if "life:" + ch["id"] == source), None)
+    if not choice or not choice.get("pref"):
+        return
+    key = f"taste:{aid}:{choice['id']}:{int(w['sim_time'])}"
+    mood = 2 * rhythms._draw(w, key, "mood") - 1          # 那天就是觉得好/不好
+    place = entity(c, w["world_id"], entity(c, w["world_id"], aid)["parent_id"])
+    weather = place["state"].get("weather")
+    if weather is None and _has(c, w, "street") and _area(place["entity_id"]) == "out":
+        weather = entity(c, w["world_id"], "street")["state"].get("weather")
+    if weather == "rain" and _area(place["entity_id"]) == "out":
+        mood -= 0.6
+    needs = {n: rhythms._value_at(r, w["sim_time"]) for n, r in rhythms._rows(c, w["world_id"], aid).items()}
+    mood -= 0.5 * max(0.0, needs.get("fatigue", 0) - 0.7) + 0.5 * max(0.0, needs.get("hunger", 0) - 0.7)
+    if reason != "到时间了":
+        mood -= 0.3
+    prefs = w["settings"].setdefault("life_prefs", {}).setdefault(aid, dict(rhythms.config(w).get("preferences", {})))
+    old = prefs.get(choice["pref"], 0.0)
+    prefs[choice["pref"]] = max(-0.6, min(0.8, old + 0.08 * max(-1.0, min(1.0, mood))))
+    emit(c, w, key, "life.taste", {"pref": choice["pref"], "from": round(old, 3), "to": round(prefs[choice["pref"]], 3),
+                                   "weather": weather}, aid)
 
 
 def handle(c, w, task) -> bool:

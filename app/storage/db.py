@@ -244,6 +244,39 @@ def init_db():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS mind_intent (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                choices_json TEXT NOT NULL DEFAULT '[]',
+                strength REAL NOT NULL DEFAULT 0.5,
+                source TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                due_at REAL NOT NULL DEFAULT 0.0,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                key TEXT UNIQUE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_wish (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                strength REAL NOT NULL DEFAULT 0.3,
+                seen_nights INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'seed',
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                UNIQUE(session_id, text)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS mind_relationship (
                 session_id TEXT PRIMARY KEY,
                 closeness REAL NOT NULL DEFAULT 0.7,

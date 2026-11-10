@@ -1,19 +1,18 @@
 {
  "version": "life-placeholder-1",
- "description": "她的生活（占位）：住家里、文学研究生。地点与物品只是骨架，城市与细节待定。",
+ "description": "她的生活（占位）：自己一个人住，爸妈在别处；文学研究生。地点与物品只是骨架，城市与细节待定。",
  "entities": [
   {
    "entity_id": "home_living",
    "kind": "place",
    "type_id": "neno:place",
-   "label": "家里客厅",
+   "label": "客厅",
    "owner_id": "neno",
    "state": {
     "exits": [
      "home_kitchen",
      "my_room",
      "home_bath",
-     "parents_room",
      "street"
     ],
     "open": true
@@ -36,7 +35,7 @@
    "entity_id": "my_room",
    "kind": "place",
    "type_id": "neno:place",
-   "label": "她的房间",
+   "label": "卧室",
    "owner_id": "neno",
    "state": {
     "exits": [
@@ -51,19 +50,6 @@
    "type_id": "neno:place",
    "label": "卫生间",
    "owner_id": "neno",
-   "state": {
-    "exits": [
-     "home_living"
-    ],
-    "open": true
-   }
-  },
-  {
-   "entity_id": "parents_room",
-   "kind": "place",
-   "type_id": "neno:place",
-   "label": "爸妈的房间",
-   "owner_id": "mom",
    "state": {
     "exits": [
      "home_living"
@@ -87,6 +73,17 @@
     ],
     "open": true,
     "weather": "clear"
+   }
+  },
+  {
+   "entity_id": "parents_home",
+   "kind": "place",
+   "type_id": "neno:place",
+   "label": "爸妈家（在别的城市）",
+   "owner_id": "mom",
+   "state": {
+    "exits": [],
+    "open": true
    }
   },
   {
@@ -227,7 +224,7 @@
    "kind": "actor",
    "type_id": "neno:actor",
    "label": "妈妈",
-   "parent_id": "home_living",
+   "parent_id": "parents_home",
    "state": {
     "active": true,
     "credits": 100
@@ -238,7 +235,7 @@
    "kind": "actor",
    "type_id": "neno:actor",
    "label": "爸爸",
-   "parent_id": "home_living",
+   "parent_id": "parents_home",
    "state": {
     "active": true,
     "credits": 100
@@ -340,7 +337,7 @@
    "kind": "item",
    "type_id": "neno:fridge",
    "parent_id": "home_kitchen",
-   "owner_id": "mom",
+   "owner_id": "neno",
    "state": {}
   },
   {
@@ -457,7 +454,7 @@
    "state": {
     "quantity": 99
    },
-   "label": "家里的饭菜"
+   "label": "冰箱里的吃的"
   }
  ],
  "daily_schedules": [],

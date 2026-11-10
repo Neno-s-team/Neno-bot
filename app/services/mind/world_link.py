@@ -26,7 +26,8 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
     "study": (2, "桌上", False),
     "read": (3, "身边", False),
     "eat": (3, "桌上", False),
-    "family": (2, "桌上", False),
+    "cook": (3, "灶台边", False),
+    "call": (2, "耳边", False),
     "rest": (3, "手里", False),
     "scroll": (4, "手里", False),
     "stroll": (3, "兜里", False),
@@ -34,7 +35,7 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
 }
 _IDLE = (3, "身边", False)
 _LABELS = {"sleep": "睡觉", "meeting": "组会", "class": "上课", "commute": "在路上", "study": "看文献写论文",
-           "read": "看闲书", "eat": "吃东西", "family": "和爸妈吃饭", "rest": "歇会儿", "scroll": "刷手机",
+           "read": "看闲书", "eat": "吃东西", "cook": "做饭", "call": "和爸妈打电话", "rest": "歇会儿", "scroll": "刷手机",
            "stroll": "散步", "chat": "跟人聊天"}
 
 

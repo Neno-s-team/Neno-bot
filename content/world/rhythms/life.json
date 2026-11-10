@@ -1,6 +1,6 @@
 {
  "version": "life-placeholder-1",
- "note": "她的生活（占位）：住家里、文学研究生。义务时间、地点、偏好初值都是占位，人设细化后再改。需求/扰动沿用通用参数。",
+ "note": "她的生活（占位）：自己住，爸妈在别处；文学研究生。义务时间、地点、偏好初值都是占位。需求/扰动沿用通用参数。",
  "replace_template_schedules": true,
  "needs": {
   "hunger": {
@@ -574,18 +574,6 @@
     "social": -0.03
    }
   },
-  "family": {
-   "label": "和爸妈吃饭聊天",
-   "requires_company": true,
-   "hours": [
-    0.5,
-    1
-   ],
-   "rates": {
-    "social": -0.4,
-    "hunger": -0.8
-   }
-  },
   "chat": {
    "label": "跟人聊天",
    "requires_company": true,
@@ -626,6 +614,26 @@
     0.5
    ],
    "rates": {}
+  },
+  "call": {
+   "label": "和爸妈打电话",
+   "hours": [
+    0.15,
+    0.6
+   ],
+   "rates": {
+    "social": -0.5
+   }
+  },
+  "cook": {
+   "label": "做饭",
+   "hours": [
+    0.4,
+    0.8
+   ],
+   "rates": {
+    "fatigue": 0.02
+   }
   }
  },
  "travel_minutes": {
@@ -678,14 +686,6 @@
      "jitter_min": 5,
      "skip": 0.03,
      "commute": true
-    },
-    {
-     "id": "dinner",
-     "activity": "family",
-     "place": "home_living",
-     "start": "18:40",
-     "jitter_min": 25,
-     "skip": 0.25
     }
    ],
    "life": true
@@ -695,18 +695,10 @@
     {
      "id": "sleep",
      "activity": "sleep",
-     "place": "parents_room",
+     "place": "parents_home",
      "start": "22:40",
      "jitter_min": 30,
      "skip": 0.0
-    },
-    {
-     "id": "dinner",
-     "activity": "family",
-     "place": "home_living",
-     "start": "18:40",
-     "jitter_min": 20,
-     "skip": 0.05
     }
    ]
   },
@@ -715,18 +707,10 @@
     {
      "id": "sleep",
      "activity": "sleep",
-     "place": "parents_room",
+     "place": "parents_home",
      "start": "23:10",
      "jitter_min": 30,
      "skip": 0.0
-    },
-    {
-     "id": "dinner",
-     "activity": "family",
-     "place": "home_living",
-     "start": "18:40",
-     "jitter_min": 20,
-     "skip": 0.1
     }
    ]
   },
@@ -901,7 +885,7 @@
    "id": "eat_home",
    "eat": "home_food",
    "place": "home_kitchen",
-   "base": 0.6,
+   "base": 0.55,
    "hours": [
     7,
     24
@@ -909,7 +893,8 @@
    "relieves": {
     "hunger": 2.0
    },
-   "cooldown_hours": 2.5
+   "cooldown_hours": 2.5,
+   "activity": "eat"
   },
   {
    "id": "eat_canteen",
@@ -956,18 +941,33 @@
    "cooldown_hours": 3
   },
   {
-   "id": "chat_mom",
-   "activity": "chat",
-   "place": "home_living",
-   "base": 0.3,
+   "id": "cook",
+   "activity": "cook",
+   "eat": "home_food",
+   "place": "home_kitchen",
+   "base": 0.35,
    "hours": [
-    8,
+    11,
+    21
+   ],
+   "relieves": {
+    "hunger": 2.2
+   },
+   "cooldown_hours": 4
+  },
+  {
+   "id": "call_parents",
+   "activity": "call",
+   "place": "here",
+   "base": 0.2,
+   "hours": [
+    19,
     22
    ],
    "relieves": {
-    "social": 1.5
+    "social": 1.2
    },
-   "cooldown_hours": 3
+   "cooldown_hours": 40
   }
  ],
  "preferences": {

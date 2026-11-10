@@ -90,9 +90,17 @@ def _ensure_life_world(engine, world_id: str) -> None:
     from datetime import datetime, timezone
     from app.services.world.models import WorldCreate
 
+    from app.storage.world_store import world as load_world
+
     with engine.store.transaction() as c:
-        if c.execute("SELECT 1 FROM world_worlds WHERE world_id=?", (world_id,)).fetchone():
-            return
-    engine.create(WorldCreate(world_id=world_id, name="Neno 的生活", seed=os.getenv("MIND_WORLD_SEED", world_id),
-                              template="life", rhythms="life", running=True, start_at=datetime.now(timezone.utc)))
-    log.info("Life world %s created", world_id)
+        exists = c.execute("SELECT 1 FROM world_worlds WHERE world_id=?", (world_id,)).fetchone()
+    if not exists:
+        engine.create(WorldCreate(world_id=world_id, name="Neno 的生活", seed=os.getenv("MIND_WORLD_SEED", world_id),
+                                  template="life", rhythms="life", running=True, start_at=datetime.now(timezone.utc)))
+        log.info("Life world %s created", world_id)
+    with engine.store.transaction(write=True) as c:
+        w = load_world(c, world_id)
+        if not w["settings"].get("mind_linked"):
+            # 标记：这个世界接着她的大脑（挑事会读她的打算/心愿）
+            w["settings"]["mind_linked"] = True
+            engine._save_world(c, w)
