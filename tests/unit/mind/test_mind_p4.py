@@ -193,8 +193,8 @@ def test_concerns_show_up_in_working_memory_and_l1(p4, monkeypatch, fake_provide
     from app.services.mind.schemas import L1Appraisal
     memory = wm_builder.build_working_memory(S, l1=L1Appraisal.from_dict({"cues": []}), message="hi",
                                              history=[], self_card="")
-    assert memory["concerns"] == ["他的考试（很在意）：下周三"]
-    assert "【在意事项】\n- 他的考试（很在意）：下周三" in wm_builder.render_working_memory(memory)
+    assert memory["concerns"] == ["他的考试（很在意，刚才开始的）：下周三"]
+    assert "【在意事项】\n- 他的考试（很在意，刚才开始的）：下周三" in wm_builder.render_working_memory(memory)
     from app.services.mind import appraisal
     messages = appraisal._build_l1_messages("hi", {"valence": 0, "arousal": 0}, "", [], ["他的考试"])
     assert "心里记挂着：他的考试" in messages[1]["content"]

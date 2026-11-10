@@ -178,6 +178,14 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 坑：严格 JSON schema 里字段叫 `thought` 会被服务商当成套取思考过程拦截（content_filter），改叫 `murmur`。
 - 成本：Opus 单次约 $0.003，每天 ≤6 次决定 + 几次接电话，约 $0.5–1/月。
 
+## 5.9 时间线（2026-11-11，用户要求"让模型记住时间"）
+
+`app/services/mind/timeline.py`：给模型看的过去一律带"离现在多久"+ 具体日期，不让模型自己算日期。
+- 【当前情境】首行"现在是 2026年11月11日 周三 晚上21:30"，"他上一条消息是 X 前"；L1 也带这一行。
+- 最近原话（工作记忆 / L1 / E2）：第一条前标时间，相邻隔 ≥30 分钟插"——隔了 1 天（今天 21:00）——"，最后到现在也隔得久再标一行。
+- 经历标"3 天前，11-08 20:00"；在意事项标"X 前开始的"；打算标"昨晚想的，打算今天做"（期限换成真实哪天，免得昨晚的"明天"今天还叫明天）。
+- 世界：今天谁找过她、她心里嘀咕过什么都带"多久前"。夜间反思开头是完整日期，并要求写下的东西提到时间写清哪天。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

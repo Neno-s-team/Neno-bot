@@ -8,7 +8,7 @@ from typing import Any
 
 from app import config
 from app.services.mind import clock
-from app.services.mind import concerns, intents, relationship, wishes
+from app.services.mind import concerns, intents, relationship, timeline, wishes
 from app.services.mind.memory import retrieval
 from app.storage.db import fetch_all
 
@@ -62,18 +62,18 @@ def _seconds_since_last_user_message(history: list[dict]) -> float | None:
 
 
 def _render_situation(situation: dict[str, Any]) -> str:
-    lines = [
-        f"现在是 {situation['local_time']}（周{situation['weekday']}，{situation['period']}）",
-    ]
+    lines = [f"现在是 {situation.get('today') or situation['local_time']}"]
     gap = situation.get("seconds_since_last_user_message")
     if gap is not None:
-        lines.append(f"距上一条用户消息：{int(gap // 60)} 分钟")
+        lines.append(f"他上一条消息是 {timeline.gap(gap)}前")
     if situation.get("doing"):
         lines.append(f"你此刻在{situation.get('place') or '某处'}，{situation['doing']}")
         if situation.get("body"):
             lines.append(f"身上：{situation['body']}")
         for note in situation.get("contacts") or []:
             lines.append(f"今天：{note}")
+        if situation.get("last_thought"):
+            lines.append(f"你{situation['last_thought']}")
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
     for notice in situation.get("retracted") or []:
         lines.append(notice)
@@ -111,8 +111,9 @@ def _render_episode(episode: dict[str, Any]) -> str:
     valence = float(episode.get("valence") or 0.0)
     arousal = float(episode.get("arousal") or 0.0)
     vague = "（只记得个大概）" if episode.get("faded_at") else ""
+    when = timeline.ago(float(episode["ts"]))
     return (
-        f"- #{episode['id']} [{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{vague}{episode['summary']}"
+        f"- #{episode['id']} [{when}，{stamp}]（情绪 v={valence:+.2f} a={arousal:.2f}）{vague}{episode['summary']}"
     )
 
 
@@ -135,6 +136,7 @@ def build_working_memory(
     local = _local_now()
     situation = {
         "local_time": local.strftime("%Y-%m-%d %H:%M"),
+        "today": timeline.today_line(current),
         "weekday": _WEEKDAYS[local.weekday()],
         "period": period_word(local.hour),
         "seconds_since_last_user_message": _seconds_since_last_user_message(history),
@@ -154,6 +156,8 @@ def build_working_memory(
             situation["body"] = seg["body"]
         if seg.get("contacts"):
             situation["contacts"] = seg["contacts"]
+        if seg.get("last_thought"):
+            situation["last_thought"] = seg["last_thought"]
     if retracted is not None:
         situation["retracted"] = retracted
     # 已撤回且被看到过的消息：即使调用方没传，也补进当前情境
@@ -176,6 +180,7 @@ def build_working_memory(
         {
             "role": item.get("role"),
             "content": str(item.get("content") or "")[:300],
+            "created_at": item.get("created_at"),
         }
         for item in history
         if item.get("role") in ("user", "assistant")
@@ -266,7 +271,7 @@ def render_working_memory(memory: dict[str, Any], *, include_self_card: bool = T
         sections.append("【认识】\n" + "\n".join(_render_belief(item) for item in beliefs))
     recent = memory.get("recent_turns") or []
     if recent:
-        lines = [f"{item['role']}：{item['content']}" for item in recent]
+        lines = timeline.turns_with_time(recent, me="你", other="他")
         sections.append("【最近原话】\n" + "\n".join(lines))
     if include_self_card and memory.get("self_card"):
         sections.append("【自我卡】\n" + memory["self_card"])

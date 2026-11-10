@@ -95,8 +95,13 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
         seg["body"] = "，".join(conditions)
     contacts = [x for x in actor["state"].get("recent_contacts", []) if (ts or clock.now()) - x["at"] < 12 * 3600]
     if contacts:
-        seg["contacts"] = [x["note"] or f"{x['from']}{'打电话' if x['channel'] == 'call' else '发消息'}来过"
+        from app.services.mind import timeline
+        seg["contacts"] = [f"{timeline.ago(x['at'])}，" + (x["note"] or f"{x['from']}{'打电话' if x['channel'] == 'call' else '发消息'}来过")
                            for x in contacts[-3:]]
+    thought = actor["state"].get("last_thought")
+    if thought and (ts or clock.now()) - thought["at"] < 3 * 3600:
+        from app.services.mind import timeline
+        seg["last_thought"] = f"{timeline.ago(thought['at'])}心里嘀咕过：{thought['text']}"
     return seg
 
 

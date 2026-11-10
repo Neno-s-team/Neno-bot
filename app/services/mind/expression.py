@@ -25,10 +25,8 @@ def _build_e2_messages(
     line_lengths: list[int] | None = None,
     doing: str = "",
 ) -> list[dict]:
-    recent_text = "\n".join(
-        f"{'对方' if item['role'] == 'user' else '你'}：{str(item.get('content',''))[:300]}"
-        for item in recent_turns[-config.MIND_RECENT_TURNS:]
-    )
+    from app.services.mind import timeline
+    recent_text = "\n".join(timeline.turns_with_time(recent_turns[-config.MIND_RECENT_TURNS:]))
     # 真实想法：只在漏得明显时才给，而且只说"心里是这么想的"，不要求"漏出来"
     inner = ""
     if plan.gut and plan.leak >= 0.35:

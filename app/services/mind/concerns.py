@@ -51,6 +51,8 @@ def render(items: list[dict[str, Any]]) -> list[str]:
     for item in items:
         level = "很在意" if item["effective"] >= 0.6 else "有点在意" if item["effective"] >= 0.3 else "隐约记着"
         detail = f"：{item['detail']}" if item.get("detail") else ""
+        from app.services.mind import timeline
+        level = f"{level}，{timeline.ago(item['created_at'])}开始的"
         result.append(f"{item['title']}（{level}）{detail}")
     return result
 

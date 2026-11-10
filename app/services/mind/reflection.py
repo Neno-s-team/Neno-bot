@@ -16,7 +16,7 @@ from typing import Any
 
 from app import config
 from app.services.chat.llm_gateway import request_model_response
-from app.services.mind import clock, concerns, intents, relationship, schedule, state, wishes, world_link
+from app.services.mind import clock, concerns, intents, relationship, schedule, state, timeline, wishes, world_link
 from app.services.mind.deliberation import BeliefUpdate, strip_think
 from app.services.mind.memory import importance as importance_rules
 from app.services.mind.memory.commit import apply_belief_update
@@ -188,13 +188,14 @@ REFLECT_SCHEMA = {
 
 
 def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) -> list[dict]:
-    turns = "\n".join(f"[{t['at']}] {'对方' if t['role'] == 'user' else '我'}：{t['content']}" for t in material["turns"]) or "（今天没聊天）"
-    episodes = "\n".join(f"#{e['id']} {e['summary']}" for e in material["episodes"]) or "（无）"
+    turns = "\n".join(f"[{t['at']}] {'他' if t['role'] == 'user' else '我'}：{t['content']}" for t in material["turns"]) or "（今天没聊天）"
+    episodes = "\n".join(f"#{e['id']} [{timeline.stamp(e['ts'])}] {e['summary']}" for e in material["episodes"]) or "（无）"
     beliefs = "\n".join(f"- {b['subject']}：{b['content']}（把握 {b['confidence']:.2f}）" for b in material["beliefs"]) or "（无）"
     bond = relationship.describe(material["session_id"])
-    worries = "\n".join(f"- id={c['id']} {c['title']}（强度 {c['effective']:.2f}）{c['detail']}" for c in material["concerns"]) or "（无）"
+    worries = "\n".join(f"- id={c['id']} {c['title']}（{timeline.ago(c['created_at'])}开始记挂，强度 {c['effective']:.2f}）{c['detail']}"
+                        for c in material["concerns"]) or "（无）"
     lived = "\n".join(material.get("lived") or []) or "（没记下什么）"
-    prompt = f"""现在是夜里，你躺下了，在脑子里过一遍今天。用你自己的视角想，不要写成报告。
+    prompt = f"""现在是 {timeline.today_line()}，你躺下了，在脑子里过一遍今天。用你自己的视角想，不要写成报告。
 
 【你今天过的日子】
 {lived}
@@ -225,7 +226,8 @@ def _messages(self_card: str, material: dict[str, Any], mood: dict[str, Any]) ->
 - mood.valence：睡前心情（-1 到 1）；mood.settle：情绪平复了多少（0 没平复，1 完全平复）。
 - relation：今天和对方的相处让你们的关系怎么动了，各项 -1 到 1，没变化就填 0（大多数日子都在 0 附近）。
   closer 更近还是更远；attraction 心动多了还是少了；distance 多了隔阂还是解开了；view 一句话说你现在怎么看他。
-- tomorrow：≤3 条明天想做或想记得的事，可以为空。"""
+- tomorrow：≤3 条明天想做或想记得的事，可以为空。
+- 写下来的东西里提到时间时，写清是哪天（"今天下午""11月12日周三"），不要只写"明天""那天"——过几天再看就不知道指哪天了。"""
     return [{"role": "system", "content": self_card or "你是一个普通人，在睡前回想今天。"},
             {"role": "user", "content": prompt}]
 

@@ -112,5 +112,7 @@ def expire(conn, now: float) -> int:
 
 
 def render(session_id: str, limit: int = 3) -> list[str]:
+    from app.services.mind import timeline
     items = open_intents(session_id)[:limit]
-    return [f"{row['text']}（{'挺想做' if row['effective'] >= 0.5 else '有点想'}）" for row in items]
+    return [f"{row['text']}（{timeline.ago(row['created_at'])}想的，打算{timeline.day_word(row['due_at'] - 3600)}做；"
+            f"{'挺想做' if row['effective'] >= 0.5 else '有点想'}）" for row in items]

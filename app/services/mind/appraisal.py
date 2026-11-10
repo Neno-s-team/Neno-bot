@@ -17,11 +17,10 @@ def _build_l1_messages(
     recent_turns: list[dict],
     concern_titles: list[str] | None = None,
 ) -> list[dict]:
-    recent_text = "\n".join(
-        f"{item['role']}: {str(item.get('content',''))[:200]}"
-        for item in recent_turns[-2:]
-    )
+    from app.services.mind import timeline
+    recent_text = "\n".join(timeline.turns_with_time(recent_turns[-2:], me="Neno", other="user", limit_chars=200))
     prompt = f"""你是 Neno 的直觉层（L1）。快速判断当前消息的情绪意义和紧急程度。
+现在是 {timeline.today_line()}。
 
 当前情绪状态：valence={state['valence']:.2f}, arousal={state['arousal']:.2f}
 心里记挂着：{"；".join(concern_titles) if concern_titles else "无"}
