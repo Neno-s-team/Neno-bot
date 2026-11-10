@@ -162,12 +162,12 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 
 ## 5.7 W4 她身边的人（2026-11-11）
 
-`app/services/world/npcs.py` + 占位角色卡 `content/world/npcs/life.json`（妈妈、爸爸、导师、同门师姐；卡等人设再改）。`.env`：`WORLD_NPC_ENABLED=true`、`WORLD_NPC_MODEL=deepseek/deepseek-v4-flash`、`WORLD_NPC_MAX_CALLS_PER_DAY=40`。
+`app/services/world/npcs.py` + 占位角色卡 `content/world/npcs/life.json`（妈妈、爸爸、导师、同门师姐；卡等人设再改）。`.env`：`WORLD_NPC_ENABLED=true`、`WORLD_NPC_MODEL=deepseek/deepseek-v4.1-flash-1017`、`WORLD_NPC_MAX_CALLS_PER_DAY=40`。
 - 规则定"今天找不找她、几点"（每周频率抽签），模型只写内容。每人每天醒来一次调用（一天大概干嘛 + 要不要找她 + 记一笔）。
 - 到点找她：她在睡觉/上课/组会就晚 40–120 分钟（打电话变"未接，后来回过去"），最多推三次。一次调用写双方对话，NPC 记一笔，她得到一句"妈打电话来问……"进【当前情境】"今天：…"（12 小时内）。打电话缓解社交需求。
 - 关系锁：提示词禁止 + 输出过滤（恋爱/对象/表白/约会/暧昧…；非家人的"想你了/宝贝"），命中整段作废并记 `npc.relationship_lock`。
 - 模型调用不在世界事务里：到期任务只排队（world_llm_calls.status=queued），后台 `npc_loop` 领取→调用→落地；日上限、连续失败退避。
-- 选型：Luna 与 DeepSeek v4-flash 同提示对比，DeepSeek 更有生活气（"又不是小孩""行行行"），单次约 $0.00007，延迟 7s；Luna 更规整，约 $0.00015。用户提议二选一，选 DeepSeek。约 4 人 × 1–2 次/天 ≈ $0.01/月。
+- 选型（2026-11-11）：同提示对比 Luna / DeepSeek v4-flash / v4.1-flash-1017（带日期的是加强版，不是快照——用户纠正）。1017 最好：不替她编经历、她的总结视角正确、生活细节最真；约 $0.00011/次、13s（后台不影响聊天）。约 $0.01–0.02/月。
 
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
