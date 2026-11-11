@@ -79,6 +79,8 @@ def _candidates(c, w, aid, actor):
     habits = w["settings"].setdefault("life_habits", {}).setdefault(aid, {})
     sick = bool(actor["state"].get("conditions"))
     plans = _plan_boosts(w)
+    broken_list = broken_items(c, w, aid)
+    broken = {x["entity_id"] for x in broken_list}
     result = []
     cooling = w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})
     for choice in cfg["choices"]:
@@ -90,6 +92,8 @@ def _candidates(c, w, aid, actor):
         if choice.get("weather_not") and weather == choice["weather_not"]:
             continue
         if choice.get("campus_only") and _area(here) != "campus":
+            continue
+        if choice.get("fixes") and not broken:
             continue
         place = here if choice["place"] == "here" else choice["place"]
         if not _has(c, w, place) or not entity(c, w["world_id"], place)["state"].get("open", True):
@@ -105,8 +109,50 @@ def _candidates(c, w, aid, actor):
             continue
         if sick and _area(place) != "home":
             score -= 1.0  # 不舒服时不太想出门，但不是不能
+        if choice.get("fixes"):
+            # 坏得越久越烦：一天内把"想修"的劲涨满
+            age = max((w["sim_time"] - x["broken_at"]) / 3600 for x in broken_list)
+            score += cfg["chooser"].get("fix_urgency", 0.8) * min(1.0, max(0.0, age) / 24)
+        if broken & set(choice.get("uses", [])):
+            score -= cfg["chooser"].get("broken_penalty", 0.8)  # 电脑坏了也能翻纸质的，只是没那么想
         result.append((choice, place, score))
     return result
+
+
+def broken_items(c, w, aid) -> list[dict]:
+    """她名下坏着、能修的东西。"""
+    import json
+    rows = c.execute("SELECT entity_id, label, state, capabilities FROM world_entities "
+                     "WHERE world_id=? AND owner_id=? AND kind='item' ORDER BY entity_id", (w["world_id"], aid))
+    items = []
+    for r in rows:
+        state = json.loads(r[2])
+        if state.get("broken") and "repairable" in json.loads(r[3]):
+            items.append({"entity_id": r[0], "label": r[1], "broken_at": state.get("broken_at", w["sim_time"])})
+    return items
+
+
+def after(c, w, aid, doing, reason) -> None:
+    """自己修东西：做完按概率修好一件（先修平时要用的），修不好就是修不好，过阵子可能再试。"""
+    spec = rhythms.config(w)["activities"].get(doing["activity"], {})
+    if "fix_chance" not in spec or reason != "到时间了":
+        return
+    items = broken_items(c, w, aid)
+    if not items:
+        return
+    used = {u for ch in rhythms.config(w)["choices"] for u in ch.get("uses", [])}
+    item = sorted(items, key=lambda x: x["entity_id"] not in used)[0]
+    key = f"{doing['job']}:fix"
+    draw = rhythms._draw(w, key, "fix")
+    if draw < spec["fix_chance"]:
+        target = entity(c, w["world_id"], item["entity_id"])
+        target["state"]["broken"] = False
+        target["state"].pop("broken_at", None)
+        save_entity(c, target)
+        emit(c, w, key, "life.fixed", {"item": item["entity_id"], "label": item["label"], "draw": round(draw, 3),
+                                       "changes": [target]}, aid)
+    else:
+        emit(c, w, key, "life.fix_failed", {"item": item["entity_id"], "label": item["label"], "draw": round(draw, 3)}, aid)
 
 
 def _plan_boosts(w) -> dict[str, float]:

@@ -634,6 +634,17 @@
    "rates": {
     "fatigue": 0.02
    }
+  },
+  "fix": {
+   "label": "折腾坏了的东西",
+   "hours": [
+    0.3,
+    1.0
+   ],
+   "rates": {
+    "fatigue": 0.04
+   },
+   "fix_chance": 0.4
   }
  },
  "travel_minutes": {
@@ -791,7 +802,10 @@
     9,
     23
    ],
-   "pref": "my_room"
+   "pref": "my_room",
+   "uses": [
+    "laptop"
+   ]
   },
   {
    "id": "study_library",
@@ -803,7 +817,10 @@
     21
    ],
    "pref": "library",
-   "weather_not": "rain"
+   "weather_not": "rain",
+   "uses": [
+    "laptop"
+   ]
   },
   {
    "id": "study_cafe",
@@ -815,7 +832,10 @@
     19
    ],
    "pref": "cafe",
-   "cost": 4
+   "cost": 4,
+   "uses": [
+    "laptop"
+   ]
   },
   {
    "id": "read_bed",
@@ -968,6 +988,18 @@
     "social": 1.2
    },
    "cooldown_hours": 40
+  },
+  {
+   "id": "fix_item",
+   "activity": "fix",
+   "place": "my_room",
+   "base": 0.7,
+   "hours": [
+    8,
+    23
+   ],
+   "fixes": true,
+   "cooldown_hours": 5
   }
  ],
  "preferences": {
@@ -985,6 +1017,8 @@
   "idle_minutes": [
    20,
    60
-  ]
+  ],
+  "broken_penalty": 0.8,
+  "fix_urgency": 0.8
  }
 }

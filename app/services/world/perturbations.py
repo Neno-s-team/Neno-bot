@@ -222,10 +222,10 @@ def _happen(c, w, key, entry, target) -> dict:
             if not fragile:
                 raise _Nothing()
             item = fragile[int(draw * len(fragile))]
-            item["state"].update(broken=True, on=False)
+            item["state"].update(broken=True, on=False, broken_at=w["sim_time"])
             save_entity(c, item)
             changes.append(item)
-            applied.append({"broke": item["entity_id"]})
+            applied.append({"broke": item["entity_id"], "label": item.get("label") or item["entity_id"]})
     state = w["settings"].setdefault("perturb_state", {"last": {}})
     state["last"][f"{entry['id']}:{target['entity_id']}"] = w["sim_time"]
     happened = {"id": entry["id"], "tier": entry["tier"], "label": entry["label"], "target": target["entity_id"],

@@ -70,6 +70,8 @@ def _render_situation(situation: dict[str, Any]) -> str:
         lines.append(f"你此刻在{situation.get('place') or '某处'}，{situation['doing']}")
         if situation.get("body"):
             lines.append(f"身上：{situation['body']}")
+        if situation.get("broken"):
+            lines.append(f"坏着没修好的：{situation['broken']}")
         for note in situation.get("contacts") or []:
             lines.append(f"今天：{note}")
         if situation.get("last_thought"):
@@ -154,6 +156,8 @@ def build_working_memory(
         situation["place"] = seg.get("place")
         if seg.get("body"):
             situation["body"] = seg["body"]
+        if seg.get("broken"):
+            situation["broken"] = seg["broken"]
         if seg.get("contacts"):
             situation["contacts"] = seg["contacts"]
         if seg.get("last_thought"):

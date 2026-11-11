@@ -14,7 +14,7 @@ from typing import Any, Iterator
 
 from app import config
 from app.services.mind import clock
-from app.storage.db import fetch_one
+from app.storage.db import fetch_all, fetch_one
 from app.utils.logging_utils import log_event
 
 # 活动 → (打断等级, 手机在哪, 静音)
@@ -36,7 +36,7 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
 _IDLE = (3, "身边", False)
 _LABELS = {"sleep": "睡觉", "meeting": "组会", "class": "上课", "commute": "在路上", "study": "看文献写论文",
            "read": "看闲书", "eat": "吃东西", "cook": "做饭", "call": "和爸妈打电话", "rest": "歇会儿", "scroll": "刷手机",
-           "stroll": "散步", "chat": "跟人聊天"}
+           "stroll": "散步", "chat": "跟人聊天", "fix": "折腾坏了的东西"}
 
 
 def enabled() -> bool:
@@ -93,6 +93,9 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
     conditions = [c["label"] for c in actor["state"].get("conditions", []) if c.get("until", 0) > (ts or clock.now())]
     if conditions:
         seg["body"] = "，".join(conditions)
+    broken = _broken_items()
+    if broken:
+        seg["broken"] = "、".join(broken)
     contacts = [x for x in actor["state"].get("recent_contacts", []) if (ts or clock.now()) - x["at"] < 12 * 3600]
     if contacts:
         from app.services.mind import timeline
@@ -103,6 +106,15 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
         from app.services.mind import timeline
         seg["last_thought"] = f"{timeline.ago(thought['at'])}心里嘀咕过：{thought['text']}"
     return seg
+
+
+def _broken_items() -> list[str]:
+    try:
+        rows = fetch_all("SELECT label, state FROM world_entities WHERE world_id = ? AND owner_id = ? AND kind = 'item'",
+                         (config.MIND_WORLD_ID, config.MIND_WORLD_ACTOR))
+    except Exception:
+        return []
+    return [r["label"] for r in rows if json.loads(r["state"]).get("broken")]
 
 
 def iter_future(t0: float, t1: float) -> Iterator[tuple[float, float, dict[str, Any]]]:
@@ -175,7 +187,12 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
         elif kind == "npc.contacted":
             text = p.get("note") or "有人找过她"
         elif kind == "perturb.happened" and (row["actor_id"] == config.MIND_WORLD_ACTOR or p.get("target") == "street"):
-            text = p.get("label")
+            broke = [x["label"] for x in p.get("applied", []) if x.get("label") and x.get("broke")]
+            text = f"{broke[0]}坏了" if broke else p.get("label")
+        elif kind == "life.fixed":
+            text = f"把{p.get('label')}修好了"
+        elif kind == "life.fix_failed":
+            text = f"折腾了一阵{p.get('label')}，没修好"
         elif kind == "need.consequence":
             text = p.get("label")
         elif kind == "routine.skipped":

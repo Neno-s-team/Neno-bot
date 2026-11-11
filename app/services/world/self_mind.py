@@ -85,6 +85,11 @@ def conflict(c, w, aid, options) -> str | None:
         return "你很累了，可是事情还没做完"
     if weather == "rain" and any(o in outdoor for o in top):
         return "外面在下雨，你本来想出去"
+    from app.services.world import life
+    broken = {x["entity_id"]: x["label"] for x in life.broken_items(c, w, aid)}
+    hit = [broken[u] for o in top for u in o[0].get("uses", []) if u in broken]
+    if hit:
+        return f"你的{hit[0]}坏了，可你本来想用它"
     if len(top) == 2 and abs(top[0][2] - top[1][2]) < 0.15 and top[0][0].get("plan_boost") and needs.get("hunger", 0) > 0.7:
         return "有打算要做，但你饿了"
     return None

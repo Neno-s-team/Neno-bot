@@ -129,3 +129,19 @@ def test_without_flag_world_runs_on_rules(linked, monkeypatch):
     _sick(linked)
     _choose(linked)
     assert _calls(linked, "neno_decide") == []
+
+
+def test_broken_thing_she_wanted_to_use_asks_her(linked):
+    """她本来想用的东西坏了，是值得自己想一下的时刻；坏的东西跟想做的事无关就不问。"""
+    with linked.store.transaction(write=True) as c:
+        w = world(c, "w")
+        cfg = w["settings"]["rhythms"]["choices"]
+        study = next(ch for ch in cfg if ch["id"] == "study_desk")
+        read = next(ch for ch in cfg if ch["id"] == "read_bed")
+        options = [(study, "my_room", 2.0), (read, "my_room", 1.0)]
+        assert self_mind.conflict(c, w, "neno", options) is None
+        laptop = entity(c, "w", "laptop")
+        laptop["state"]["broken"] = True
+        save_entity(c, laptop)
+        assert "电脑坏了" in self_mind.conflict(c, w, "neno", options)
+        assert self_mind.conflict(c, w, "neno", [(read, "my_room", 2.0)]) is None

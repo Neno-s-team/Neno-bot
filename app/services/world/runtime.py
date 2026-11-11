@@ -129,5 +129,12 @@ def _ensure_life_world(engine, world_id: str) -> None:
             from app.services.world import npcs
             npcs.setup(c, w, "life")
             changed = True
+        from app.services.world import rhythms
+        fresh = rhythms.load("life")
+        if w["settings"].get("rhythms") != fresh:
+            # 作息/选项/参数以文件为准：改了文件重启就生效，她的状态（需求、喜好、习惯）不动
+            w["settings"]["rhythms"] = fresh
+            changed = True
+            log.info("Life world %s rhythms refreshed (%s)", world_id, fresh.get("version"))
         if changed:
             engine._save_world(c, w)

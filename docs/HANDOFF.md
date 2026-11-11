@@ -186,6 +186,15 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 经历标"3 天前，11-08 20:00"；在意事项标"X 前开始的"；打算标"昨晚想的，打算今天做"（期限换成真实哪天，免得昨晚的"明天"今天还叫明天）。
 - 世界：今天谁找过她、她心里嘀咕过什么都带"多久前"。夜间反思开头是完整日期，并要求写下的东西提到时间写清哪天。
 
+## 5.10 东西坏了有后果（2026-11-11，首日观察发现）
+
+首日 08:22 电脑坏了，之后照常两次"看文献写论文"——坏只是个标记，没人用、没人修。现在：
+- 选项可声明 `uses: ["laptop"]`（三种学习）；用的东西坏了就扣 `chooser.broken_penalty`（0.8），**降分不禁止**（还能翻纸质的）。
+- 坏着时多一个 `fix_item`（活动 `fix`），"想修"随坏了多久涨（`fix_urgency`，一天涨满）；修完按 `fix_chance`（0.4）抽，修不好隔 5h 冷却再试。事件 `life.fixed` / `life.fix_failed`。
+- 她本来想用的东西坏了 → `self_mind.conflict` 让她自己拿主意。
+- 大脑侧：情境里"坏着没修好的：电脑"；夜间回想写"电脑坏了 / 折腾了一阵电脑，没修好 / 把电脑修好了"（坏事件现在带物品名）。
+- **重启时 life 世界的 rhythms 配置以文件为准刷新**（`runtime._ensure_life_world`），改 `content/world/rhythms/life.json` 不用重建世界；她的需求/喜好/习惯/物品状态不动。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

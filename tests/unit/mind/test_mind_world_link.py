@@ -123,3 +123,31 @@ def test_lived_day_reaches_reflection(linked, monkeypatch):
     prompt = reflection._messages("", material, {"valence": 0, "arousal": 0})[1]["content"]
     assert "【你今天过的日子】" in prompt and "妈打电话来问吃了没" in prompt
     assert reflection._day_material("tg:other", T0 - 60, T0 + 4 * 3600)["lived"] == []
+
+
+def test_she_knows_what_broke_and_whether_she_fixed_it(linked):
+    """坏了什么、修没修好：此刻的情境里有，夜里回想的那一天里也有（不是只有一句"有个东西坏了"）。"""
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.storage.world_store import emit, world as load_world
+    _set_doing(linked, "read")
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        laptop = entity(c, "life", "laptop")
+        laptop["state"]["broken"] = True
+        save_entity(c, laptop)
+        emit(c, w, "p1", "perturb.happened", {"id": "thing_broke", "label": "有个东西坏了", "target": "neno",
+                                              "applied": [{"broke": "laptop", "label": "电脑"}]}, "neno")
+        emit(c, w, "f1", "life.fix_failed", {"item": "laptop", "label": "电脑"}, "neno")
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="在干嘛",
+                                             history=[], self_card="")
+    assert "坏着没修好的：电脑" in wm_builder.render_working_memory(memory)
+    lived = world_link.day_events(T0 - 60, T0 + 60)
+    assert any(x.endswith("电脑坏了") for x in lived) and any("电脑，没修好" in x for x in lived)
+    with linked.store.transaction(write=True) as c:
+        laptop = entity(c, "life", "laptop")
+        laptop["state"]["broken"] = False
+        save_entity(c, laptop)
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="在干嘛",
+                                             history=[], self_card="")
+    assert "坏着" not in wm_builder.render_working_memory(memory)

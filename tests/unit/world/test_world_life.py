@@ -210,3 +210,69 @@ def test_rain_spoils_outdoor_things(tmp_path):
         deltas[weather] = total
     assert deltas["rain"] < deltas["clear"] - 0.3
     assert signs == {True, False}  # 晴天去江边也不是每次都觉得好
+
+
+def _break_laptop(engine, fix_chance):
+    from app.storage.world_store import entity, save_entity
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["settings"]["rhythms"]["activities"]["fix"]["fix_chance"] = fix_chance
+        laptop = entity(c, "w", "laptop")
+        laptop["state"].update(broken=True, on=False, broken_at=w["sim_time"])
+        save_entity(c, laptop)
+        WorldEngine._save_world(c, w)
+
+
+def test_broken_laptop_lowers_study_and_offers_fixing(tmp_path):
+    """电脑坏了：要用电脑的事分数降（不是禁止），多出"修"这个选项；没坏时没有这个选项。"""
+    from app.services.world import life
+    from app.storage.world_store import entity, save_entity
+    engine = make(tmp_path, "broke")
+    run(engine, 1)
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["sim_time"] += 7 * 3600  # 14:00 左右，书桌和修东西都在时段里
+        neno = entity(c, "w", "neno")
+        neno["state"].pop("doing", None)
+        neno["parent_id"] = "my_room"
+        save_entity(c, neno)
+
+        def scores():
+            return {ch["id"]: s for ch, _, s in life._candidates(c, w, "neno", entity(c, "w", "neno"))}
+
+        fine = scores()
+        laptop = entity(c, "w", "laptop")
+        laptop["state"]["broken"] = True
+        save_entity(c, laptop)
+        broken = scores()
+    assert "fix_item" not in fine and "fix_item" in broken
+    penalty = w["settings"]["rhythms"]["chooser"]["broken_penalty"]
+    assert abs((fine["study_desk"] - broken["study_desk"]) - penalty) < 1e-9
+    assert "study_desk" in broken  # 降分不是禁止
+    assert broken["read_bed"] == fine["read_bed"]  # 不用电脑的事不受影响
+
+
+def test_fixing_is_a_draw_not_a_guarantee(tmp_path):
+    """修不修得好靠抽：概率 0 永远修不好（隔着冷却再试），概率 1 修好后就不再折腾。"""
+    from app.storage.world_store import entity
+    never = make(tmp_path, "fix", "never.db")
+    run(never, 1)
+    _break_laptop(never, 0.0)
+    events = run(never, 2)
+    tries = [e for e in events if e["kind"] == "activity.started" and e["payload"]["source"] == "life:fix_item"]
+    assert len(tries) >= 2 and not any(e["kind"] == "life.fixed" for e in events)
+    assert sum(e["kind"] == "life.fix_failed" for e in events) >= 1
+    assert all(b["sim_time"] - a["sim_time"] >= 5 * 3600 - 60 for a, b in zip(tries, tries[1:]))
+    with never.store.transaction() as c:
+        assert entity(c, "w", "laptop")["state"]["broken"]
+
+    always = make(tmp_path, "fix", "always.db")
+    run(always, 1)
+    _break_laptop(always, 1.0)
+    events = run(always, 2)
+    fixed = [e for e in events if e["kind"] == "life.fixed"]
+    assert len(fixed) == 1 and fixed[0]["payload"]["item"] == "laptop"
+    assert not any(e["kind"] == "activity.started" and e["payload"]["source"] == "life:fix_item"
+                   and e["sim_time"] > fixed[0]["sim_time"] for e in events)
+    with always.store.transaction() as c:
+        assert not entity(c, "w", "laptop")["state"]["broken"]
