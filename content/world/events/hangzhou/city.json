@@ -1,5 +1,5 @@
 {
- "note": "城里的事。花期按杭州常年大致时间；展览、电影、活动的题目是生成的。",
+ "note": "城里的事。花期按杭州常年大致时间。电影、特展、分享会的题目是生成的，只在取不到真数据时用（unless_real）。",
  "pool": [
   {
    "id": "ginkgo",
@@ -258,7 +258,8 @@
     "times": 1,
     "doing": "在{place}看{what}特展",
     "cost": 0
-   }
+   },
+   "unless_real": "events"
   },
   {
    "id": "film",
@@ -318,7 +319,8 @@
     "times": 1,
     "doing": "在{place}看电影：{film}",
     "cost": 45
-   }
+   },
+   "unless_real": "films"
   },
   {
    "id": "book_talk",
@@ -374,7 +376,8 @@
     "pref": "lecture",
     "interest": 0.3,
     "doing": "在{place}的{what}"
-   }
+   },
+   "unless_real": "events"
   },
   {
    "id": "mall_sale",

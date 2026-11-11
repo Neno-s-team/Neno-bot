@@ -106,6 +106,25 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
     if life_world and os.getenv("WORLD_REAL_WEATHER", "true").lower() in {"true", "1", "yes", "on"}:
         app.state.world_weather_task = asyncio.create_task(weather_loop(), name="world-weather")
 
+    async def real_loop():
+        while not app.state.world_stop.is_set():
+            wait = 6 * 3600
+            try:
+                result = await asyncio.to_thread(_refresh_real, engine, life_world)
+                if result is None:
+                    wait = 1800  # 一样都没取到：半小时后再试，世界先用着旧的（超过 3 天退回生成的题目）
+            except Exception:
+                log.exception("World real-feed refresh failed; world keeps running")
+                wait = 1800
+            try:
+                await asyncio.wait_for(app.state.world_stop.wait(), timeout=wait)
+            except TimeoutError:
+                pass
+
+    app.state.world_real_task = None
+    if life_world and os.getenv("WORLD_REAL_FEED", "true").lower() in {"true", "1", "yes", "on"}:
+        app.state.world_real_task = asyncio.create_task(real_loop(), name="world-real")
+
     if os.getenv("WORLD_NPC_ENABLED", "false").lower() in {"true", "1", "yes", "on"}:
         app.state.world_npc_task = asyncio.create_task(npc_loop(), name="world-npcs")
 
@@ -124,6 +143,8 @@ async def stop_world(app) -> None:
         await app.state.world_npc_task
     if getattr(app.state, "world_weather_task", None) is not None:
         await app.state.world_weather_task
+    if getattr(app.state, "world_real_task", None) is not None:
+        await app.state.world_real_task
 
 
 def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
@@ -144,6 +165,28 @@ def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
     with engine.store.transaction(write=True) as c:
         w = load_world(c, world_id)
         return weather.apply(c, w, report)
+
+
+def _refresh_real(engine, world_id: str, fetch=None) -> dict | bool | None:
+    """现实同步：取在映的电影、城里这周的活动、热门的剧落进世界。没启用返回 False；一样都没取到返回 None。联网在事务外。"""
+    from app.services.world import city, real
+    from app.storage.world_store import world as load_world
+
+    with engine.store.transaction() as c:
+        w = load_world(c, world_id)
+    if not real.enabled(w) or not city.enabled(w):
+        return False
+    feed = (fetch or real.fetch_all)(real.config(w), real.state(w).get("cache", {}))
+    for error in feed.get("errors", []):
+        log.warning("Real feed unavailable: %s", error)
+    if not any(feed.get(part) for part in ("films", "shows", "events")):
+        return None
+    with engine.store.transaction(write=True) as c:
+        w = load_world(c, world_id)
+        result = real.apply(c, w, feed)
+        engine._save_world(c, w)
+    log.info("Real feed synced: %s", result)
+    return result
 
 
 def _ensure_life_world(engine, world_id: str) -> None:

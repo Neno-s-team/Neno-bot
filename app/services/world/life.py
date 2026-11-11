@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.world import almanac, city, happenings, moments, money, rhythms, tasks
+from app.services.world import almanac, city, happenings, moments, money, real, rhythms, tasks
 from app.services.world import weather as weather_mood
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
@@ -440,6 +440,8 @@ def go(c, w, aid, choice, place, hours, key) -> None:
     if choice.get("happening"):
         after["happening"] = choice["happening"]
         after["what"] = choice.get("label")
+    if choice.get("real") == "show":
+        after["what"] = real.show(w, aid, key)  # 在家看剧：追的是一部真的剧
     if choice.get("cost"):
         after["cost"] = choice["cost"]
     if choice.get("restocks"):
@@ -482,10 +484,12 @@ def arrive(c, w, aid, after, key) -> None:
     rhythms.start_activity(c, w, aid, after["activity"], source=after["source"], hours=after.get("hours"), key=key + ":do")
     if after.get("happening"):
         happenings.attended(c, w, aid, after["happening"], key)
-        if after.get("what"):
-            actor = entity(c, w["world_id"], aid)
-            actor["state"]["doing"]["what"] = after["what"]  # 她知道自己在参加的是什么
-            save_entity(c, actor)
+    if after.get("what"):
+        actor = entity(c, w["world_id"], aid)
+        actor["state"]["doing"]["what"] = after["what"]  # 她知道自己在参加的是什么 / 看的是哪部剧
+        save_entity(c, actor)
+        if not after.get("happening"):
+            emit(c, w, key + ":what", "life.doing", {"what": after["what"]}, aid)
     happenings.learn(c, w, aid, "pass", key, place=after["place"])  # 到了一个地方，看到那儿在发生的事
     if after["activity"] in _WORK:
         tasks.begin(c, w, aid, key)  # 坐下来学：挑手上的一件事来做

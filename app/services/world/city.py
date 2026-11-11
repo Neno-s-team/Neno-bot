@@ -118,7 +118,10 @@ def point(w, place_id: str):
         v = city["by_id"][place_id]
         return (v["lat"], v["lon"])
     spec = cfg.get("places", {}).get(place_id)
-    return _resolve(city, spec) if spec else None
+    if spec:
+        return _resolve(city, spec)
+    extra = w["settings"].get("real", {}).get("places", {}).get(place_id)  # 现实同步钉进来的地点（剧院、书店）
+    return (extra["lat"], extra["lon"]) if extra else None
 
 
 def area(w, place_id: str) -> str:

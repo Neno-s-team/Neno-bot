@@ -1,0 +1,98 @@
+{
+ "note": "现实里真在发生的事（豆瓣同城）。这里只定\"她怎么知道、去不去\"；题目、时间、地点、票价由现实同步（app/services/world/real.py）填。",
+ "pool": [
+  {
+   "id": "real_exhibition",
+   "scope": "city",
+   "schedule": {
+    "kind": "real"
+   },
+   "channels": {
+    "scroll": 0.22,
+    "group": 0.06
+   },
+   "via": {
+    "scroll": "豆瓣同城",
+    "group": "同门群"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "interest": 0.3,
+    "base": 0.12,
+    "open": [
+     9.5,
+     16
+    ],
+    "when": {
+     "weekend": 0.4
+    },
+    "times": 1,
+    "doing": "在{place}看展：{title}",
+    "cost": 0
+   }
+  },
+  {
+   "id": "real_talk",
+   "scope": "city",
+   "schedule": {
+    "kind": "real"
+   },
+   "channels": {
+    "scroll": 0.22,
+    "group": 0.1
+   },
+   "via": {
+    "scroll": "豆瓣同城",
+    "group": "同门群"
+   },
+   "attend": {
+    "activity": "attend",
+    "pref": "lecture",
+    "interest": 0.3,
+    "base": 0.1,
+    "open": [
+     10,
+     20
+    ],
+    "when": {
+     "weekend": 0.3
+    },
+    "times": 1,
+    "doing": "在{place}参加：{title}",
+    "relieves": {
+     "social": 0.4
+    }
+   }
+  },
+  {
+   "id": "real_show",
+   "scope": "city",
+   "schedule": {
+    "kind": "real"
+   },
+   "channels": {
+    "scroll": 0.18
+   },
+   "via": {
+    "scroll": "豆瓣同城"
+   },
+   "attend": {
+    "activity": "attend",
+    "pref": "outing",
+    "interest": 0.16,
+    "base": 0.05,
+    "open": [
+     13,
+     20
+    ],
+    "when": {
+     "weekend": 0.3
+    },
+    "times": 1,
+    "doing": "在{place}看演出：{title}",
+    "cost": 100
+   }
+  }
+ ]
+}

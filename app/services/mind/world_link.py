@@ -186,7 +186,8 @@ def _around(w: dict[str, Any]) -> dict[str, Any]:
             when = "这阵子" + (f"（到{timeline.day_word(last, now)}）" if 86400 < last - now < 30 * 86400 else "")
         else:
             when = "现在"
-        tail = "；".join(x for x in (item["detail"], "打算去" if item["planned"] else "", "去过了" if item["been"] else "") if x)
+        tail = "；".join(x for x in (item["detail"], "打算去" if item["planned"] else "", "去过了" if item["been"] else "",
+                                    f"讲的是：{item['plot']}" if item["been"] and item.get("plot") else "") if x)
         lines.append(f"{when}：{item['title']}" + (f"（{tail}）" if tail else ""))
     if lines:
         result["happenings"] = lines
@@ -288,7 +289,9 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
         elif kind == "life.skipped_plan":
             text = f"本来要去{p.get('title')}，{p.get('reason')}，没去"
         elif kind == "life.attended":
-            text = f"去了{p.get('title')}" if p.get("times", 1) == 1 else None
+            text = (f"去了{p.get('title')}" + (f"（{p['plot']}）" if p.get("plot") else "")) if p.get("times", 1) == 1 else None
+        elif kind == "life.doing":
+            text = p.get("what")
         elif kind == "weather.changed":
             text = f"天气：{p.get('to')}" + (f"，{round(p['temp'])}°C" if p.get("temp") is not None else "")
         elif kind == "life.moment":

@@ -283,3 +283,40 @@ def test_small_things_reach_her_mind(linked):
     text = wm_builder.render_working_memory(memory)
     assert "今天碰到的小事" in text and "- 2 小时前：路边蹲着一只很胖的橘猫，盯着我看" in text
     assert any("路边蹲着一只很胖的橘猫" in x for x in world_link.day_events(T0 - 60, T0 + 60))
+
+
+def test_real_film_and_show_reach_her_head(linked):
+    """现实同步来的电影：没看只知道类型主演，看过才说得出讲什么；在家看剧知道看的是哪部。"""
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.services.world import happenings, life, real
+    from app.storage.world_store import world as load_world
+    _set_doing(linked, "read")
+    feed = {"films": [{"id": "1", "title": "神探之痕迹", "release": "2026-10-01", "about": "犯罪片，张译主演",
+                       "plot": "一个痕检专家破案的故事。", "score": 9.6}],
+            "shows": [{"id": "s1", "title": "谷雨", "rate": 8.0, "about": "剧情，中国大陆，30 集"}], "events": None}
+
+    def text():
+        memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="最近有什么电影",
+                                                 history=[], self_card="")
+        return wm_builder.render_working_memory(memory)
+
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        happenings.state(w)["known"]["neno"] = {}
+        real.apply(c, w, feed)
+        film = happenings.state(w)["items"]["real:film:1"]
+        happenings.know(c, w, "neno", film, "豆瓣", "t")
+        linked._save_world(c, w)
+    seen = text()
+    assert "《神探之痕迹》" in seen and "犯罪片，张译主演" in seen and "痕检专家" not in seen
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        happenings.attended(c, w, "neno", "real:film:1", "went")
+        life.go(c, w, "neno", life.find_choice(w, "neno", "watch_show"), "home_living", 1.0, "tv")
+        linked._save_world(c, w)
+    assert "讲的是：一个痕检专家破案的故事。" in text()
+    assert world_link.now_segment()["activity"] == "看《谷雨》（剧情，中国大陆，30 集）"
+    lived = world_link.day_events(T0 - 60, T0 + 60)
+    assert any("去了《神探之痕迹》（一个痕检专家破案的故事。）" in x for x in lived)
+    assert any("看《谷雨》" in x for x in lived)

@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from app.services.world import almanac, city, rhythms
+from app.services.world import almanac, city, real, rhythms
 from app.services.world.randomness import sample
 from app.storage.world_store import emit, entity, job, save_entity
 
@@ -126,6 +126,8 @@ def _plan_day(c, w, d: date, *, sudden: bool, normal: bool) -> None:
         if tpl.get("when") and not info["tags"] & set(tpl["when"]):
             continue
         sch = tpl["schedule"]
+        if sch["kind"] == "real" or real.has(w, tpl.get("unless_real", "")):
+            continue  # 真事由现实同步（real）落进来；有真的电影/展览时，不再排生成的
         if sch["kind"] == "random":
             days = sch.get("weekdays")
             if days and info["weekday"] not in days:
@@ -350,7 +352,7 @@ _BUSY = {"sleep": "在睡觉", "class": "有课走不开", "meeting": "在开组
 def _consider(c, w, aid: str, inst: dict, key: str) -> None:
     """知道了一场有具体时间的事：按兴趣抽要不要打算去。"""
     attend = templates(w)[inst["tpl"]].get("attend")
-    if not attend or inst["multi"] or "interest" not in attend or inst["start"] < w["sim_time"] + 1200:
+    if not attend or inst["multi"] or "interest" not in attend or inst["start"] < w["sim_time"] + 1200 or inst.get("cold"):
         return
     prefs = w["settings"].get("life_prefs", {}).get(aid, {})
     interest = max(0.03, min(0.95, attend["interest"] + 0.5 * prefs.get(attend.get("pref", ""), 0.0)))
@@ -414,7 +416,8 @@ def attended(c, w, aid: str, hid: str, key: str) -> None:
     done = st["done"].setdefault(aid, {})
     done[hid] = done.get(hid, 0) + 1
     know(c, w, aid, inst, "去了才知道", key)
-    emit(c, w, key + ":attended", "life.attended", {"hid": hid, "title": inst["title"], "times": done[hid]}, aid)
+    emit(c, w, key + ":attended", "life.attended",
+         {"hid": hid, "title": inst["title"], "times": done[hid], **({"plot": inst["plot"]} if inst.get("plot") else {})}, aid)
 
 
 # ── 空档里多出来的选项（持续一阵的事）─────────────────────────────────────────
@@ -422,10 +425,11 @@ def attended(c, w, aid: str, hid: str, key: str) -> None:
 def choice_for(w, inst: dict) -> dict:
     attend = templates(w)[inst["tpl"]]["attend"]
     return {"id": "happen:" + inst["id"], "activity": attend["activity"], "place": inst["place"],
-            "base": attend.get("base", 0.15), "pref": attend.get("pref"), "hours": attend.get("open", [0, 24]),
+            "base": attend.get("base", 0.15), "pref": attend.get("pref"),
+            "hours": inst.get("open") or attend.get("open", [0, 24]),
             "when": attend.get("when"), "outdoor": attend.get("outdoor"), "relieves": attend.get("relieves", {}),
             "cooldown_hours": 20, "happening": inst["id"], "label": inst.get("doing") or inst["title"],
-            "cost": attend.get("cost"),
+            "cost": inst.get("cost", attend.get("cost")),
             **({"group": "outing"} if attend["activity"] == "outing" else {})}
 
 
@@ -436,7 +440,10 @@ def choices(w, aid: str) -> list[dict]:
     st = state(w)
     known, done = st["known"].get(aid, {}), st["done"].get(aid, {})
     result = []
+    weekday = almanac.day(w, w["sim_time"])["weekday"]
     for inst, tpl in active(w):
+        if inst.get("cold") or (inst.get("weekdays") and weekday not in inst["weekdays"]):
+            continue  # 没兴趣的不去；每周一场的事（读书会）不是那天就没有
         attend = tpl.get("attend")
         if attend and inst["multi"] and inst["place"] and inst["id"] in known and done.get(inst["id"], 0) < attend.get("times", 1):
             result.append(choice_for(w, inst))
