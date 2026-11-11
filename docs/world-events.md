@@ -160,7 +160,8 @@
 - **`share`**（0.7）：一回上网里用浏览器的比例。浏览器不可用时全走 N1。
 - **断网**：`surf.online()` 探不通就不上、不算次数（结论记两分钟）；网回来了她还在刷就接着上。
 - **账号**（2026-11-12 用户在她的专属窗口里登录）：X（@NenoAgent）、小红书、Reddit、Gmail、Chrome 的 Google 账号。
-  桌面上是 X、小红书、Reddit（登录着）和 B 站、微博热搜、抖音（没登录）。实测：X 首页正常打开、点赞生效，没有被拦。
+  桌面上只有 X、小红书、Reddit（没登录的站用户让去掉了）；`share` 调成 1.0，浏览器能用就用它。
+  实测：X 首页正常打开、点赞生效，没有被拦。
 - **模型**：`surf.request`。设了 `WORLD_SURF_URL` + `WORLD_SURF_MODEL`（+ `WORLD_SURF_API_KEY`）就走那里——用户定的是本机
   magpie 网关的路由组 `auto/deepseek-v4.1-flash`（.env 里），不限调用次数；没设就和 NPC 同一个。
   这条线路不强制按 JSON 格式回答：提示里给了完整的样子，`_answer` 只认第一段 JSON，少了 `app` 会从 `why` 里找。

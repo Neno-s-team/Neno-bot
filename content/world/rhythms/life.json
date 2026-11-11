@@ -2019,8 +2019,8 @@
    "bet365"
   ],
   "browser": {
-   "note": "她自己的浏览器（真 Chrome，开在隐藏桌面上，agent-browser 驱动）。share：一回上网里用浏览器的比例，其余走不用浏览器的方式。apps 是手机桌面上的地方；X、小红书、Reddit 是用户在她的专属窗口里登录好的（2026-11-12）。她能点赞、收藏、关注（每天有上限），不能发帖、回复、转发、花钱、动账号。",
-   "share": 0.7,
+   "note": "她自己的浏览器（真 Chrome，开在隐藏桌面上，agent-browser 驱动）。apps 是手机桌面上的地方：只放她登录着自己账号的（X、小红书、Reddit，用户 2026-11-12 在她的专属窗口里登录；没登录的站用户让去掉了）。share：一回上网里用浏览器的比例——1.0 即只要浏览器能用就用它，不开浏览器的方式只在浏览器用不了时顶上。她能点赞、收藏、关注（每天有上限），不能发帖、回复、转发、花钱、动账号。",
+   "share": 1.0,
    "steps": 40,
    "likes_per_day": 10,
    "follows_per_day": 2,
@@ -2039,20 +2039,6 @@
      "name": "Reddit",
      "url": "https://www.reddit.com/",
      "hint": "她自己的号"
-    },
-    {
-     "name": "B站",
-     "url": "https://www.bilibili.com/"
-    },
-    {
-     "name": "微博热搜",
-     "url": "https://s.weibo.com/top/summary",
-     "hint": "没登录，只能看榜"
-    },
-    {
-     "name": "抖音",
-     "url": "https://www.douyin.com/jingxuan",
-     "hint": "没登录"
     }
    ]
   }
