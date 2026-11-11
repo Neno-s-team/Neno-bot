@@ -129,6 +129,17 @@ def _ensure_life_world(engine, world_id: str) -> None:
             from app.services.world import npcs
             npcs.setup(c, w, "life")
             changed = True
+        # 模板里新加的东西（比如新添的家电）补进已经在跑的世界；已有的不动
+        from app.services.world.scene_builder import build_scene
+        from app.storage.world_store import save_entity
+        have = {r[0] for r in c.execute("SELECT entity_id FROM world_entities WHERE world_id=?", (world_id,))}
+        values, _ = build_scene(c, engine.catalog, w, w["settings"].get("template", "life"))
+        for value in values:
+            if value["entity_id"] not in have and (value["parent_id"] is None or value["parent_id"] in have):
+                save_entity(c, value)
+                have.add(value["entity_id"])
+                changed = True
+                log.info("Life world %s gained %s", world_id, value["entity_id"])
         from app.services.world import rhythms
         fresh = rhythms.load("life")
         if w["settings"].get("rhythms") != fresh:

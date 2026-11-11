@@ -258,7 +258,7 @@ def test_fixing_is_a_draw_not_a_guarantee(tmp_path):
     never = make(tmp_path, "fix", "never.db")
     run(never, 1)
     _break_laptop(never, 0.0)
-    events = run(never, 2)
+    events = run(never, 3)
     tries = [e for e in events if e["kind"] == "activity.started" and e["payload"]["source"] == "life:fix_item"]
     assert len(tries) >= 2 and not any(e["kind"] == "life.fixed" for e in events)
     assert sum(e["kind"] == "life.fix_failed" for e in events) >= 1
@@ -276,3 +276,26 @@ def test_fixing_is_a_draw_not_a_guarantee(tmp_path):
                    and e["sim_time"] > fixed[0]["sim_time"] for e in events)
     with always.store.transaction() as c:
         assert not entity(c, "w", "laptop")["state"]["broken"]
+
+
+def test_what_breaks_follows_fragility(tmp_path):
+    """坏哪件按"多容易坏"抽：吹风机常坏、电脑难得坏，权重 0 的（手机）永远不坏。"""
+    from collections import Counter
+    from app.services.world import perturbations
+    from app.storage.world_store import entity, save_entity
+    engine = make(tmp_path, "fragile")
+    picks = Counter()
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        entry = next(e for e in w["settings"]["rhythms"]["perturbations"]["pool"] if e["id"] == "thing_broke")
+        entry["effects"][0]["fragility"]["lamp"] = 0.0
+        neno = entity(c, "w", "neno")
+        for n in range(400):
+            c.execute("SAVEPOINT t")
+            happened = perturbations._happen(c, w, f"k{n}", entry, neno)
+            picks[happened["applied"][0]["broke"]] += 1
+            c.execute("ROLLBACK TO t")
+            c.execute("RELEASE t")
+    assert picks["lamp"] == 0
+    assert picks["hair_dryer"] > 4 * picks["laptop"] and picks["kettle"] > 2 * picks["laptop"]
+    assert picks["laptop"] > 0  # 难得，但不是不会

@@ -288,7 +288,7 @@ def finish(store, row: dict, raw: str | None, error: str | None) -> dict:
         if status != "applied" and row["kind"] == "neno_decide":
             # 她没想成（模型失败/输出坏）：别让她干等着，回到规则挑事
             from app.services.world import life
-            life.schedule_choice(c, w, json.loads(row["context"])["aid"], 1, tag=f":fallback{row['id']}")
+            life.schedule_choice(c, w, json.loads(row["context"])["aid"], 1, tag=f":fallback{row['id']}", ask=False)
             status_save = True
         else:
             status_save = status == "applied"

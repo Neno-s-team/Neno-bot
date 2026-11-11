@@ -24,3 +24,18 @@ def test_restart_refreshes_rhythms_but_keeps_her_state(tmp_path):
         assert w["settings"]["rhythms"] == rhythms.load("life")
         assert w["settings"]["life_prefs"]["neno"]["cafe"] == 0.42
         assert entity(c, "life", "laptop")["state"]["broken"]
+
+
+def test_restart_adds_new_template_things_without_touching_old(tmp_path):
+    engine = WorldEngine(WorldStore(tmp_path / "w.db"))
+    _ensure_life_world(engine, "life")
+    with engine.store.transaction(write=True) as c:
+        c.execute("DELETE FROM world_entities WHERE world_id='life' AND entity_id='kettle'")
+        laptop = entity(c, "life", "laptop")
+        laptop["state"]["broken"] = True
+        save_entity(c, laptop)
+    _ensure_life_world(engine, "life")
+    with engine.store.transaction() as c:
+        assert entity(c, "life", "kettle")["label"] == "电热水壶"
+        assert entity(c, "life", "hair_dryer")["label"] == "吹风机"
+        assert entity(c, "life", "laptop")["state"]["broken"]

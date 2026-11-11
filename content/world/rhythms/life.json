@@ -129,7 +129,7 @@
     "weight": 1
    },
    "medium": {
-    "probability": 0.025,
+    "probability": 0.015,
     "weight": 3
    },
    "large": {
@@ -217,7 +217,7 @@
     "tier": "small",
     "label": "丢了点零钱",
     "target": "actor",
-    "weight": 0.6,
+    "weight": 0.2,
     "cooldown_hours": 72,
     "effects": [
      {
@@ -298,7 +298,7 @@
     "tier": "small",
     "label": "有个东西坏了",
     "target": "actor",
-    "weight": 0.4,
+    "weight": 0.06,
     "cooldown_hours": 96,
     "effects": [
      {
@@ -306,7 +306,15 @@
       "capabilities": [
        "toggleable",
        "repairable"
-      ]
+      ],
+      "fragility": {
+       "hair_dryer": 1.0,
+       "kettle": 0.8,
+       "lamp": 0.6,
+       "laptop": 0.1,
+       "phone": 0.0
+      },
+      "default_fragility": 0.3
      }
     ],
     "awake": true
@@ -316,7 +324,7 @@
     "tier": "medium",
     "label": "感冒了",
     "target": "actor",
-    "weight": 1,
+    "weight": 0.2,
     "cooldown_hours": 240,
     "boost": [
      {
@@ -361,7 +369,7 @@
     "tier": "medium",
     "label": "扭到脚了",
     "target": "actor",
-    "weight": 0.6,
+    "weight": 0.3,
     "cooldown_hours": 240,
     "boost": [
      {
@@ -419,7 +427,7 @@
     "tier": "large",
     "label": "发高烧",
     "target": "actor",
-    "weight": 1,
+    "weight": 0.4,
     "cooldown_hours": 720,
     "boost": [
      {

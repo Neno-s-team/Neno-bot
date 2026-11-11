@@ -314,6 +314,23 @@
    "state": {}
   },
   {
+   "entity_id": "hair_dryer",
+   "kind": "item",
+   "type_id": "neno:fan",
+   "label": "吹风机",
+   "parent_id": "home_bath",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
+   "entity_id": "kettle",
+   "kind": "item",
+   "type_id": "neno:kettle",
+   "parent_id": "home_kitchen",
+   "owner_id": "neno",
+   "state": {}
+  },
+  {
    "entity_id": "water",
    "kind": "item",
    "type_id": "neno:bottle",

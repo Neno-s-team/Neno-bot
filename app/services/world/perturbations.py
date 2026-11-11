@@ -217,11 +217,20 @@ def _happen(c, w, key, entry, target) -> dict:
             owned = [decode_entity(r) for r in c.execute(
                 "SELECT * FROM world_entities WHERE world_id=? AND owner_id=? AND kind='item' ORDER BY entity_id",
                 (wid, actor["entity_id"]))]
-            fragile = [x for x in owned if all(cap in x["capabilities"] for cap in effect["capabilities"])
-                       and not x["state"].get("broken")]
+            # 按"多容易坏"加权抽：小家电常坏，电脑难得坏一次，手机不坏（权重 0）
+            weights = effect.get("fragility", {})
+            fragile = [(x, weights.get(x["entity_id"], effect.get("default_fragility", 1.0))) for x in owned
+                       if all(cap in x["capabilities"] for cap in effect["capabilities"]) and not x["state"].get("broken")]
+            fragile = [(x, f) for x, f in fragile if f > 0]
             if not fragile:
                 raise _Nothing()
-            item = fragile[int(draw * len(fragile))]
+            cursor = draw * sum(f for _, f in fragile)
+            item = fragile[-1][0]
+            for x, f in fragile:
+                cursor -= f
+                if cursor < 0:
+                    item = x
+                    break
             item["state"].update(broken=True, on=False, broken_at=w["sim_time"])
             save_entity(c, item)
             changes.append(item)

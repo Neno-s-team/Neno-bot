@@ -90,7 +90,16 @@ def test_failed_thought_falls_back_to_rules(linked, monkeypatch):
     assert npcs.step(linked.store, max_calls_per_day=100)["status"] == "failed"
     with linked.store.transaction() as c:
         fallback = c.execute("SELECT * FROM world_jobs WHERE kind='life_choose' AND status='pending'").fetchone()
-    assert fallback is not None
+        w = world(c, "w")
+        assert self_mind.used_today(c, w) == 0  # 断网没打到模型，不占她当天的额度
+    assert fallback is not None and json.loads(fallback["payload"])["no_ask"]
+    # 退回来的这一次按规则挑，不再问她（不然断网时每分钟问一遍）
+    with linked.store.transaction(write=True) as c:
+        w = world(c, "w")
+        life.choose(c, w, {"job_id": fallback["job_id"], "payload": json.loads(fallback["payload"]), "run_at": w["sim_time"]})
+        linked._save_world(c, w)
+        assert entity(c, "w", "neno")["state"].get("doing")
+    assert len(_calls(linked, "neno_decide")) == 1
 
 
 def test_daily_cap(linked, monkeypatch):

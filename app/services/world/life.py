@@ -39,13 +39,14 @@ def travel_minutes(w, here: str, there: str) -> float:
     return float(max(table.get(there, 10), table.get(here, 10)))
 
 
-def schedule_choice(c, w, aid, delay_minutes: float | None = None, tag: str = "") -> None:
+def schedule_choice(c, w, aid, delay_minutes: float | None = None, tag: str = "", ask: bool = True) -> None:
     if not enabled(w, aid):
         return
     key = f"life:{aid}:{int(w['sim_time'])}{tag}"
     if delay_minutes is None:
         delay_minutes = rhythms._draw(w, key, "delay", 2, 12)
-    job(c, w["world_id"], key, w["sim_time"] + delay_minutes * 60, "life_choose", {"actor_id": aid})
+    payload = {"actor_id": aid} if ask else {"actor_id": aid, "no_ask": True}
+    job(c, w["world_id"], key, w["sim_time"] + delay_minutes * 60, "life_choose", payload)
 
 
 def _next_obligation(c, w, aid) -> float | None:
@@ -195,7 +196,8 @@ def choose(c, w, task) -> None:
             schedule_choice(c, w, aid, rhythms._draw(w, key, "idle", *cfg["chooser"]["idle_minutes"]))
         return
     from app.services.world import self_mind
-    if self_mind.enabled(w) and self_mind.used_today(c, w) < self_mind.per_day():
+    # 刚问过她却没想成（断网等）退回来的这一次，按规则挑，别再问一遍
+    if not task["payload"].get("no_ask") and self_mind.enabled(w) and self_mind.used_today(c, w) < self_mind.per_day():
         reason = self_mind.conflict(c, w, aid, options)
         if reason:
             # 关键时刻让她自己拿主意：排给她的脑子，回来再落地；等的时候她就先待着

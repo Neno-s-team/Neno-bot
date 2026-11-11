@@ -63,9 +63,13 @@ def _card() -> str:
 
 
 def used_today(c, w) -> int:
-    day_start = int(time.time() // 86400) * 86400
+    """她本地今天用掉的次数；断网之类没打到模型的失败不算（不然断一阵网她一天就没得想了）。"""
+    offset = w["settings"].get("utc_offset_minutes", 0) * 60
+    day_start = (time.time() + offset) // 86400 * 86400 - offset
     return c.execute("SELECT count(*) FROM world_llm_calls WHERE world_id=? AND kind LIKE 'neno_%' AND created_at>=?"
-                     " AND status NOT IN ('dropped')", (w["world_id"], day_start)).fetchone()[0]
+                     " AND status NOT IN ('dropped')"
+                     " AND NOT (status='failed' AND result LIKE '%provider_error%')",
+                     (w["world_id"], day_start)).fetchone()[0]
 
 
 def conflict(c, w, aid, options) -> str | None:
