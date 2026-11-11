@@ -227,6 +227,12 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 在追的剧（豆瓣热门）每 6 小时取一次落进世界；取不到用生成的。`WORLD_REAL_FEED=false` 可关。
 页面结构变了会取不到（日志 `Real feed unavailable`），世界不受影响，改 `real.parse_*` 即可。
 
+## 5.17 上网（2026-11-12）
+
+见 `docs/world-events.md` 的 N1。`surf.py`：她刷手机时真的上网（只看不登录），便宜模型替她一步步点，
+有感觉的留一两句进"小事"。每天最多 3 回 × 6 步。`WORLD_SURF_ENABLED=false` 可关。
+搜索站或推荐源的页面结构变了会搜不到 / 少几条，改 `surf.parse_360`、`surf.FEEDS`。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

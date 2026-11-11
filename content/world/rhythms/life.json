@@ -1999,5 +1999,24 @@
    "直播"
   ],
   "want": 0.65
+ },
+ "surf": {
+  "note": "上网：她刷手机时真的在上网（只看不登录）。每次最多 steps 步，一步一次便宜模型调用；每天最多 sessions_per_day 次。block 是不去的站（主机名里含这些词）。",
+  "actor": "neno",
+  "sessions_per_day": 3,
+  "steps": 6,
+  "feeds": [
+   "zhihu",
+   "sspai",
+   "thepaper",
+   "bilibili"
+  ],
+  "block": [
+   "porn",
+   "xxx",
+   "sex",
+   "casino",
+   "bet365"
+  ]
  }
 }

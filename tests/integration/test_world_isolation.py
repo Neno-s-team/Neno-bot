@@ -7,3 +7,4 @@ def test_app_under_test_never_starts_the_live_world(client):
     state = client.app.state
     assert state.world_engine is None and state.world_task is None
     assert getattr(state, "world_real_task", None) is None and getattr(state, "world_weather_task", None) is None
+    assert getattr(state, "world_surf_task", None) is None

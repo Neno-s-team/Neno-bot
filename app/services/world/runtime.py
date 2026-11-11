@@ -128,6 +128,23 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
     if os.getenv("WORLD_NPC_ENABLED", "false").lower() in {"true", "1", "yes", "on"}:
         app.state.world_npc_task = asyncio.create_task(npc_loop(), name="world-npcs")
 
+    async def surf_loop():
+        while not app.state.world_stop.is_set():
+            try:
+                await asyncio.to_thread(_surf_once, engine, life_world)
+            except Exception:
+                log.exception("World surf session failed; world keeps running")
+            try:
+                await asyncio.wait_for(app.state.world_stop.wait(), timeout=45)
+            except TimeoutError:
+                pass
+
+    # 上网要调模型：跟着"世界可以调便宜模型"的开关（WORLD_NPC_ENABLED）走，另可用 WORLD_SURF_ENABLED=false 单独关
+    app.state.world_surf_task = None
+    if (life_world and os.getenv("WORLD_NPC_ENABLED", "false").lower() in {"true", "1", "yes", "on"}
+            and os.getenv("WORLD_SURF_ENABLED", "true").lower() in {"true", "1", "yes", "on"}):
+        app.state.world_surf_task = asyncio.create_task(surf_loop(), name="world-surf")
+
     if (app.state.world_cognition and app.state.world_cognition.config.enabled
             and app.state.world_cognition_autostart):
         app.state.world_cognition_task = asyncio.create_task(cognition_loop(), name="independent-world-cognition")
@@ -145,6 +162,8 @@ async def stop_world(app) -> None:
         await app.state.world_weather_task
     if getattr(app.state, "world_real_task", None) is not None:
         await app.state.world_real_task
+    if getattr(app.state, "world_surf_task", None) is not None:
+        await app.state.world_surf_task
 
 
 def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
@@ -165,6 +184,28 @@ def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
     with engine.store.transaction(write=True) as c:
         w = load_world(c, world_id)
         return weather.apply(c, w, report)
+
+
+def _surf_once(engine, world_id: str, ask=None, fetch=None) -> list[str] | None:
+    """她正在刷手机就替她上一次网（事务外联网、调模型），看到的落进世界。没轮到返回 None。"""
+    from app.services.world import npcs, surf
+    from app.services.world.randomness import sample
+    from app.storage.world_store import world as load_world
+
+    with engine.store.transaction() as c:
+        job = surf.due(c, load_world(c, world_id))
+    if job is None:
+        return None
+    draws = iter(range(10 ** 6))
+    result = surf.session(job["brief"], job["feeds"], job["seen"],
+                          lambda n: int(sample(job["seed"], f"surf:{job['job']}", f"pick:{next(draws)}") * n),
+                          steps=job["steps"], ask=ask or npcs._request, fetch=fetch, block=job["block"])
+    with engine.store.transaction(write=True) as c:
+        w = load_world(c, world_id)
+        landed = surf.land(c, w, job, result)
+        engine._save_world(c, w)
+    log.info("Surf session: %s pages, %s calls, landed %s", len(result["pages"]), result["calls"], len(landed))
+    return landed
 
 
 def _refresh_real(engine, world_id: str, fetch=None) -> dict | bool | None:
