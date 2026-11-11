@@ -22,6 +22,7 @@ METRO_DWELL = 0.6          # 每站停靠
 METRO_WAIT = 4             # 进站、等车
 TRANSFER = 5               # 换乘
 DETOUR = 1.3               # 直线 → 实际路程
+COMFORT = {"walk": 25, "bike": 30}
 
 
 def dist(a, b) -> float:
@@ -186,9 +187,18 @@ def route(w, here: str, there: str) -> dict:
             ride, lines = _ride(config(w)["name"], s1, s2)
             if ride < math.inf:
                 walk = (w1 + w2) * DETOUR / WALK_M_PER_MIN
-                options.append({"minutes": walk + METRO_WAIT + ride, "mode": "metro",
-                                "label": "坐" + "转".join(lines) + f"（{s1}→{s2}）", "lines": list(lines)})
-    best = min(options, key=lambda o: o["minutes"])
+                option = {"minutes": walk + METRO_WAIT + ride, "mode": "metro",
+                          "label": "坐" + "转".join(lines) + f"（{s1}→{s2}）", "lines": list(lines)}
+                from app.services.world import happenings
+                for line, (late, hid) in happenings.metro_delays(w).items():
+                    if line in lines:  # 这条线正好故障：晚点
+                        option["minutes"] += late
+                        option["label"] += f"，{line}故障晚点了"
+                        option["delay"] = hid
+                options.append(option)
+    # 走路超过 25 分钟、骑车超过 30 分钟就嫌累：有地铁坐地铁，哪怕慢几分钟
+    comfortable = [o for o in options if o["mode"] == "metro" or o["minutes"] <= COMFORT[o["mode"]]]
+    best = min(comfortable or options, key=lambda o: o["minutes"])
     best["minutes"] = round(best["minutes"], 1)
     return best
 

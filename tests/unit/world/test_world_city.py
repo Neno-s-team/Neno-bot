@@ -187,3 +187,11 @@ def test_first_visit_impression_mostly_reflects_the_place(engine):
                 total += 1
                 agree += (memory[v["id"]]["like"] > 0) == (quality > 0.5)
     assert total >= 20 and agree / total >= 0.85
+
+
+def test_long_bike_rides_lose_to_the_metro(engine):
+    """骑车 50 多分钟到河坊街 vs 地铁差不多时间：坐地铁。近处还是骑车。"""
+    w = _w(engine)
+    far = next(v for v in city.data(w)["venues"] if v["name"] == "河坊街")
+    assert city.route(w, "my_room", far["id"])["mode"] == "metro"
+    assert city.route(w, "my_room", "library")["mode"] == "bike"

@@ -78,6 +78,13 @@ def _render_situation(situation: dict[str, Any]) -> str:
             lines.append(f"你{situation['last_thought']}")
     if situation.get("home"):
         lines.append(situation["home"])
+    if situation.get("day_note"):
+        lines.append(f"今天：{situation['day_note']}")
+    if situation.get("weather"):
+        lines.append(f"外面：{situation['weather']}")
+    if situation.get("happenings"):
+        lines.append("你知道最近的事（被问到、聊到可以提，不用主动报）：")
+        lines.extend(f"- {item}" for item in situation["happenings"])
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
     for notice in situation.get("retracted") or []:
         lines.append(notice)
@@ -160,8 +167,9 @@ def build_working_memory(
             situation["body"] = seg["body"]
         if seg.get("broken"):
             situation["broken"] = seg["broken"]
-        if seg.get("home"):
-            situation["home"] = seg["home"]
+        for name in ("home", "day_note", "weather", "happenings"):
+            if seg.get(name):
+                situation[name] = seg[name]
         if seg.get("contacts"):
             situation["contacts"] = seg["contacts"]
         if seg.get("last_thought"):

@@ -161,3 +161,45 @@ def test_she_knows_which_city_she_lives_in(linked):
                                              history=[], self_card="")
     text = wm_builder.render_working_memory(memory)
     assert "你住杭州紫金文苑（三坝地铁站附近），学校在浙江大学紫金港校区" in text
+
+
+def test_she_knows_the_day_the_weather_and_whats_on(linked):
+    """今天什么日子、外面什么天、最近听说的事：都在她的情境里；没听说的不在。"""
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.services.world import happenings, weather
+    from app.storage.world_store import world as load_world
+    _set_doing(linked, "read")
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        weather.apply(c, w, {"weather": "rain", "label": "小雨", "temp": 9.0, "feels": 6.0, "wind": 10,
+                             "today": {"label": "小雨", "weather": "rain", "min": 7, "max": 11, "rain_prob": 90},
+                             "tomorrow": {"label": "多云", "weather": "cloudy", "min": 8, "max": 16, "rain_prob": 10}})
+        st = happenings.state(w)
+        st["known"]["neno"] = {}
+        tpl = dict(happenings.templates(w)["lecture"])
+        from datetime import date
+        talk = happenings._create(c, w, tpl, date(2026, 11, 12))
+        hidden = happenings._create(c, w, dict(happenings.templates(w)["reading_group"]), date(2026, 11, 13))
+        happenings.know(c, w, "neno", talk, "学院群", "t")
+        linked._save_world(c, w)
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="明天干嘛",
+                                             history=[], self_card="")
+    text = wm_builder.render_working_memory(memory)
+    assert "今天：周二" in text
+    assert "外面：小雨，9°C（体感 6°C）；明天多云 8–16°C" in text
+    assert talk["title"] in text and "后天" in text
+    assert hidden["title"] not in text          # 没听说的事她不知道
+    lived = world_link.day_events(T0 - 60, T0 + 60)
+    assert any(f"听说{talk['title']}（学院群）" in x for x in lived) and any("天气：小雨，9°C" in x for x in lived)
+
+
+def test_she_knows_what_she_is_attending(linked):
+    from app.storage.world_store import entity, save_entity
+    _set_doing(linked, "attend", place="seminar_room")
+    with linked.store.transaction(write=True) as c:
+        neno = entity(c, "life", "neno")
+        neno["state"]["doing"]["what"] = "在听讲座《西湖文学地图》"
+        save_entity(c, neno)
+    seg = schedule.segment_at(T0)
+    assert seg["activity"] == "在听讲座《西湖文学地图》" and seg["level"] == 1

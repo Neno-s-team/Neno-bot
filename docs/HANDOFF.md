@@ -202,6 +202,11 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 
 见 `docs/city-plan.md`。OSM 真实骨架 + 按密度补生成小店，`content/world/city/hangzhou.json`（`scripts/build_city.py` 构建，缓存在 data/tmp/osm）。她住紫金文苑、在浙大紫金港；路程按坐标和真实地铁；出门挑具体哪家店，有常去的、偶尔试新的。
 
+## 5.12 世界里在发生的事：日历 / 真实天气 / 世界事件（2026-11-11）
+
+见 `docs/world-events.md`。`almanac.py`（周末/节假日/学期）、`weather.py`（Open-Meteo 实况，20 分钟一次）、`happenings.py`（31 类世界事件，她按概率得知、打算去、可能没去）。
+注意：`content/world/calendar/cn.json` 的 2027 假期是估的，要按官方安排更新；出行超过骑车 30 分钟会改坐地铁（`city.COMFORT`）。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

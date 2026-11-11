@@ -87,6 +87,25 @@ async def start_world(app, path: str | Path, enabled: bool | None = None, admin_
             except TimeoutError:
                 pass
 
+    async def weather_loop():
+        while not app.state.world_stop.is_set():
+            wait = 1200
+            try:
+                changed = await asyncio.to_thread(_refresh_weather, engine, life_world)
+                if changed is None:
+                    wait = 300  # 没取到：过会儿再试，世界先用着旧的（超过 3 小时退回随机天气）
+            except Exception:
+                log.exception("World weather refresh failed; world keeps running")
+                wait = 300
+            try:
+                await asyncio.wait_for(app.state.world_stop.wait(), timeout=wait)
+            except TimeoutError:
+                pass
+
+    app.state.world_weather_task = None
+    if life_world and os.getenv("WORLD_REAL_WEATHER", "true").lower() in {"true", "1", "yes", "on"}:
+        app.state.world_weather_task = asyncio.create_task(weather_loop(), name="world-weather")
+
     if os.getenv("WORLD_NPC_ENABLED", "false").lower() in {"true", "1", "yes", "on"}:
         app.state.world_npc_task = asyncio.create_task(npc_loop(), name="world-npcs")
 
@@ -103,6 +122,28 @@ async def stop_world(app) -> None:
         await app.state.world_cognition_task
     if getattr(app.state, "world_npc_task", None) is not None:
         await app.state.world_npc_task
+    if getattr(app.state, "world_weather_task", None) is not None:
+        await app.state.world_weather_task
+
+
+def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
+    """取她城市的真实天气落进世界。没接城市返回 False；联网失败返回 None。联网在事务外。"""
+    from app.services.world import city, weather
+    from app.storage.world_store import world as load_world
+
+    with engine.store.transaction() as c:
+        w = load_world(c, world_id)
+    if not city.enabled(w) or "street" not in city.config(w).get("places", {}):
+        return False
+    lat, lon = city.point(w, "street")
+    try:
+        report = weather.parse((fetch or weather.fetch)(lat, lon))
+    except Exception as error:
+        log.warning("Real weather unavailable: %s", str(error)[:120])
+        return None
+    with engine.store.transaction(write=True) as c:
+        w = load_world(c, world_id)
+        return weather.apply(c, w, report)
 
 
 def _ensure_life_world(engine, world_id: str) -> None:
@@ -147,6 +188,11 @@ def _ensure_life_world(engine, world_id: str) -> None:
             w["settings"]["rhythms"] = fresh
             changed = True
             log.info("Life world %s rhythms refreshed (%s)", world_id, fresh.get("version"))
+        from app.services.world import happenings
+        if happenings.enabled(w) and not c.execute(
+                "SELECT 1 FROM world_jobs WHERE world_id=? AND kind='happen_plan' AND status='pending'", (world_id,)).fetchone():
+            happenings.setup(c, w)  # 第一次启用世界事件：补上正在发生的和未来几天的
+            changed = True
         from app.storage.world_store import entity as load_entity
         for place, name in city.anchor_labels(w).items():
             if place in have:

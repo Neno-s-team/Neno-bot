@@ -684,6 +684,17 @@
     "fatigue": 0.05,
     "social": -0.05
    }
+  },
+  "attend": {
+   "label": "听讲座/参加活动",
+   "hours": [
+    1.5,
+    2
+   ],
+   "rates": {
+    "fatigue": 0.04,
+    "social": -0.03
+   }
   }
  },
  "travel_minutes": {
@@ -722,7 +733,12 @@
      "end": "11:30",
      "jitter_min": 8,
      "skip": 0.06,
-     "commute": true
+     "commute": true,
+     "except": [
+      "holiday",
+      "break",
+      "exam"
+     ]
     },
     {
      "id": "meeting",
@@ -735,7 +751,12 @@
      "end": "16:00",
      "jitter_min": 5,
      "skip": 0.03,
-     "commute": true
+     "commute": true,
+     "except": [
+      "holiday",
+      "break",
+      "exam"
+     ]
     }
    ],
    "life": true
@@ -844,7 +865,13 @@
    "pref": "my_room",
    "uses": [
     "laptop"
-   ]
+   ],
+   "when": {
+    "weekend": -0.2,
+    "holiday": -0.3,
+    "exam": 0.4,
+    "break": -0.35
+   }
   },
   {
    "id": "study_library",
@@ -859,7 +886,13 @@
    "weather_not": "rain",
    "uses": [
     "laptop"
-   ]
+   ],
+   "when": {
+    "weekend": -0.2,
+    "holiday": -0.4,
+    "exam": 0.4,
+    "break": -0.5
+   }
   },
   {
    "id": "study_cafe",
@@ -874,7 +907,12 @@
    "cost": 4,
    "uses": [
     "laptop"
-   ]
+   ],
+   "when": {
+    "weekend": 0.1,
+    "exam": 0.2,
+    "break": -0.2
+   }
   },
   {
    "id": "read_bed",
@@ -885,7 +923,11 @@
     10,
     24
    ],
-   "pref": "novel"
+   "pref": "novel",
+   "when": {
+    "weekend": 0.1,
+    "break": 0.15
+   }
   },
   {
    "id": "scroll",
@@ -896,7 +938,10 @@
     0,
     24
    ],
-   "pref": "phone"
+   "pref": "phone",
+   "when": {
+    "break": 0.1
+   }
   },
   {
    "id": "rest_sofa",
@@ -938,7 +983,11 @@
    "weather_not": "rain",
    "relieves": {
     "social": 0.5
-   }
+   },
+   "when": {
+    "weekend": 0.1
+   },
+   "outdoor": 1.0
   },
   {
    "id": "eat_home",
@@ -1015,7 +1064,10 @@
     "hunger": 2.2
    },
    "cooldown_hours": 4,
-   "group": "meal"
+   "group": "meal",
+   "when": {
+    "weekend": 0.15
+   }
   },
   {
    "id": "call_parents",
@@ -1029,7 +1081,11 @@
    "relieves": {
     "social": 1.2
    },
-   "cooldown_hours": 40
+   "cooldown_hours": 40,
+   "when": {
+    "weekend": 0.2,
+    "festival": 0.4
+   }
   },
   {
    "id": "fix_item",
@@ -1066,7 +1122,8 @@
    },
    "cooldown_hours": 3,
    "pref": "eat_out",
-   "group": "meal"
+   "group": "meal",
+   "outdoor": 0.3
   },
   {
    "id": "eat_out",
@@ -1093,7 +1150,11 @@
    },
    "cooldown_hours": 2.5,
    "pref": "eat_out",
-   "group": "meal"
+   "group": "meal",
+   "when": {
+    "weekend": 0.1,
+    "holiday": 0.15
+   }
   },
   {
    "id": "late_snack",
@@ -1137,7 +1198,11 @@
     21.5
    ],
    "cooldown_hours": 6,
-   "pref": "milk_tea"
+   "pref": "milk_tea",
+   "when": {
+    "weekend": 0.1
+   },
+   "outdoor": 0.3
   },
   {
    "id": "groceries",
@@ -1156,7 +1221,11 @@
     8,
     21
    ],
-   "cooldown_hours": 20
+   "cooldown_hours": 20,
+   "when": {
+    "weekend": 0.15
+   },
+   "outdoor": 0.3
   },
   {
    "id": "go_out",
@@ -1185,7 +1254,14 @@
    "pref": "outing",
    "relieves": {
     "social": 0.6
-   }
+   },
+   "when": {
+    "weekend": 0.45,
+    "holiday": 0.5,
+    "break": 0.15
+   },
+   "outdoor": 0.5,
+   "group": "outing"
   }
  ],
  "preferences": {
@@ -1197,7 +1273,8 @@
   "riverside": 0.2,
   "eat_out": 0.0,
   "milk_tea": 0.1,
-  "outing": 0.1
+  "outing": 0.1,
+  "lecture": 0.1
  },
  "chooser": {
   "temperature": 0.35,
@@ -1234,6 +1311,14 @@
   ]
  },
  "groups": {
-  "meal": 2.5
+  "meal": 2.5,
+  "outing": 44
+ },
+ "calendar": {
+  "name": "cn"
+ },
+ "happenings": {
+  "pool": "hangzhou",
+  "actor": "neno"
  }
 }

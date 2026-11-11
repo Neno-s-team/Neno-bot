@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from app.services.world import actions, rhythms
+from app.services.world import actions, rhythms, weather
 from app.storage.world_store import decode_entity, emit, entity, job, save_entity
 
 _TIERS = ("large", "medium", "small")
@@ -104,6 +104,8 @@ def _candidates(c, w, tier, cooldown_scale):
                 continue
         if entry["target"].startswith("place:"):
             targets = [(entity(c, w["world_id"], entry["target"][6:]), None)]
+            if any(e["type"] == "weather" for e in entry["effects"]) and weather.is_real(targets[0][0]["state"], w["sim_time"]):
+                continue  # 有真实天气时不再随机变天
         else:
             targets = [(a, a) for a in _actors(c, w)]
         for target, actor in targets:

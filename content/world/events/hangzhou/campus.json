@@ -1,0 +1,475 @@
+{
+ "note": "校园里的事。占位内容：题目是生成的，不对应真实讲座；人设确定后可改。",
+ "pool": [
+  {
+   "id": "lecture",
+   "scope": "campus",
+   "title": "讲座《{topic}》",
+   "detail": "{who}来讲",
+   "slots": {
+    "topic": [
+     "宋词里的江南",
+     "晚明小品文的闲与愁",
+     "鲁迅的夜与路",
+     "张爱玲的城市书写",
+     "红楼梦里的日常时间",
+     "唐人行旅与诗",
+     "志怪小说里的人间",
+     "新诗一百年",
+     "翻译中的失落与获得",
+     "废名与沈从文的乡土",
+     "女性写作与私人经验",
+     "从话本到网文：通俗叙事的变与不变",
+     "陶渊明的田园是真的吗",
+     "汪曾祺的吃与写",
+     "古典诗歌的声音",
+     "读者是怎么被发明出来的",
+     "文学里的疾病隐喻",
+     "一封信的文学史",
+     "西湖文学地图",
+     "萧红的漂泊",
+     "小说为什么需要闲笔",
+     "注释的艺术"
+    ],
+    "who": [
+     "外校来的教授",
+     "系里的老师",
+     "一位青年学者",
+     "一位作家",
+     "出版社的编辑",
+     "退休的老先生"
+    ]
+   },
+   "place": {
+    "entity": "seminar_room"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 1.4,
+    "weekdays": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "start": [
+     14,
+     15,
+     18.5,
+     19
+    ],
+    "hours": [
+     1.5,
+     2
+    ]
+   },
+   "when": [
+    "term"
+   ],
+   "lead_days": [
+    2,
+    6
+   ],
+   "channels": {
+    "group": 0.9,
+    "scroll": 0.25,
+    "pass": 0.4
+   },
+   "via": {
+    "group": "学院群"
+   },
+   "attend": {
+    "activity": "attend",
+    "pref": "lecture",
+    "interest": 0.4,
+    "doing": "在听讲座《{topic}》"
+   }
+  },
+  {
+   "id": "reading_group",
+   "scope": "campus",
+   "title": "读书会：{book}",
+   "detail": "同学组织的，十来个人",
+   "slots": {
+    "book": [
+     "《世说新语》",
+     "《呼兰河传》",
+     "《追忆似水年华》第一卷",
+     "《陶庵梦忆》",
+     "《包法利夫人》",
+     "《野草》",
+     "《浮生六记》",
+     "《米格尔街》",
+     "《聊斋志异》选篇",
+     "《边城》",
+     "《都柏林人》",
+     "《金锁记》",
+     "《树上的男爵》",
+     "《儒林外史》"
+    ]
+   },
+   "place": {
+    "entity": "seminar_room"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.6,
+    "weekdays": [
+     2,
+     3,
+     4,
+     5
+    ],
+    "start": [
+     18.5,
+     19,
+     19.5
+    ],
+    "hours": [
+     1.5,
+     2
+    ]
+   },
+   "when": [
+    "term"
+   ],
+   "lead_days": [
+    3,
+    7
+   ],
+   "channels": {
+    "group": 0.85,
+    "scroll": 0.15
+   },
+   "via": {
+    "group": "同门群"
+   },
+   "attend": {
+    "activity": "attend",
+    "pref": "lecture",
+    "interest": 0.35,
+    "relieves": {
+     "social": 0.5
+    },
+    "doing": "在读书会，读{book}"
+   }
+  },
+  {
+   "id": "proposal_defense",
+   "scope": "campus",
+   "title": "{who}的{what}",
+   "detail": "导师让同门都去听",
+   "slots": {
+    "who": [
+     "师姐",
+     "师兄",
+     "隔壁组同学"
+    ],
+    "what": [
+     "开题报告会",
+     "预答辩",
+     "中期考核"
+    ]
+   },
+   "place": {
+    "entity": "seminar_room"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.3,
+    "weekdays": [
+     1,
+     3,
+     5
+    ],
+    "start": [
+     9,
+     14
+    ],
+    "hours": [
+     2,
+     3
+    ]
+   },
+   "when": [
+    "term"
+   ],
+   "lead_days": [
+    3,
+    8
+   ],
+   "channels": {
+    "group": 0.97
+   },
+   "via": {
+    "group": "同门群"
+   },
+   "attend": {
+    "activity": "attend",
+    "pref": "lecture",
+    "interest": 0.75,
+    "doing": "在听{who}的{what}"
+   }
+  },
+  {
+   "id": "library_closed",
+   "scope": "campus",
+   "title": "图书馆{why}，闭馆半天",
+   "slots": {
+    "why": [
+     "消防演练",
+     "系统升级",
+     "馆藏整理",
+     "空调检修"
+    ]
+   },
+   "place": {
+    "entity": "library"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.04,
+    "weekdays": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "start": [
+     8,
+     13
+    ],
+    "hours": [
+     4,
+     5
+    ]
+   },
+   "lead_days": [
+    1,
+    3
+   ],
+   "channels": {
+    "group": 0.7,
+    "scroll": 0.2,
+    "pass": 1.0
+   },
+   "via": {
+    "group": "学校通知"
+   },
+   "effects": {
+    "closes": "library"
+   }
+  },
+  {
+   "id": "canteen_special",
+   "scope": "campus",
+   "title": "食堂{what}",
+   "detail": "就这几天",
+   "slots": {
+    "what": [
+     "美食节",
+     "上了冬季新菜",
+     "有家乡菜窗口",
+     "搞饺子周",
+     "新开了砂锅窗口",
+     "出了羊肉汤"
+    ]
+   },
+   "place": {
+    "entity": "canteen"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.35,
+    "days": [
+     3,
+     6
+    ]
+   },
+   "when": [
+    "term"
+   ],
+   "lead_days": [
+    0,
+    1
+   ],
+   "channels": {
+    "group": 0.3,
+    "scroll": 0.35,
+    "pass": 0.9
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "effects": {
+    "boost": {
+     "eat_canteen": 0.35
+    }
+   }
+  },
+  {
+   "id": "campus_night",
+   "scope": "campus",
+   "title": "{what}",
+   "detail": "在学校草坪那边",
+   "slots": {
+    "what": [
+     "校园十佳歌手决赛",
+     "草地音乐会",
+     "露天电影",
+     "社团游园会",
+     "毕业生跳蚤市场",
+     "诗歌朗诵之夜",
+     "话剧社公演"
+    ]
+   },
+   "place": {
+    "entity": "campus"
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.45,
+    "weekdays": [
+     5,
+     6,
+     7
+    ],
+    "start": [
+     18.5,
+     19,
+     19.5
+    ],
+    "hours": [
+     2,
+     2.5
+    ]
+   },
+   "when": [
+    "term"
+   ],
+   "lead_days": [
+    3,
+    9
+   ],
+   "channels": {
+    "group": 0.5,
+    "scroll": 0.55,
+    "pass": 0.5
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "interest": 0.25,
+    "relieves": {
+     "social": 0.6
+    },
+    "outdoor": 0.6,
+    "doing": "在看{what}"
+   }
+  },
+  {
+   "id": "campus_ginkgo",
+   "scope": "campus",
+   "title": "学校的银杏黄了",
+   "place": {
+    "entity": "campus"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "11-08",
+    "to": "12-01"
+   },
+   "channels": {
+    "scroll": 0.6,
+    "pass": 1.0
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "attend": {
+    "activity": "stroll",
+    "pref": "riverside",
+    "base": 0.25,
+    "open": [
+     8,
+     17.5
+    ],
+    "outdoor": 1.0,
+    "times": 3,
+    "doing": "在学校看银杏"
+   }
+  },
+  {
+   "id": "campus_cherry",
+   "scope": "campus",
+   "title": "学校的樱花开了",
+   "place": {
+    "entity": "campus"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "03-18",
+    "to": "04-05"
+   },
+   "channels": {
+    "scroll": 0.6,
+    "pass": 1.0
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "attend": {
+    "activity": "stroll",
+    "pref": "riverside",
+    "base": 0.25,
+    "open": [
+     8,
+     18
+    ],
+    "outdoor": 1.0,
+    "times": 3,
+    "doing": "在学校看樱花"
+   }
+  },
+  {
+   "id": "term_papers",
+   "scope": "campus",
+   "title": "期末周，课程论文要交了",
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "2027-01-11",
+     "2027-06-21"
+    ],
+    "days": [
+     10,
+     10
+    ]
+   },
+   "lead_days": [
+    10,
+    14
+   ],
+   "channels": {
+    "group": 1.0
+   },
+   "via": {
+    "group": "学院群"
+   },
+   "effects": {
+    "boost": {
+     "study_desk": 0.4,
+     "study_library": 0.4,
+     "study_cafe": 0.3,
+     "go_out": -0.3,
+     "scroll": -0.1
+    }
+   }
+  }
+ ]
+}

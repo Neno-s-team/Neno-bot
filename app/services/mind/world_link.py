@@ -32,12 +32,17 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
     "scroll": (4, "手里", False),
     "stroll": (3, "兜里", False),
     "chat": (2, "身边", False),
+    "attend": (1, "包里", True),     # 听讲座、开题会：偶尔瞄一眼
+    "outing": (3, "手里", False),
+    "shop": (3, "兜里", False),
+    "drink": (3, "桌上", False),
+    "fix": (3, "身边", False),
 }
 _IDLE = (3, "身边", False)
 _LABELS = {"sleep": "睡觉", "meeting": "组会", "class": "上课", "commute": "在路上", "study": "看文献写论文",
            "read": "看闲书", "eat": "吃东西", "cook": "做饭", "call": "和爸妈打电话", "rest": "歇会儿", "scroll": "刷手机",
            "stroll": "散步", "chat": "跟人聊天", "fix": "折腾坏了的东西",
-           "drink": "喝奶茶/咖啡", "shop": "买东西", "outing": "出去逛逛"}
+           "drink": "喝奶茶/咖啡", "shop": "买东西", "outing": "出去逛逛", "attend": "听讲座/参加活动"}
 
 
 def enabled() -> bool:
@@ -92,8 +97,10 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
     doing = actor["state"].get("doing") or {}
     seg = _segment(doing.get("activity"), doing.get("since"), doing.get("until"), _place_label(actor["parent_id"]))
     if doing.get("activity") == "commute" and (doing.get("after") or {}).get("place"):
-        # 路上：怎么去、去哪（"坐3号线（三坝→武林广场）去武林银泰"）
+        # 路上：怎么去、去哪（"坐2号线转1号线（三坝→龙翔桥）去湖滨银泰"）
         seg["activity"] = f"在路上，{doing.get('route') or ''}去{_place_label(doing['after']['place'])}"
+    elif doing.get("what"):
+        seg["activity"] = doing["what"]  # 在参加世界里的某件事："在听讲座《…》""在北山街看银杏"
     conditions = [c["label"] for c in actor["state"].get("conditions", []) if c.get("until", 0) > (ts or clock.now())]
     if conditions:
         seg["body"] = "，".join(conditions)
@@ -107,6 +114,10 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
             seg["home"] = city.home_line(w)
         except Exception:
             pass
+        try:
+            seg.update(_around(w))
+        except Exception:
+            pass
     contacts = [x for x in actor["state"].get("recent_contacts", []) if (ts or clock.now()) - x["at"] < 12 * 3600]
     if contacts:
         from app.services.mind import timeline
@@ -117,6 +128,38 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
         from app.services.mind import timeline
         seg["last_thought"] = f"{timeline.ago(thought['at'])}心里嘀咕过：{thought['text']}"
     return seg
+
+
+def _around(w: dict[str, Any]) -> dict[str, Any]:
+    """今天是什么日子、外面什么天、她知道最近有什么事。"""
+    from app.services.mind import timeline
+    from app.services.world import almanac, happenings, weather
+    now = w["sim_time"]
+    result: dict[str, Any] = {"day_note": almanac.note(w, now)}
+    street = fetch_one("SELECT state FROM world_entities WHERE world_id = ? AND entity_id = 'street'", (config.MIND_WORLD_ID,))
+    if street:
+        sky = weather.line(json.loads(street["state"]))
+        if sky:
+            result["weather"] = sky
+    lines = []
+    for item in happenings.known_list(w, config.MIND_WORLD_ACTOR)[:6]:
+        if item["start"] > now:
+            when = f"{timeline.day_word(item['start'], now)} {clock_text(item['start'])}"
+        elif item["multi"]:
+            last = item["end"] - 1
+            when = "这阵子" + (f"（到{timeline.day_word(last, now)}）" if last - now < 30 * 86400 else "")
+        else:
+            when = "现在"
+        tail = "；".join(x for x in (item["detail"], "打算去" if item["planned"] else "", "去过了" if item["been"] else "") if x)
+        lines.append(f"{when}：{item['title']}" + (f"（{tail}）" if tail else ""))
+    if lines:
+        result["happenings"] = lines
+    return result
+
+
+def clock_text(ts: float) -> str:
+    from datetime import datetime
+    return datetime.fromtimestamp(ts, clock.local_now().tzinfo).strftime("%H:%M")
 
 
 def _broken_items() -> list[str]:
@@ -202,6 +245,16 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
             text = f"{broke[0]}坏了" if broke else p.get("label")
         elif kind == "life.visit":
             text = f"去了{p.get('name')}" + ("（第一次去）" if p.get("visits") == 1 else "")
+        elif kind == "life.heard":
+            text = f"听说{p.get('title')}（{p.get('via')}）"
+        elif kind == "life.planned":
+            text = f"打算去{p.get('title')}"
+        elif kind == "life.skipped_plan":
+            text = f"本来要去{p.get('title')}，{p.get('reason')}，没去"
+        elif kind == "life.attended":
+            text = f"去了{p.get('title')}" if p.get("times", 1) == 1 else None
+        elif kind == "weather.changed":
+            text = f"天气：{p.get('to')}" + (f"，{round(p['temp'])}°C" if p.get("temp") is not None else "")
         elif kind == "life.fixed":
             text = f"把{p.get('label')}修好了"
         elif kind == "life.fix_failed":
@@ -221,6 +274,6 @@ def _fetch_events(start: float, end: float):
     return fetch_all(
         """SELECT kind, actor_id, payload, sim_time FROM world_events
            WHERE world_id = ? AND sim_time >= ? AND sim_time < ?
-             AND (actor_id = ? OR (kind = 'perturb.happened' AND actor_id IS NULL))
+             AND (actor_id = ? OR (kind IN ('perturb.happened', 'weather.changed') AND actor_id IS NULL))
            ORDER BY id""",
         (config.MIND_WORLD_ID, start, end, config.MIND_WORLD_ACTOR))

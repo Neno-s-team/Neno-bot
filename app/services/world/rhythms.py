@@ -180,6 +180,9 @@ def _occurrence(w, aid, entry, day):
     weekday = (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=day)).isoweekday()
     if entry.get("days") and weekday not in entry["days"]:
         return None
+    from app.services.world import almanac
+    if not almanac.allows(w, (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=day)).date(), entry):
+        return None  # 假期、寒暑假不上课
     jitter = entry.get("jitter_min", 0) * 60
     key = f"routine:{aid}:{entry['id']}:{day}"
     begin = start + _clock(entry["start"]) + _draw(w, key, "start", -jitter, jitter)
@@ -334,6 +337,13 @@ def end_activity(c, w, aid, reason="到时间了"):
     from app.services.world import life
     life.taste(c, w, aid, doing, reason)
     life.after(c, w, aid, doing, reason)
+    from app.services.world import happenings
+    if doing["activity"] == "scroll":
+        happenings.learn(c, w, aid, "scroll", doing["job"])
+        happenings.learn(c, w, aid, "group", doing["job"])
+    elif doing["activity"] not in ("commute",):
+        # 醒来、做完一件事会看一眼手机：群通知多半能看到，但不是每次都点开
+        happenings.learn(c, w, aid, "group", doing["job"], scale=0.8 if doing["activity"] == "sleep" else 0.35)
     if doing.get("after") and reason == "到时间了":
         follow = doing["after"]
         if follow.get("hours") is None:

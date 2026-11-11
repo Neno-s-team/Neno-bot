@@ -118,6 +118,8 @@ def queue_decision(c, w, aid, options, reason, key) -> int:
 
 
 def _label(c, w, choice) -> str:
+    if choice.get("label"):
+        return choice["label"]  # 世界事件带来的选项：直接说是什么事
     acts = rhythms.config(w)["activities"]
     if choice.get("activity") in acts:
         return acts[choice["activity"]]["label"]
@@ -174,7 +176,10 @@ def apply_decision(c, w, row, data) -> dict:
     actor = entity(c, w["world_id"], aid)
     if actor["state"].get("doing"):
         return {"skipped": "already busy"}
-    choice = next(ch for ch in rhythms.config(w)["choices"] if ch["id"] == choice_id)
+    choice = life.find_choice(w, aid, choice_id)
+    if choice is None:  # 她想的时候那件事还在，回来已经结束了：回到规则重挑
+        life.schedule_choice(c, w, aid, 1, tag=f":gone{row['id']}", ask=False)
+        return {"skipped": "choice gone"}
     picked = next((o.get("place") for o in ctx["options"] if o["id"] == choice_id), None)
     place = picked or (actor["parent_id"] if choice["place"] == "here" else choice["place"])
     deadline = life._next_obligation(c, w, aid)
