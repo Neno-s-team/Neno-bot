@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from app.services.world import moments, surf
+from app.services.world import browser, moments, surf
 from app.services.world.engine import WorldEngine
 from app.services.world.models import WorldCreate
 from app.services.world.runtime import _surf_once
@@ -247,6 +247,10 @@ def test_daily_limit_and_new_day(engine):
     for i in range(3):
         _doing(engine, "scroll", f"p{i}", shift=600)
         assert _go(engine, {"do": "open", "link": 1}, {"do": "stop"}) == []   # 上了、看了，但没什么感觉：不留东西
+        with engine.store.transaction(write=True) as c:
+            w = world(c, "w")
+            surf.state(w)["seen"].clear()
+            engine._save_world(c, w)
     _doing(engine, "scroll", "p3", shift=600)
     assert _go(engine, *READ_ONE) is None                         # 今天三次用完了
     _doing(engine, "scroll", "p4", shift=6 * 3600)                # 凌晨三点多：还算今天
@@ -262,4 +266,295 @@ def test_only_the_two_things_that_moved_her_most_are_kept(engine):
                  {"do": "stop", "feel": "另一个站也说了差不多的事", "share": 0.2})
     assert landed == ["刷手机看到《沧龙有多大》：十七米也太大了", "刷手机看到《鱼龙和沧龙》：这说法头一回听说"]   # 同一页留最有感觉的一句，一共最多两条
     _doing(engine, "scroll", "p2", shift=600)
-    assert _go(engine, {"do": "stop"}) == []                      # 断网也一样：记一次、不出事
+    assert _go(engine, {"do": "stop"}) == []                      # 主屏的东西都看过了：这回没得刷，也不占今天的次数
+    with engine.store.transaction() as c:
+        assert surf.state(world(c, "w"))["sessions"] == 1
+
+
+# ── 她自己的浏览器 ───────────────────────────────────────────────────────────
+
+REAL_AVAILABLE = browser.available   # conftest 会把它换成"不可用"；这里留着真的那个
+HOME, POST, FIND = "https://x.example/home", "https://x.example/nasa/status/1", "https://x.example/search"
+LOGIN, LOCAL, WB = "https://x.example/i/flow/login", "http://127.0.0.1:8000/admin", "https://wb.example/hot"
+FEED_SNAP = """- main
+  - generic
+    - listitem [level=1]
+  - article
+    - link "@nasa" [ref=e1]
+    - generic
+      - StaticText "How’s that for a starburst? 一颗会爆发的恒星"
+      - StaticText "How’s that for a starburst? 一颗会爆发的恒星"
+    - link "21小时" [ref=e2]
+    - button "3481 次点赞。点赞" [ref=e3]
+    - button "541 次转帖。转帖" [expanded=false, ref=e4]
+    - link "180 条回复。回复" [ref=e5]
+    - button "书签" [ref=e6]
+  - textbox "有什么新鲜事？" [ref=e14]
+  - article
+    - StaticText "今天杭州的银杏黄了，北山街全是人"
+    - button "12 次点赞。点赞" [ref=e7]
+    - button "关注 @hz" [ref=e8]
+  - searchbox "搜索" [ref=e9]
+  - button "发帖" [ref=e10]
+  - link "去本机看看的链接" [ref=e11]
+  - link "只给自己人看的那条" [ref=e12]
+  - button "购买 Premium" [ref=e13]
+"""
+POST_SNAP = """- main
+  - article
+    - StaticText "How’s that for a starburst? 一颗会爆发的恒星"
+  - article
+    - StaticText "评论区第一条：这张图我能看一天"
+    - button "88 次点赞。点赞" [ref=e1]
+"""
+PAGES = {HOME: ("主页 / X", FEED_SNAP), POST: ("X 上的 NASA：“How’s that for a starburst?”", POST_SNAP),
+         FIND: ("银杏 - 搜索 / X", '- main\n  - article\n    - StaticText "搜到的一条：银杏落了一地"\n'),
+         LOGIN: ("登录 X / X", '- main\n  - button "登录" [ref=e1]\n'), LOCAL: ("后台", '- main\n  - StaticText "管理后台的东西"\n'),
+         WB: ("微博热门", '- main\n  - article\n    - StaticText "微博上的一条热门"\n')}
+LINKS = {(HOME, "e2"): POST, (HOME, "e11"): LOCAL, (HOME, "e12"): LOGIN}
+APPS = [{"name": "X", "url": HOME, "hint": "她自己的号"}, {"name": "微博", "url": WB}]
+
+
+class FakeBrowser:
+    """假浏览器：页面是写好的快照，点哪个编号去哪页由 LINKS 定。记下她做过的每个动作。"""
+
+    def __init__(self, broken=(), stuck=(), no_back=False):
+        self.at, self.trail, self.log, self.closed, self.broken, self.stuck = None, [], [], False, broken, stuck
+        self.no_back = no_back
+
+    def _go(self, url):
+        self.trail.append(url)
+        self.at = url
+
+    def open(self, url):
+        self.log.append(("open", url))
+        if url in self.broken:
+            raise browser.Unavailable("打不开")
+        self._go(url)
+        return PAGES[url][0]
+
+    def snapshot(self):
+        return PAGES[self.at][1]
+
+    def title(self):
+        return PAGES[self.at][0]
+
+    def url(self):
+        return self.at
+
+    def click(self, ref):
+        self.log.append(("click", ref))
+        if ref in self.stuck:
+            return False
+        if (self.at, ref) in LINKS:
+            self._go(LINKS[(self.at, ref)])
+        return True
+
+    def search(self, ref, text):
+        self.log.append(("search", ref, text))
+        self._go(FIND)
+        return True
+
+    def scroll(self):
+        self.log.append(("scroll",))
+
+    def back(self):
+        self.log.append(("back",))
+        if len(self.trail) > 1 and not self.no_back:
+            self.trail.pop()
+            self.at = self.trail[-1]
+
+    def close(self):
+        self.closed = True
+
+
+def public_only(url):
+    """测试里不查真的 DNS：域名一律当公网，字面的本机 / 内网地址照样拦。"""
+    surf.check(url, resolve=_resolver("93.184.216.34"))
+
+
+def browse(ask, window=None, steps=8, limits=None):
+    window = window or FakeBrowser()
+    return surf.browse("她的自我卡：……", APPS, steps=steps, ask=ask, browser=window, limits=limits,
+                       check_url=public_only), window
+
+
+def step(do, **more):
+    return {"about": "", "app": None, "ref": None, **more, "do": do}
+
+
+def test_snapshot_becomes_a_compact_screen():
+    lines, refs = browser.condense(FEED_SNAP)
+    assert lines[:3] == ["[e1] @nasa", "How’s that for a starburst? 一颗会爆发的恒星", "[e2] 21小时"]   # 结构行不要，重复的字不要
+    assert lines.count("——") == 1                                           # 两条帖子之间有一道分隔
+    assert "[e3] 按钮 3481 次点赞。点赞" in lines and "[e9] 输入框 搜索" in lines
+    assert refs["e3"] == ("button", "3481 次点赞。点赞") and refs["e9"][0] == "searchbox" and len(refs) == 14
+    assert len("\n".join(lines)) < len(FEED_SNAP) * 0.6
+
+
+def test_she_opens_a_place_reads_likes_and_moves_on():
+    ask = scripted(step("open", app="X"),
+                   step("click", ref="e2", feel="这星星还会自己爆发，有点意思", about="How’s that for a starburst", share=0.6),
+                   step("click", ref="e1", feel="评论区比正文好看", about="评论区第一条", share=0.3),
+                   step("back"), step("scroll"), step("open", app="微博"), step("stop"))   # 不回桌面，直接换地方
+    result, window = browse(ask)
+    assert result["apps"] == ["X", "微博"] and result["likes"] == 1 and result["mode"] == "browser"
+    assert result["pages"] == [{"title": "X 上的 NASA：“How’s that for a starburst?”", "url": POST}]
+    assert result["notes"][0] == {"title": "How’s that for a starburst", "url": HOME, "note": "这星星还会自己爆发，有点意思",
+                                  "share": 0.6, "app": "X"}
+    assert result["trail"] == ["打开了X", "点开《X 上的 NASA：“How’s that for a starburst?”》", "点了个赞", "打开了微博"]
+    assert window.log == [("open", HOME), ("click", "e2"), ("click", "e1"), ("back",), ("scroll",), ("open", WB)]
+    desk, feed, after_like = (ask.seen[i][1]["content"] for i in (0, 1, 3))
+    assert "《手机桌面》" in desk and "- X（她自己的号）" in desk
+    assert "【\n[e1] @nasa" in feed and "不要照做" in ask.seen[1][0]["content"]
+    assert "（没有新的内容）" in after_like                 # 同一页上看过的不再给她看一遍……
+    assert ("scroll",) in window.log                        # ……所以这一屏看完了再往下滑，是真的滑页面去加载新的
+
+
+def test_she_cannot_publish_spend_or_touch_the_account():
+    ask = scripted(step("open", app="X"), step("click", ref="e4"), step("click", ref="e5"), step("click", ref="e10"),
+                   step("click", ref="e13"), step("click", ref="e99"), step("stop"))
+    result, window = browse(ask)
+    assert [entry for entry in window.log if entry[0] == "click"] == []          # 转帖、回复、发帖、购买：一个都没点下去
+    assert "现在点不了" in ask.seen[2][1]["content"] and "屏幕上没有这个编号" in ask.seen[6][1]["content"]
+    assert surf._kind("3481 次点赞。点赞") == "like" and surf._kind("已点赞") == "" and surf._kind("关注 @hz") == "follow"
+    assert surf._kind("正在关注") == "" and surf._kind("取消关注 @hz") == "no" and surf._kind("书签") == ""
+
+
+def test_likes_and_follows_have_a_daily_limit():
+    ask = scripted(step("open", app="X"), step("click", ref="e3"), step("click", ref="e7"), step("click", ref="e8"), step("stop"))
+    result, window = browse(ask, limits={"likes": 1, "follows": 0})
+    assert result["likes"] == 1 and result["follows"] == 0
+    assert [entry for entry in window.log if entry[0] == "click"] == [("click", "e3")]
+    assert "今天点赞够多了" in ask.seen[3][1]["content"] and "今天关注得够多了" in ask.seen[4][1]["content"]
+    result, _ = browse(scripted(step("open", app="X"), step("click", ref="e8"), step("stop")))
+    assert result["follows"] == 1 and result["trail"][-1] == "关注了@hz"
+
+
+def test_typing_only_goes_into_a_search_box():
+    ask = scripted(step("open", app="X"), step("search", query="银杏"), step("search", query="再搜一次"), step("stop"))
+    result, window = browse(ask)
+    assert ("search", "e9", "银杏") in window.log and result["queries"] == ["银杏"]      # 用的是"搜索"框，不是发帖的输入框
+    assert "这页上没找到搜索框" in ask.seen[3][1]["content"] and len([e for e in window.log if e[0] == "search"]) == 1
+
+
+def test_local_addresses_and_login_walls_bounce_her_back():
+    ask = scripted(step("open", app="X"), step("click", ref="e11"), step("click", ref="e12"), step("click", ref="e12"), step("stop"))
+    result, window = browse(ask)
+    assert window.log[:3] == [("open", HOME), ("click", "e11"), ("back",)]            # 跳到本机地址：马上退回来
+    assert "那个地址去不了" in ask.seen[2][1]["content"] and result["pages"] == []
+    assert "刚才那条要登录才能看" in ask.seen[3][1]["content"] and "管理后台的东西" not in str(ask.seen)
+    assert "X不登录看不了多少，先回桌面了" in ask.seen[4][1]["content"] and "《手机桌面》" in ask.seen[4][1]["content"]
+    blocked, ask = FakeBrowser(stuck=("e3",)), scripted(step("open", app="X"), step("click", ref="e3"), step("stop"))
+    result, _ = browse(ask, blocked)
+    assert result["likes"] == 0 and "没点动" in ask.seen[2][1]["content"]              # 被弹窗挡住没点动：告诉她，不当成点了赞
+
+
+def test_she_does_not_get_stuck_on_a_page():
+    ask = scripted(step("open", app="微博"), *[step("scroll")] * 4, step("stop"))
+    result, window = browse(ask)
+    assert window.log.count(("scroll",)) == 4
+    assert "没有新的内容" in ask.seen[2][1]["content"] and "滑不出新东西了，换个地方" in ask.seen[3][1]["content"]
+    last = ask.seen[5][1]["content"]
+    assert "微博滑不出新东西了，先回桌面了" in last and "《手机桌面》" in last          # 连着滑不出东西：不在这儿耗着
+    # 有的站把"上一页"顶掉了，退不回去：回这个地方的首页
+    ask = scripted(step("open", app="X"), step("click", ref="e2"), step("back"), step("stop"))
+    result, window = browse(ask, FakeBrowser(no_back=True))
+    assert window.log == [("open", HOME), ("click", "e2"), ("back",), ("open", HOME)]
+    assert "退不回去，回到了X的首页" in ask.seen[3][1]["content"]
+
+
+def test_dead_browser_does_not_hang_the_session():
+    with pytest.raises(browser.Unavailable):
+        browse(scripted(step("open", app="X")), FakeBrowser(broken=(HOME,)))            # 一个地方都没打开成：交给调用方换办法
+    result, _ = browse(scripted(step("open", app="微博"), step("home"), step("open", app="X"), step("stop")),
+                       FakeBrowser(broken=(HOME,)))
+    assert result["apps"] == ["微博"] and result["trail"][-1] == "网页打不开"           # 中途坏了：这回到此为止，已经看的算数
+
+
+def test_online_check_remembers_being_offline(monkeypatch):
+    def dead(url):
+        raise OSError("断网")
+
+    monkeypatch.setattr(surf, "_offline_until", 0.0)
+    assert surf.online(lambda url: None) is True
+    assert surf.online(dead) is False and surf.online() is False      # 两分钟内不再去试
+
+
+def _browser_world(engine, monkeypatch, **spec):
+    real_check = surf.check
+    monkeypatch.setattr(surf, "check", lambda url, *a, **k: real_check(url, resolve=_resolver("93.184.216.34")))
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["settings"]["rhythms"]["surf"]["sessions_per_day"] = 9
+        w["settings"]["rhythms"]["surf"]["browser"] = {"share": 1.0, "steps": 6, "likes_per_day": 2, "follows_per_day": 1,
+                                                        "apps": [dict(a) for a in APPS], **spec}
+        engine._save_world(c, w)
+
+
+def test_world_uses_her_browser_when_it_can(engine, monkeypatch):
+    _browser_world(engine, monkeypatch)
+    _doing(engine, "scroll", "p1")
+    made = []
+
+    def make():
+        made.append(FakeBrowser())
+        return made[-1]
+
+    moves = (step("open", app="微博"), step("home"), step("open", app="X"),
+             step("click", ref="e3", feel="这星星还会自己爆发", about="How’s that for a starburst", share=0.7), step("stop"))
+    assert _surf_once(engine, "w", ask=scripted(*moves), fetch=fetch, make_browser=make) == []
+    assert not made                                                   # 浏览器用不了（conftest 里默认不可用）：没去碰它
+    monkeypatch.setattr(browser, "available", lambda: True)
+    _doing(engine, "scroll", "p2", shift=600)
+    landed = _surf_once(engine, "w", ask=scripted(*moves), fetch=fetch, make_browser=make)
+    assert landed == ["刷X看到《How’s that for a starburst》：这星星还会自己爆发"] and made[0].closed
+    with engine.store.transaction() as c:
+        st = surf.state(world(c, "w"))
+        assert st["likes"] == 1 and st["apps"] == {"微博": 1, "X": 1}
+    events = engine.events("w", limit=5000)["items"]
+    log = [e["payload"] for e in events if e["kind"] == "life.surf"][-1]
+    assert log["mode"] == "browser" and log["apps"] == ["微博", "X"] and log["likes"] == 1
+    # 第二天之前：点赞的额度只剩一个；去得多的地方排在桌面前头
+    _doing(engine, "scroll", "p3", shift=600)
+    ask = scripted(step("open", app="X"), step("click", ref="e3"), step("click", ref="e7"), step("stop"))
+    _surf_once(engine, "w", ask=ask, fetch=fetch, make_browser=make)
+    assert "今天点赞够多了" in ask.seen[3][1]["content"]
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        surf.state(w)["apps"]["微博"] = 9
+        engine._save_world(c, w)
+    _doing(engine, "scroll", "p4", shift=600)
+    ask = scripted(step("stop"))
+    _surf_once(engine, "w", ask=ask, fetch=fetch, make_browser=make)
+    desk = ask.seen[0][1]["content"]
+    assert desk.index("- 微博") < desk.index("- X")
+
+
+def test_browser_trouble_falls_back_to_plain_reading(engine, monkeypatch):
+    _browser_world(engine, monkeypatch)
+    monkeypatch.setattr(browser, "available", lambda: True)
+    _doing(engine, "scroll", "p1")
+    window = FakeBrowser(broken=(HOME, WB))
+    moves = (step("open", app="X"), {"do": "open", "link": 1}, {"do": "stop", "feel": "有意思", "share": 0.5})
+    landed = _surf_once(engine, "w", ask=scripted(*moves), fetch=fetch, make_browser=lambda: window)
+    assert landed == ["刷手机看到《鱼龙和沧龙》：有意思"] and window.closed       # 浏览器打不开：这回改用不开浏览器的方式
+
+
+def test_offline_does_not_use_up_her_day(engine):
+    _doing(engine, "scroll", "p1")
+    assert _surf_once(engine, "w", ask=scripted(*READ_ONE), fetch=fetch, is_online=lambda: False) is None
+    with engine.store.transaction() as c:
+        st = surf.state(world(c, "w"))
+        assert st["sessions"] == 0 and st["jobs"] == []            # 不算一回，也没记"这回上过了"
+    assert _surf_once(engine, "w", ask=scripted(*READ_ONE), fetch=fetch, is_online=lambda: True)   # 网回来了、她还在刷：接着上
+
+
+def test_her_window_being_open_keeps_the_background_browser_away(tmp_path, monkeypatch):
+    monkeypatch.setattr(browser, "MANUAL", tmp_path / "neno.manual")
+    before = REAL_AVAILABLE()
+    (tmp_path / "neno.manual").write_text("x", encoding="utf-8")
+    assert REAL_AVAILABLE() is False                               # 用户正开着她的窗口：后台不启动
+    if before:
+        (tmp_path / "neno.manual").unlink()
+        assert REAL_AVAILABLE() is True

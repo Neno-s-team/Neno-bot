@@ -135,5 +135,32 @@
 - **开关**：跟着 `WORLD_NPC_ENABLED`（世界可以调便宜模型）走；`WORLD_SURF_ENABLED=false` 可单独关。
 - **没做的**：聊天时现查、她自己想查的事、看图、登录后的站、发帖。源挂了就少几条，全挂了这回不上。
 
+## N2 她自己的浏览器（`app/services/world/browser.py` + `surf.browse`，配置 `surf.browser`，2026-11-12）
+用户定：让她像人一样上网，X 为主，走"她自己的号 + 真浏览器"；操作方式选 A（程序驱动浏览器，用 agent-browser）。
+
+- **浏览器**：机器上装的 Chrome，真窗口、非无头（X 直接拒绝无头浏览器），开在一块隐藏的 Windows 桌面上
+  （`CreateDesktopW("NenoSurf")`，启动进程的 `lpDesktop` 指过去）——用户的屏幕和任务栏上没有它。
+- **不伪装**：UA 不改，`navigator.webdriver` 不藏。实测 agent-browser 默认启动时这个标记是 true。被站点拦了就是拦了。
+- **agent-browser**（vercel-labs，Apache-2.0，0.42.0）：装在 `data/tools/agent-browser`（不入库）：
+  `cd data/tools/agent-browser && npm init -y && npm install agent-browser@0.42.0`。可用 `NENO_AGENT_BROWSER` 指到别处。
+  它给的是页面"快照"（文字 + 每个能点的东西一个编号），`browser.condense` 再压一遍（X 主页 11800 字 → 3600 字）。
+- **用时才开、用完就关**：实测开着微博热搜约 400MB、X 约 860MB、小红书 1.0–1.2GB；关掉后为 0。平时整个服务约 92MB。
+  兜底：agent-browser 的 `--idle-timeout 3m`，后端被杀也不会留一个浏览器。
+- **登录状态**在 `data/browser/neno`。账号由用户手动注册 / 登录：`scripts/open-neno-browser.ps1` 开一个看得见的窗口；
+  窗口开着时有 `data/browser/neno.manual`，后台不启动（`browser.available()` 为假）。
+- **一次上网**（`surf.browse`）：手机桌面上是 `surf.browser.apps`（去得多的排前面，`settings.surf.apps` 记次数），
+  模型每步选：open 打开一个地方 / click 点编号 / scroll / search / back / home / stop。一屏最多 3000 字，
+  同一页上看过的行不再给（文章和"滑一下换一批"的信息流都适用）；滑不出新东西连着三次就回桌面。
+- **她能做的**：看、点赞、收藏、关注（`likes_per_day` 10、`follows_per_day` 2）。
+  **不能做的**（按按钮上的字拦，`surf._kind`）：发帖、回复、转帖、私信；购买、支付、订阅；登录、注册、退出、删除、屏蔽、取消关注。
+  打字只进名字里带"搜索"的输入框。
+- **拦路的情况**：点进去是登录页（`_walled`）→ 回这个地方的首页，再碰到就回桌面；跳到本机 / 内网地址 → 退回；
+  被弹窗挡住没点动 → 告诉她；退不回去 → 回这个地方的首页；浏览器没反应 → 这回到此为止；
+  一个地方都没打开成 → 这一回改用不开浏览器的方式（N1）。
+- **`share`**（0.7）：一回上网里用浏览器的比例。浏览器不可用时全走 N1。
+- **断网**：`surf.online()` 探不通就不上、不算次数（结论记两分钟）；网回来了她还在刷就接着上。
+- **X**：`apps` 里已有，`enabled: false`。等她的账号在专属窗口里登录好，改成 true。登录后的首页、搜索、点赞还没实测。
+- 测试进程里 `browser.available` 一律为假（conftest），不会启动真的浏览器。
+
 ## 之后
 网购与快递、家务、更多熟人（同学、朋友约她）、手机里的内容（刷到了什么）。

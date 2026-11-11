@@ -186,9 +186,9 @@ def _refresh_weather(engine, world_id: str, fetch=None) -> bool | None:
         return weather.apply(c, w, report)
 
 
-def _surf_once(engine, world_id: str, ask=None, fetch=None) -> list[str] | None:
-    """她正在刷手机就替她上一次网（事务外联网、调模型），看到的落进世界。没轮到返回 None。"""
-    from app.services.world import npcs, surf
+def _surf_once(engine, world_id: str, ask=None, fetch=None, make_browser=None, is_online=None) -> list[str] | None:
+    """她正在刷手机就替她上一次网（事务外联网、调模型），看到的落进世界。没轮到 / 断网返回 None。"""
+    from app.services.world import browser, npcs, surf
     from app.services.world.randomness import sample
     from app.storage.world_store import world as load_world
 
@@ -196,10 +196,23 @@ def _surf_once(engine, world_id: str, ask=None, fetch=None) -> list[str] | None:
         job = surf.due(c, load_world(c, world_id))
     if job is None:
         return None
-    draws = iter(range(10 ** 6))
-    result = surf.session(job["brief"], job["feeds"], job["seen"],
-                          lambda n: int(sample(job["seed"], f"surf:{job['job']}", f"pick:{next(draws)}") * n),
-                          steps=job["steps"], ask=ask or npcs._request, fetch=fetch, block=job["block"])
+    if not (is_online or (surf.online if fetch is None else (lambda: True)))():
+        return None  # 断网：这一回不算数，网回来了（她还在刷的话）再上
+    result = None
+    if job.get("browser"):   # 这一回用她自己的浏览器；用不了就退回不用浏览器的方式
+        window = (make_browser or browser.Browser)()
+        try:
+            result = surf.browse(job["brief"], job["browser"]["apps"], steps=job["browser"]["steps"],
+                                 ask=ask or npcs._request, browser=window, limits=job["browser"]["limits"])
+        except browser.Unavailable as error:
+            log.info("Her browser is unavailable (%s); surfing without it", str(error)[:80])
+        finally:
+            window.close()
+    if result is None:
+        draws = iter(range(10 ** 6))
+        result = surf.session(job["brief"], job["feeds"], job["seen"],
+                              lambda n: int(sample(job["seed"], f"surf:{job['job']}", f"pick:{next(draws)}") * n),
+                              steps=job["steps"], ask=ask or npcs._request, fetch=fetch, block=job["block"])
     with engine.store.transaction(write=True) as c:
         w = load_world(c, world_id)
         landed = surf.land(c, w, job, result)

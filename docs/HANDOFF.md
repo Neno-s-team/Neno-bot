@@ -233,6 +233,12 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 有感觉的留一两句进"小事"。每天最多 3 回 × 6 步。`WORLD_SURF_ENABLED=false` 可关。
 搜索站或推荐源的页面结构变了会搜不到 / 少几条，改 `surf.parse_360`、`surf.FEEDS`。
 
+## 5.18 她自己的浏览器（2026-11-12）
+
+见 `docs/world-events.md` 的 N2。真 Chrome 开在隐藏桌面上，agent-browser 驱动，用时才开。她能看、点赞、收藏、关注，
+不能发东西、花钱、动账号。依赖：`data/tools/agent-browser`（npm 装，不入库）和本机的 Chrome。
+账号靠用户用 `scripts/open-neno-browser.ps1` 手动登录。X 账号登录好之后把 `surf.browser.apps` 里 X 的 `enabled` 改成 true。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。
