@@ -193,6 +193,10 @@ def _ensure_life_world(engine, world_id: str) -> None:
                 "SELECT 1 FROM world_jobs WHERE world_id=? AND kind='happen_plan' AND status='pending'", (world_id,)).fetchone():
             happenings.setup(c, w)  # 第一次启用世界事件：补上正在发生的和未来几天的
             changed = True
+        from app.services.world import tasks
+        if tasks.enabled(w) and not w["settings"].get("tasks", {}).get("ready"):
+            tasks.setup(c, w)  # 第一次启用：补上她手上已经有的事
+            changed = True
         from app.services.world import money
         if money.config(w) and not w["settings"].get("money", {}).get("ready"):
             money.setup(c, w)  # 第一次启用钱：定余额、价格、囤货，排到账和账单

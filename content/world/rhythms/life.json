@@ -1432,5 +1432,150 @@
    ],
    "label": "跟妈妈说了手头紧，妈妈转了点"
   }
+ },
+ "tasks": {
+  "note": "占位：她手上有期限的事。来源、工作量、截止日都是占位，人设/培养方案定了再改。",
+  "actor": "neno",
+  "sources": [
+   {
+    "id": "class_reading",
+    "title": "周二课的阅读材料",
+    "kind": "weekly",
+    "weekday": 2,
+    "due_time": "09:00",
+    "assign_days_before": [
+     5,
+     6
+    ],
+    "effort": [
+     2,
+     3.5
+    ],
+    "when": [
+     "term"
+    ],
+    "from": "周二的课"
+   },
+   {
+    "id": "meeting_report",
+    "title": "组会汇报（轮到你讲）",
+    "kind": "every",
+    "weeks": 3,
+    "phase": 1,
+    "weekday": 4,
+    "due_time": "14:00",
+    "assign_days_before": [
+     7,
+     10
+    ],
+    "effort": [
+     6,
+     10
+    ],
+    "when": [
+     "term"
+    ],
+    "from": "导师",
+    "npc": "advisor"
+   },
+   {
+    "id": "advisor_task",
+    "title": "{what}",
+    "kind": "random",
+    "per_week": 0.45,
+    "due_days": [
+     4,
+     10
+    ],
+    "due_time": "18:00",
+    "effort": [
+     4,
+     12
+    ],
+    "when": [
+     "term",
+     "exam",
+     "break"
+    ],
+    "from": "导师",
+    "npc": "advisor",
+    "after_due": "overdue",
+    "slots": {
+     "what": [
+      "改开题报告第二章",
+      "补文献综述",
+      "整理这批材料的笔记",
+      "修改上次那篇小论文",
+      "做下周讨论的导读",
+      "把参考文献格式统一一遍",
+      "补充研究现状那一节",
+      "校对一篇译稿",
+      "写一份读书报告",
+      "梳理一位作家的年表"
+     ]
+    }
+   },
+   {
+    "id": "term_paper",
+    "title": "课程期末论文",
+    "kind": "dates",
+    "due": [
+     "2027-01-17",
+     "2027-06-27"
+    ],
+    "due_time": "23:59",
+    "assign_days_before": [
+     28,
+     35
+    ],
+    "effort": [
+     18,
+     26
+    ],
+    "from": "周二的课",
+    "after_due": "overdue"
+   },
+   {
+    "id": "proposal",
+    "title": "开题报告",
+    "kind": "dates",
+    "due": [
+     "2027-03-20"
+    ],
+    "due_time": "18:00",
+    "assign_days_before": [
+     110,
+     130
+    ],
+    "effort": [
+     50,
+     70
+    ],
+    "from": "导师",
+    "npc": "advisor",
+    "after_due": "overdue"
+   }
+  ],
+  "pressure": {
+   "hours_per_day": 4,
+   "relaxed": 0.25,
+   "day_mood": [
+    0.45,
+    1.15
+   ],
+   "study_weight": 0.9,
+   "leisure_weight": 0.35,
+   "follow_urgent": 0.75,
+   "efficiency": [
+    0.55,
+    1.05
+   ],
+   "feedback_chance": 0.45,
+   "scrape_share": 0.6,
+   "crunch_within_hours": 16,
+   "crunch_chance": 0.55,
+   "crunch_max_hours": 3,
+   "idle_task_chance": 0.2
+  }
  }
 }

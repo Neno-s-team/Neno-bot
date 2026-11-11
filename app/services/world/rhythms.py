@@ -225,6 +225,20 @@ def _routine(c, w, task):
         if _draw(w, key, "skip") < entry.get("skip", 0):
             emit(c, w, key + ":skip", "routine.skipped", {"entry": entry["id"], "activity": entry["activity"]}, aid)
             return
+        if entry["activity"] == "sleep" and not p.get("crunched"):
+            from app.services.world import tasks
+            late = tasks.crunch(c, w, aid, key)
+            if late > 0:
+                if actor["state"].get("doing"):
+                    end_activity(c, w, aid, reason="换去做别的")
+                    actor = entity(c, w["world_id"], aid)
+                if actor["parent_id"] != entry["place"]:
+                    actor["parent_id"] = entry["place"]
+                    save_entity(c, actor)
+                start_activity(c, w, aid, "study", source="life:crunch", hours=late, key=key + ":crunch")
+                tasks.begin(c, w, aid, key + ":crunch")
+                job(c, w["world_id"], key + ":late", w["sim_time"] + late * 3600 + 60, "routine", {**p, "crunched": True})
+                return
         if actor["state"].get("doing"):
             end_activity(c, w, aid, reason="作息到点")
             actor = entity(c, w["world_id"], aid)
@@ -337,6 +351,9 @@ def end_activity(c, w, aid, reason="到时间了"):
     from app.services.world import life
     life.taste(c, w, aid, doing, reason)
     life.after(c, w, aid, doing, reason)
+    if doing.get("task"):
+        from app.services.world import tasks
+        tasks.finish(c, w, aid, doing)
     from app.services.world import happenings
     if doing["activity"] == "scroll":
         happenings.learn(c, w, aid, "scroll", doing["job"])

@@ -150,6 +150,19 @@ def _around(w: dict[str, Any]) -> dict[str, Any]:
             result["money"] = wallet
     except Exception:
         pass
+    try:
+        from app.services.world import tasks
+        todo = []
+        for item in tasks.lines(w, config.MIND_WORLD_ACTOR):
+            if item["overdue"]:
+                when = f"已经过了期限（原定{timeline.day_word(item['due'], now)}）"
+            else:
+                when = f"{timeline.day_word(item['due'], now)} {clock_text(item['due'])} 前"
+            todo.append(f"{when}：{item['title']}（{item['from']}；{item['word']}）")
+        if todo:
+            result["tasks"] = todo
+    except Exception:
+        pass
     lines = []
     for item in happenings.known_list(w, config.MIND_WORLD_ACTOR)[:6]:
         if item["start"] > now:
@@ -239,7 +252,7 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
     except Exception:
         return []
     tz = clock.local_now().tzinfo
-    lines, last, spent = [], None, 0.0
+    lines, last, spent, worked = [], None, 0.0, {}
     for row in rows:
         p = json.loads(row["payload"])
         at = datetime.fromtimestamp(row["sim_time"], tz).strftime("%H:%M")
@@ -264,6 +277,17 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
             text = f"去了{p.get('title')}" if p.get("times", 1) == 1 else None
         elif kind == "weather.changed":
             text = f"天气：{p.get('to')}" + (f"，{round(p['temp'])}°C" if p.get("temp") is not None else "")
+        elif kind == "task.assigned":
+            text = f"{p.get('from')}布置了：{p.get('title')}"
+        elif kind == "task.progress":
+            worked[p.get("title")] = worked.get(p.get("title"), 0.0) + float(p.get("hours", 0))
+        elif kind == "task.done":
+            text = f"{p.get('title')}弄完交了" + ("（拖了几天）" if p.get("late") else "（赶在最后）" if p.get("rushed") else "")
+        elif kind == "task.missed":
+            text = {"overdue": f"{p.get('title')}到期了还没交", "scraped": f"{p.get('title')}没弄完，勉强应付过去了",
+                    "missed": f"{p.get('title')}没弄完就到时间了"}.get(p.get("outcome"))
+        elif kind == "task.crunch":
+            text = f"熬夜赶{p.get('title')}"
         elif kind == "money.income":
             text = f"{p.get('label')}：¥{round(p.get('amount', 0))}"
         elif kind == "money.bill":
@@ -282,6 +306,9 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
             lines.append(f"{at} {text}")
             last = text
     lines = lines[-limit:]
+    for title, hours in worked.items():
+        if hours >= 0.3:
+            lines.append(f"这天在「{title}」上花了 {round(hours, 1)} 小时")
     if spent >= 1:
         lines.append(f"这天一共花了 ¥{round(spent)}")
     return lines

@@ -107,7 +107,7 @@ def queue_decision(c, w, aid, options, reason, key) -> int:
            "body": "、".join([x["label"] for x in actor["state"].get("conditions", [])]
                             + list(rhythms.felt(c, w, aid).values())) or "还行",
            "now": time.strftime("%H:%M", time.gmtime(w["sim_time"] + w["settings"]["utc_offset_minutes"] * 60)),
-           "plans": "；".join(_plans()) or "没特别的",
+           "plans": "；".join(_plans() + _due_soon(w, aid)) or "没特别的",
            "options": [{"id": ch["id"], "what": _label(c, w, ch), "where": city.label(c, w, pl), "place": pl}
                        for ch, pl, _ in sorted(options, key=lambda o: -o[2])[:5]]}
     cursor = c.execute(
@@ -115,6 +115,12 @@ def queue_decision(c, w, aid, options, reason, key) -> int:
         (w["world_id"], "neno_decide", aid, time.time(), w["sim_time"], _model(), encode(ctx)))
     emit(c, w, key + ":ask", "life.ask_self", {"reason": reason, "options": [o["id"] for o in ctx["options"]]}, aid)
     return int(cursor.lastrowid)
+
+
+def _due_soon(w, aid) -> list[str]:
+    from app.services.world import tasks
+    return [f"要交的：{i['title']}（{tasks._due_words(w, i['due'])}前，{tasks.progress_word(i)}）"
+            for i in tasks.open_items(w, aid)[:2]]
 
 
 def _label(c, w, choice) -> str:

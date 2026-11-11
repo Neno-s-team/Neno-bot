@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.world import almanac, city, happenings, money, rhythms
+from app.services.world import almanac, city, happenings, money, rhythms, tasks
 from app.services.world import weather as weather_mood
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
@@ -92,6 +92,7 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
     cooling = w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})
     stirred = happenings.boosts(w, aid)  # 世界里正在发生的事：楼上装修不想在家学、食堂上新想去吃
     wallet = money.feel(c, w, aid)       # 手头松紧（没接钱时为 None）
+    push = tasks.drive(w, aid)           # 手上要交的事：急了更想学、没心思玩
     stock = money.pantry(c, w) if wallet else None
     for choice in all_choices(w, aid):
         if cooling.get(choice["id"], 0) > w["sim_time"]:
@@ -139,6 +140,11 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
         score += almanac.boost(w, w["sim_time"], choice.get("when"))  # 周末想出门、考试周想学习
         score += stirred.get(choice["id"], 0.0)
         score += money.pinch(wallet, cost)  # 手头紧时贵的事不太想做（不是不能）
+        activity = choice.get("activity") or "eat"
+        if activity in _WORK:
+            score += push["study"]
+        elif activity in _LEISURE:
+            score -= push["leisure"]
         if choice.get("restocks") and stock is not None:
             low = money.config(w)["pantry"]["low"]
             if stock >= 5 * low:
@@ -224,6 +230,10 @@ def _pick_venue(w, aid, choice, here, hour, key, wallet=None):
     # 想不想出门：只看路远不远、那家有多喜欢；没去过的店不扣兴致
     far = max(0.0, best[2] - 5) / spec.get("minutes_scale", 20)  # 楼下五分钟以内不算远
     return best[0], max(-1.0, min(0.6, 0.5 * max(0.0, best[3]) - 0.4 * far))
+
+
+_WORK = ("study",)
+_LEISURE = ("scroll", "outing", "read", "stroll", "drink")
 
 
 def _cost(c, w, choice, place) -> float:
@@ -425,6 +435,8 @@ def arrive(c, w, aid, after, key) -> None:
             actor["state"]["doing"]["what"] = after["what"]  # 她知道自己在参加的是什么
             save_entity(c, actor)
     happenings.learn(c, w, aid, "pass", key, place=after["place"])  # 到了一个地方，看到那儿在发生的事
+    if after["activity"] in _WORK:
+        tasks.begin(c, w, aid, key)  # 坐下来学：挑手上的一件事来做
     habits = w["settings"].setdefault("life_habits", {}).setdefault(aid, {})
     for k in list(habits):
         habits[k] *= 0.97  # 不去就慢慢淡

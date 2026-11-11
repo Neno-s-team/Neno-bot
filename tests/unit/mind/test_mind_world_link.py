@@ -228,3 +228,40 @@ def test_she_knows_how_her_wallet_is_doing(linked):
     assert "手头：¥73，离下次到账还有 4 天，很紧；家里吃的没了" in text
     lived = world_link.day_events(T0 - 60, T0 + 60)
     assert any("交了话费 ¥39" in x for x in lived) and lived[-1] == "这天一共花了 ¥18"
+
+
+def test_she_knows_what_is_due_and_what_she_is_working_on(linked):
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.services.world import tasks
+    from app.storage.world_store import emit, entity, save_entity, world as load_world
+    _set_doing(linked, "study")
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        tasks.state(w)["items"] = {
+            "a": {"id": "a", "src": "advisor_task", "title": "改开题报告第二章", "from": "导师", "assigned": T0 - 86400,
+                  "due": T0 + 2 * 86400 - 6 * 3600, "effort": 8.0, "done": 4.0, "status": "open",
+                  "after_due": "overdue", "npc": None, "known": True},
+            "b": {"id": "b", "src": "advisor_task", "title": "补文献综述", "from": "导师", "assigned": T0 - 9 * 86400,
+                  "due": T0 - 86400, "effort": 6.0, "done": 1.0, "status": "open", "after_due": "overdue", "npc": None,
+                  "known": True, "overdue": True},
+            "c": {"id": "c", "src": "advisor_task", "title": "还没公布的活", "from": "导师", "assigned": T0 + 86400,
+                  "due": T0 + 5 * 86400, "effort": 6.0, "done": 0.0, "status": "open", "after_due": "close", "npc": None}}
+        neno = entity(c, "life", "neno")
+        neno["state"]["doing"].update(task="a", what="在弄：改开题报告第二章")
+        save_entity(c, neno)
+        emit(c, w, "p1", "task.progress", {"tid": "a", "title": "改开题报告第二章", "hours": 1.5, "gained": 1.2}, "neno")
+        emit(c, w, "p2", "task.progress", {"tid": "a", "title": "改开题报告第二章", "hours": 1.0, "gained": 0.8}, "neno")
+        emit(c, w, "m1", "task.missed", {"tid": "b", "title": "补文献综述", "outcome": "overdue", "share": 0.2}, "neno")
+        linked._save_world(c, w)
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="在忙啥",
+                                             history=[], self_card="")
+    text = wm_builder.render_working_memory(memory)
+    assert "你此刻在卧室，在弄：改开题报告第二章" in text
+    assert "- 已经过了期限（原定昨天）：补文献综述（导师；开了个头）" in text
+    assert "- 后天 15:00 前：改开题报告第二章（导师；做了一半）" in text
+    assert text.index("补文献综述") < text.index("- 后天 15:00 前")     # 欠着的排前面
+    assert "还没公布的活" not in text
+    lived = world_link.day_events(T0 - 60, T0 + 60)
+    assert "补文献综述到期了还没交" in " ".join(lived)
+    assert "这天在「改开题报告第二章」上花了 2.5 小时" in lived
