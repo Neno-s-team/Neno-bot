@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 
-from app.services.world import actions, happenings, life, npcs, perturbations, rhythms
+from app.services.world import actions, happenings, life, money, npcs, perturbations, rhythms
 from app.services.world.catalog import Catalog
 from app.services.world.models import ActionRequest, WorldCreate
 from app.services.world.randomness import sample, stable_id
@@ -83,6 +83,7 @@ class WorldEngine:
                 perturbations.setup(c, w)
                 npcs.setup(c, w, request.rhythms)
                 happenings.setup(c, w)
+                money.setup(c, w)
                 for value in values:
                     if value["kind"] == "actor":
                         life.schedule_choice(c, w, value["entity_id"], 1)
@@ -385,7 +386,7 @@ class WorldEngine:
             elif task["kind"] == "injection":
                 self._injected(c, w, task)
             elif (rhythms.handle(c, w, task) or perturbations.handle(c, w, task) or life.handle(c, w, task)
-                  or npcs.handle(c, w, task) or happenings.handle(c, w, task)):
+                  or npcs.handle(c, w, task) or happenings.handle(c, w, task) or money.handle(c, w, task)):
                 pass
             else:
                 raise WorldError("Unknown persistent job kind")

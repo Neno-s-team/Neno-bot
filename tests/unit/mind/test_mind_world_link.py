@@ -203,3 +203,28 @@ def test_she_knows_what_she_is_attending(linked):
         save_entity(c, neno)
     seg = schedule.segment_at(T0)
     assert seg["activity"] == "在听讲座《西湖文学地图》" and seg["level"] == 1
+
+
+def test_she_knows_how_her_wallet_is_doing(linked):
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.services.world import money
+    from app.storage.world_store import entity, save_entity, world as load_world
+    _set_doing(linked, "read")
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        neno = entity(c, "life", "neno")
+        neno["state"]["credits"] = 130
+        save_entity(c, neno)
+        food = entity(c, "life", "home_food")
+        food["state"]["quantity"] = 0
+        save_entity(c, food)
+        money.spend(c, w, "neno", 18, "张记锅贴", "吃饭", "t1", exact=True)
+        money.spend(c, w, "neno", 39, "话费", "bill", "t2", force=True, exact=True)
+        linked._save_world(c, w)
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="晚上吃啥",
+                                             history=[], self_card="")
+    text = wm_builder.render_working_memory(memory)
+    assert "手头：¥73，离下次到账还有 4 天，很紧；家里吃的没了" in text
+    lived = world_link.day_events(T0 - 60, T0 + 60)
+    assert any("交了话费 ¥39" in x for x in lived) and lived[-1] == "这天一共花了 ¥18"

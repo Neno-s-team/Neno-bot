@@ -223,8 +223,8 @@
      {
       "type": "credits",
       "range": [
-       -8,
-       -2
+       -30,
+       -5
       ]
      }
     ],
@@ -416,8 +416,8 @@
      {
       "type": "credits",
       "range": [
-       20,
-       60
+       50,
+       200
       ]
      }
     ]
@@ -486,8 +486,8 @@
      {
       "type": "credits",
       "range": [
-       150,
-       400
+       500,
+       1500
       ]
      }
     ]
@@ -904,7 +904,7 @@
     19
    ],
    "pref": "cafe",
-   "cost": 4,
+   "cost": 24,
    "uses": [
     "laptop"
    ],
@@ -1225,7 +1225,8 @@
    "when": {
     "weekend": 0.15
    },
-   "outdoor": 0.3
+   "outdoor": 0.3,
+   "restocks": true
   },
   {
    "id": "go_out",
@@ -1320,5 +1321,116 @@
  "happenings": {
   "pool": "hangzhou",
   "actor": "neno"
+ },
+ "money": {
+  "note": "占位：房租由家里直接付，不进她的账。她每月可支配 = 家里生活费 2000 + 学校补助 1100（助学金 600 + 助研 500）。",
+  "actor": "neno",
+  "initial": [
+   900,
+   1500
+  ],
+  "income": [
+   {
+    "id": "family",
+    "label": "妈妈转的生活费",
+    "day": 1,
+    "jitter_days": 2,
+    "amount": [
+     2000,
+     2000
+    ]
+   },
+   {
+    "id": "stipend",
+    "label": "学校发的补助",
+    "day": 15,
+    "jitter_days": 1,
+    "amount": [
+     1100,
+     1100
+    ]
+   }
+  ],
+  "bills": [
+   {
+    "id": "phone",
+    "label": "话费",
+    "day": 5,
+    "amount": [
+     39,
+     39
+    ]
+   },
+   {
+    "id": "membership",
+    "label": "视频会员",
+    "day": 12,
+    "amount": [
+     15,
+     25
+    ]
+   },
+   {
+    "id": "utilities",
+    "label": "水电燃气",
+    "day": 20,
+    "jitter_days": 3,
+    "amount": [
+     90,
+     190
+    ]
+   },
+   {
+    "id": "bike_pass",
+    "label": "共享单车月卡",
+    "day": 8,
+    "amount": [
+     20,
+     20
+    ]
+   }
+  ],
+  "prices": {
+   "cafe_latte": 22,
+   "cafe_bread": 14,
+   "conv_bread": 8,
+   "conv_snack": 9,
+   "canteen_meal": 14
+  },
+  "price_variation": 0.15,
+  "fare": {
+   "bike": 0,
+   "metro": [
+    2,
+    8
+   ]
+  },
+  "pantry": {
+   "item": "home_food",
+   "initial": [
+    2,
+    6
+   ],
+   "per_trip": [
+    4,
+    8
+   ],
+   "low": 2
+  },
+  "tight": {
+   "comfortable_per_day": 75,
+   "tight_per_day": 35
+  },
+  "ask_family": {
+   "below": 120,
+   "min_days_left": 4,
+   "cooldown_days": 25,
+   "chance": 0.5,
+   "amount": [
+    300,
+    500
+   ],
+   "label": "跟妈妈说了手头紧，妈妈转了点"
+  }
  }
 }

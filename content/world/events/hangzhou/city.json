@@ -256,7 +256,8 @@
      "weekend": 0.4
     },
     "times": 1,
-    "doing": "在{place}看{what}特展"
+    "doing": "在{place}看{what}特展",
+    "cost": 0
    }
   },
   {
@@ -315,7 +316,8 @@
      "weekend": 0.35
     },
     "times": 1,
-    "doing": "在{place}看电影：{film}"
+    "doing": "在{place}看电影：{film}",
+    "cost": 45
    }
   },
   {

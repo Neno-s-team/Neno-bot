@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.world import almanac, city, happenings, rhythms
+from app.services.world import almanac, city, happenings, money, rhythms
 from app.services.world import weather as weather_mood
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
@@ -91,6 +91,8 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
     result = []
     cooling = w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})
     stirred = happenings.boosts(w, aid)  # 世界里正在发生的事：楼上装修不想在家学、食堂上新想去吃
+    wallet = money.feel(c, w, aid)       # 手头松紧（没接钱时为 None）
+    stock = money.pantry(c, w) if wallet else None
     for choice in all_choices(w, aid):
         if cooling.get(choice["id"], 0) > w["sim_time"]:
             continue
@@ -109,7 +111,7 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
         if choice.get("venue"):
             if not city.enabled(w):
                 continue
-            picked = _pick_venue(w, aid, choice, here, hour, key or f"t{int(w['sim_time'])}")
+            picked = _pick_venue(w, aid, choice, here, hour, key or f"t{int(w['sim_time'])}", wallet)
             if picked is None:
                 continue
             place, bonus = picked
@@ -122,6 +124,11 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
                 continue
         if happenings.closed(w, place):
             continue  # 闭馆、关门转让
+        cost = _cost(c, w, choice, place)
+        if choice.get("eat") and _has(c, w, choice["eat"]) and entity(c, w["world_id"], choice["eat"])["state"].get("quantity", 1) < 1:
+            continue  # 家里没吃的了 / 卖完了
+        if wallet and cost > wallet["balance"]:
+            continue  # 钱不够：这件事现在做不成
         if room is not None and city.enabled(w):
             # 去一趟、做一会儿、再赶回下一件事：时间不够就不起这个念头（不会为了 20 分钟跑去 10 公里外看电影）
             way = city.route(w, here, place)["minutes"] / 60
@@ -131,6 +138,12 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
         score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0) + plans.get(choice["id"], 0.0) + bonus
         score += almanac.boost(w, w["sim_time"], choice.get("when"))  # 周末想出门、考试周想学习
         score += stirred.get(choice["id"], 0.0)
+        score += money.pinch(wallet, cost)  # 手头紧时贵的事不太想做（不是不能）
+        if choice.get("restocks") and stock is not None:
+            low = money.config(w)["pantry"]["low"]
+            if stock >= 5 * low:
+                continue  # 冰箱塞满了，不会再去买菜
+            score += 0.7 if stock <= low else -0.5 if stock >= 3 * low else 0.0  # 空了想着买，还有不少就不惦记
         if choice.get("outdoor"):
             score += float(choice["outdoor"]) * weather_mood.mood(sky)  # 冷、热、雨、风都不想在外面待
         for need, weight in choice.get("relieves", {}).items():
@@ -181,14 +194,16 @@ def _venue_memory(w, aid) -> dict:
     return known
 
 
-def _pick_venue(w, aid, choice, here, hour, key):
+def _pick_venue(w, aid, choice, here, hour, key, wallet=None):
     """城里挑具体一家：近的、开着的、去过觉得好的、偶尔想试试没去过的，加一点那天的心血来潮。
     返回 (店 id, 对这件事兴致的加减)；附近没开着的就 None。"""
     spec = choice["venue"]
     found = [v for v in city.nearby(w, here, spec["kinds"], spec.get("within_m", 2500), town=spec.get("town", False),
                                     limit=spec.get("consider", 25))
-             if city.open_at(v, hour) and not happenings.closed(w, v["id"])]
+             if city.open_at(v, hour) and not happenings.closed(w, v["id"])
+             and (wallet is None or city.price(v) <= wallet["balance"])]
     fresh = happenings.fresh_venues(w, aid)
+    dear = 0.15 + 0.6 * wallet["t"] if wallet else 0.0  # 平时也看价钱，手头紧时看得更重
     if not found:
         return None
     memory = _venue_memory(w, aid)
@@ -202,13 +217,23 @@ def _pick_venue(w, aid, choice, here, hour, key):
         if seen and seen.get("last"):
             ago = (w["sim_time"] - seen["last"]) / 3600
             known -= 0.6 if ago < 20 else 0.25 if ago < 60 else 0.0  # 昨天刚吃过，今天换一家
-        score = (-minutes / spec.get("minutes_scale", 20) + known
+        score = (-minutes / spec.get("minutes_scale", 20) + known - dear * city.price(v) / 50
                  + 0.3 * (2 * rhythms._draw(w, key, f"venue:{choice['id']}:{v['id']}") - 1))
         if best is None or score > best[1]:
             best = (v["id"], score, minutes, seen["like"] if seen else 0.0)
     # 想不想出门：只看路远不远、那家有多喜欢；没去过的店不扣兴致
     far = max(0.0, best[2] - 5) / spec.get("minutes_scale", 20)  # 楼下五分钟以内不算远
     return best[0], max(-1.0, min(0.6, 0.5 * max(0.0, best[3]) - 0.4 * far))
+
+
+def _cost(c, w, choice, place) -> float:
+    """这件事大概要花多少（不含车费）：店里的人均价 / 那样吃的的价钱 / 选项自带的花销。"""
+    cost = float(choice.get("cost") or 0)
+    if choice.get("venue") and _is_venue(w, place):
+        cost += city.price(city.data(w)["by_id"][place])
+    if choice.get("eat") and _has(c, w, choice["eat"]):
+        cost += float(entity(c, w["world_id"], choice["eat"])["state"].get("price_credits") or 0)
+    return cost
 
 
 def all_choices(w, aid) -> list[dict]:
@@ -291,6 +316,7 @@ def choose(c, w, task) -> None:
                  (w["world_id"], aid)).fetchone():
         return
     cfg, key = rhythms.config(w), task["job_id"]
+    money.ask_family(c, w, aid, key)
     deadline = _next_obligation(c, w, aid)
     room = (deadline - w["sim_time"]) / 3600 if deadline else 24.0
     options = _candidates(c, w, aid, actor, key, room)
@@ -358,12 +384,17 @@ def go(c, w, aid, choice, place, hours, key) -> None:
     if choice.get("happening"):
         after["happening"] = choice["happening"]
         after["what"] = choice.get("label")
+    if choice.get("cost"):
+        after["cost"] = choice["cost"]
+    if choice.get("restocks"):
+        after["restock"] = True
     if _is_venue(w, place):
         city.ensure_place(c, w, place)
         after["venue"] = {"id": place, "price": city.price(city.data(w)["by_id"][place]) if choice.get("venue") else 0,
                           "meal": bool((choice.get("venue") or {}).get("meal"))}
     if way and way.get("delay"):
         happenings.know(c, w, aid, happenings.state(w)["items"][way["delay"]], "坐地铁碰上了", key)
+    money.spend(c, w, aid, money.fare(w, way), "车费", "交通", key + ":fare", force=True, exact=True)
     if travel > 0:
         rhythms.start_activity(c, w, aid, "commute", source="life:travel", hours=travel, key=key + ":go", after=after)
         if way and way.get("label"):
@@ -382,7 +413,10 @@ def arrive(c, w, aid, after, key) -> None:
     if after.get("eat"):
         _eat(c, w, aid, after["eat"], key)
     if after.get("venue"):
-        _visit(c, w, aid, after["venue"], key)
+        _visit(c, w, aid, after["venue"], key, after)
+    if after.get("cost"):
+        money.spend(c, w, aid, after["cost"], after.get("what") or rhythms.config(w)["activities"][after["activity"]]["label"],
+                    _CATEGORY.get(after["activity"], "别的"), key + ":cost")
     rhythms.start_activity(c, w, aid, after["activity"], source=after["source"], hours=after.get("hours"), key=key + ":do")
     if after.get("happening"):
         happenings.attended(c, w, aid, after["happening"], key)
@@ -397,8 +431,18 @@ def arrive(c, w, aid, after, key) -> None:
     habits[_habit_key(w, after["place"])] = habits.get(_habit_key(w, after["place"]), 0.0) + 1
 
 
-def _visit(c, w, aid, venue, key) -> None:
-    """到了城里的某家店：记一笔（去过几次、花了多少），在外面吃饭也算吃饱。钱的账（C 之后）再接。"""
+_CATEGORY = {"eat": "吃饭", "drink": "奶茶咖啡", "shop": "买菜", "outing": "玩", "study": "奶茶咖啡", "attend": "玩"}
+
+
+def _visit(c, w, aid, venue, key, after=None) -> None:
+    """到了城里的某家店：付钱（不够就做不成）、记一笔（去过几次），在外面吃饭也算吃饱，买菜就把家里囤上。"""
+    after = after or {}
+    name = city.label(c, w, venue["id"])
+    paid = money.spend(c, w, aid, venue.get("price", 0), name, _CATEGORY.get(after.get("activity"), "别的"), key + ":pay")
+    if money.enabled(w, aid):
+        venue = {**venue, "price": paid}
+        if after.get("restock"):
+            money.restock(c, w, key)
     memory = _venue_memory(w, aid)
     seen = memory.setdefault(venue["id"], {"like": 0.0, "visits": 0, "first": w["sim_time"]})
     seen["visits"] += 1
@@ -415,7 +459,9 @@ def _eat(c, w, aid, item_id, key) -> None:
         raise WorldError("Nothing left to eat", 409)
     actor = entity(c, w["world_id"], aid)
     price = item["state"].get("price_credits")
-    if price:
+    if price and money.enabled(w, aid):
+        money.spend(c, w, aid, price, item["label"], "吃饭", key + ":eat")
+    elif price:
         if actor["state"].get("credits", 0) < price:
             raise WorldError("Not enough money", 409)
         actor["state"]["credits"] -= price

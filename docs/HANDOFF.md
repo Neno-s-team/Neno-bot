@@ -207,6 +207,11 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 见 `docs/world-events.md`。`almanac.py`（周末/节假日/学期）、`weather.py`（Open-Meteo 实况，20 分钟一次）、`happenings.py`（31 类世界事件，她按概率得知、打算去、可能没去）。
 注意：`content/world/calendar/cn.json` 的 2027 假期是估的，要按官方安排更新；出行超过骑车 30 分钟会改坐地铁（`city.COMFORT`）。
 
+## 5.13 钱（2026-11-12）
+
+见 `docs/world-events.md` 的 M1。`money.py`：每月到账、账单、每笔花销记账；手头松紧影响挑什么（加减分），钱不够才做不成；冰箱会吃空要买菜；见底有概率跟家里开口。**收入/账单数字是占位。**
+小事件的做法已和用户讲过（"小事表"：挂在到达/做完/路上等触发点，一行一件，带后果词汇和"值不值得说"），排在 ddl 之后做。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

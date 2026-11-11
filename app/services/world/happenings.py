@@ -425,6 +425,7 @@ def choice_for(w, inst: dict) -> dict:
             "base": attend.get("base", 0.15), "pref": attend.get("pref"), "hours": attend.get("open", [0, 24]),
             "when": attend.get("when"), "outdoor": attend.get("outdoor"), "relieves": attend.get("relieves", {}),
             "cooldown_hours": 20, "happening": inst["id"], "label": inst.get("doing") or inst["title"],
+            "cost": attend.get("cost"),
             **({"group": "outing"} if attend["activity"] == "outing" else {})}
 
 

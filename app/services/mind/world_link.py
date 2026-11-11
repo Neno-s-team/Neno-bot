@@ -141,6 +141,15 @@ def _around(w: dict[str, Any]) -> dict[str, Any]:
         sky = weather.line(json.loads(street["state"]))
         if sky:
             result["weather"] = sky
+    try:
+        from app.services.world import money
+        from app.storage.db import get_conn
+        with get_conn() as conn:
+            wallet = money.line(conn, w, config.MIND_WORLD_ACTOR)
+        if wallet:
+            result["money"] = wallet
+    except Exception:
+        pass
     lines = []
     for item in happenings.known_list(w, config.MIND_WORLD_ACTOR)[:6]:
         if item["start"] > now:
@@ -230,7 +239,7 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
     except Exception:
         return []
     tz = clock.local_now().tzinfo
-    lines, last = [], None
+    lines, last, spent = [], None, 0.0
     for row in rows:
         p = json.loads(row["payload"])
         at = datetime.fromtimestamp(row["sim_time"], tz).strftime("%H:%M")
@@ -255,6 +264,12 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
             text = f"去了{p.get('title')}" if p.get("times", 1) == 1 else None
         elif kind == "weather.changed":
             text = f"天气：{p.get('to')}" + (f"，{round(p['temp'])}°C" if p.get("temp") is not None else "")
+        elif kind == "money.income":
+            text = f"{p.get('label')}：¥{round(p.get('amount', 0))}"
+        elif kind == "money.bill":
+            text = f"交了{p.get('what')} ¥{round(p.get('amount', 0))}"
+        elif kind == "money.spent":
+            spent += float(p.get("amount", 0))
         elif kind == "life.fixed":
             text = f"把{p.get('label')}修好了"
         elif kind == "life.fix_failed":
@@ -266,7 +281,10 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
         if text and text != last:
             lines.append(f"{at} {text}")
             last = text
-    return lines[-limit:]
+    lines = lines[-limit:]
+    if spent >= 1:
+        lines.append(f"这天一共花了 ¥{round(spent)}")
+    return lines
 
 
 def _fetch_events(start: float, end: float):
