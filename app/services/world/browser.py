@@ -43,8 +43,17 @@ def chrome() -> Path | None:
     return None
 
 
+def manual_open() -> bool:
+    """用户是不是正开着她的窗口。锁文件超过 12 小时当作没清掉的旧锁（开窗口的脚本被强行关掉会留下它）。"""
+    import time
+    try:
+        return time.time() - MANUAL.stat().st_mtime < 12 * 3600
+    except OSError:
+        return False
+
+
 def available() -> bool:
-    return sys.platform == "win32" and tool().is_file() and chrome() is not None and not MANUAL.exists()
+    return sys.platform == "win32" and tool().is_file() and chrome() is not None and not manual_open()
 
 
 # ── 在隐藏桌面上启动 ─────────────────────────────────────────────────────────

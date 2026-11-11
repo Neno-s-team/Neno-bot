@@ -555,6 +555,10 @@ def test_her_window_being_open_keeps_the_background_browser_away(tmp_path, monke
     before = REAL_AVAILABLE()
     (tmp_path / "neno.manual").write_text("x", encoding="utf-8")
     assert REAL_AVAILABLE() is False                               # 用户正开着她的窗口：后台不启动
-    if before:
-        (tmp_path / "neno.manual").unlink()
-        assert REAL_AVAILABLE() is True
+    assert browser.manual_open() is True
+    import os
+    import time
+    old = time.time() - 13 * 3600
+    os.utime(tmp_path / "neno.manual", (old, old))
+    assert browser.manual_open() is False                          # 半天前留下的旧锁不算数
+    assert REAL_AVAILABLE() is before
