@@ -269,7 +269,7 @@ def test_fixing_is_a_draw_not_a_guarantee(tmp_path):
     always = make(tmp_path, "fix", "always.db")
     run(always, 1)
     _break_laptop(always, 1.0)
-    events = run(always, 2)
+    events = run(always, 3)   # 坏了不一定当天修：给两天
     fixed = [e for e in events if e["kind"] == "life.fixed"]
     assert len(fixed) == 1 and fixed[0]["payload"]["item"] == "laptop"
     assert not any(e["kind"] == "activity.started" and e["payload"]["source"] == "life:fix_item"

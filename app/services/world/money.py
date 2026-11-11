@@ -196,9 +196,12 @@ def line(c, w, aid: str) -> str:
     info = feel(c, w, aid)
     if not info:
         return ""
-    days = round(info["days"])
-    when = "明天到账" if days <= 1 else f"离下次到账还有 {days} 天"
-    text = f"¥{round(info['balance'])}，{when}，{info['word']}"
+    if info["level"] == 0:
+        text = "宽裕，不用算着花"      # 不缺钱的时候她不会惦记余额和哪天到账
+    else:
+        days = round(info["days"])
+        when = "明天到账" if days <= 1 else f"离下次到账还有 {days} 天"
+        text = f"¥{round(info['balance'])}，{when}，{info['word']}"
     stock = pantry(c, w)
     if stock is not None and stock <= config(w)["pantry"]["low"]:
         text += "；家里吃的" + ("没了" if stock < 1 else "快没了")

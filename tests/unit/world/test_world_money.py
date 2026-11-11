@@ -52,7 +52,8 @@ def _scores(c, w, **kw):
 def test_starts_with_money_prices_and_a_few_meals_at_home(engine):
     with engine.store.transaction() as c:
         w = world(c, "w")
-        assert 900 <= money.balance(c, w, "neno") <= 1500
+        assert 30000 <= money.balance(c, w, "neno") <= 50000     # 家境宽裕：有存款
+        assert money.feel(c, w, "neno")["word"] == "宽裕" and money.line(c, w, "neno").startswith("宽裕，不用算着花")
         assert entity(c, "w", "canteen_meal")["state"]["price_credits"] == 14
         assert 2 <= money.pantry(c, w) <= 6
         due = {r[0].split(":")[1] for r in c.execute("SELECT job_id FROM world_jobs WHERE kind='money_due' AND status='pending'")}
@@ -80,7 +81,8 @@ def test_a_month_of_income_bills_and_books_that_balance(tmp_path):
     assert end == pytest.approx(start + sum(p["amount"] for p in income) - sum(p["amount"] for p in spent) + gifts, abs=0.5)
     assert sum(d["spent"] for d in ledger.values()) == pytest.approx(sum(p["amount"] for p in spent), abs=0.5)
     per_day = sum(p["amount"] for p in spent) / 35
-    assert 40 <= per_day <= 120   # 一个学生一天的花销量级
+    assert 50 <= per_day <= 220   # 不缺钱的学生一天的花销量级
+    assert end > 25000            # 正常过日子花不穷
 
 
 def test_tight_wallet_shifts_what_she_feels_like_but_does_not_forbid(engine):

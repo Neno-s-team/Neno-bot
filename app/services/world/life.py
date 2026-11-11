@@ -209,7 +209,8 @@ def _pick_venue(w, aid, choice, here, hour, key, wallet=None):
              if city.open_at(v, hour) and not happenings.closed(w, v["id"])
              and (wallet is None or city.price(v) <= wallet["balance"])]
     fresh = happenings.fresh_venues(w, aid)
-    dear = 0.15 + 0.6 * wallet["t"] if wallet else 0.0  # 平时也看价钱，手头紧时看得更重
+    # 平时看不看价钱是她的家境（price_sense）；手头紧时才看得重
+    dear = money.config(w).get("price_sense", 0.15) + 0.6 * wallet["t"] if wallet else 0.0
     if not found:
         return None
     memory = _venue_memory(w, aid)
