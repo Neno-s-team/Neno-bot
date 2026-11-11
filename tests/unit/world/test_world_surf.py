@@ -178,6 +178,11 @@ def test_dead_pages_and_bad_answers_do_not_break_it():
     assert result["trail"] == ["点开《一个要登录才能看的帖子》，没什么内容", "看了《鱼龙和沧龙》"]   # 要登录的页面：留在原来那屏
     assert [n["note"] for n in result["notes"]] == ["有意思"] and len(result["pages"]) == 1
     assert run(scripted("这不是 JSON"))["calls"] == 1                                    # 模型答得不成样子：这回到此为止
+    fenced = '好的，她会这样：\n```json\n{"feel": "", "share": 0, "do": "open", "link": 1, "query": null, "why": ""}\n```'
+    assert len(run(scripted(fenced, {"do": "stop"}))["pages"]) == 1                     # 有的线路在 JSON 外面包了一层：照样认
+    assert run(scripted('{"answer": "open"}'))["pages"] == []                           # 没有 do：不算数
+    twice = '{"feel": "", "share": 0, "do": "open", "link": 1, "query": null, "why": ""} {"do": "stop"}'
+    assert len(run(scripted(twice, {"do": "stop"}))["pages"]) == 1                      # 连着好几段：只认第一段
     assert run(scripted({"do": "open", "link": 99}))["pages"] == []                     # 点了屏幕上没有的
     result = run(scripted({"do": "search", "query": "搜不到的词"}, {"do": "stop"}))
     assert result["trail"] == ["搜了「搜不到的词」", "没搜到什么"] and result["calls"] == 2
@@ -244,18 +249,20 @@ def test_only_while_she_is_on_her_phone_and_once_per_time(engine):
 
 
 def test_daily_limit_and_new_day(engine):
-    for i in range(3):
+    with engine.store.transaction() as c:
+        per_day = surf.config(world(c, "w"))["sessions_per_day"]
+    for i in range(per_day):
         _doing(engine, "scroll", f"p{i}", shift=600)
         assert _go(engine, {"do": "open", "link": 1}, {"do": "stop"}) == []   # 上了、看了，但没什么感觉：不留东西
         with engine.store.transaction(write=True) as c:
             w = world(c, "w")
             surf.state(w)["seen"].clear()
             engine._save_world(c, w)
-    _doing(engine, "scroll", "p3", shift=600)
-    assert _go(engine, *READ_ONE) is None                         # 今天三次用完了
-    _doing(engine, "scroll", "p4", shift=6 * 3600)                # 凌晨三点多：还算今天
+    _doing(engine, "scroll", "p_over", shift=600)
+    assert _go(engine, *READ_ONE) is None                         # 今天的次数用完了
+    _doing(engine, "scroll", "p_night", shift=4.5 * 3600)         # 凌晨三点多：还算今天
     assert _go(engine, *READ_ONE) is None
-    _doing(engine, "scroll", "p5", shift=12 * 3600)               # 第二天下午
+    _doing(engine, "scroll", "p_next", shift=12 * 3600)           # 第二天下午
     assert _go(engine, *READ_ONE) is not None
 
 
@@ -318,9 +325,9 @@ APPS = [{"name": "X", "url": HOME, "hint": "她自己的号"}, {"name": "微博"
 class FakeBrowser:
     """假浏览器：页面是写好的快照，点哪个编号去哪页由 LINKS 定。记下她做过的每个动作。"""
 
-    def __init__(self, broken=(), stuck=(), no_back=False):
+    def __init__(self, broken=(), stuck=(), no_back=False, endless=False):
         self.at, self.trail, self.log, self.closed, self.broken, self.stuck = None, [], [], False, broken, stuck
-        self.no_back = no_back
+        self.no_back, self.endless, self.slid = no_back, endless, 0
 
     def _go(self, url):
         self.trail.append(url)
@@ -334,7 +341,8 @@ class FakeBrowser:
         return PAGES[url][0]
 
     def snapshot(self):
-        return PAGES[self.at][1]
+        more = "".join(f'  - article\n    - StaticText "滑出来的第 {i + 1} 条新内容"\n' for i in range(self.slid))
+        return PAGES[self.at][1] + more
 
     def title(self):
         return PAGES[self.at][0]
@@ -357,6 +365,7 @@ class FakeBrowser:
 
     def scroll(self):
         self.log.append(("scroll",))
+        self.slid += 1 if self.endless else 0
 
     def back(self):
         self.log.append(("back",))
@@ -419,6 +428,12 @@ def test_she_cannot_publish_spend_or_touch_the_account():
     assert "现在点不了" in ask.seen[2][1]["content"] and "屏幕上没有这个编号" in ask.seen[6][1]["content"]
     assert surf._kind("3481 次点赞。点赞") == "like" and surf._kind("已点赞") == "" and surf._kind("关注 @hz") == "follow"
     assert surf._kind("正在关注") == "" and surf._kind("取消关注 @hz") == "no" and surf._kind("书签") == ""
+    assert surf._kind("28 Likes. Like") == "like" and surf._kind("赞同") == "like" and surf._kind("Liked") == ""   # 英文界面、Reddit
+    assert surf._kind("Follow @nasa") == "follow" and surf._kind("加入") == "follow" and surf._kind("Following") == ""
+    assert surf._kind("Follow back @Xuanye5250") == "follow"
+    assert {surf._kind(x) for x in ("64 Replies. Reply", "22 reposts. Repost", "Post", "创建帖子", "Direct Messages",
+                                    "Subscribe to Premium", "Log out")} == {"no"}
+    assert surf._kind("Show 315 posts") == "" and surf._kind("Replies") == "" and surf._kind("Bookmark") == ""
 
 
 def test_likes_and_follows_have_a_daily_limit():
@@ -450,6 +465,38 @@ def test_local_addresses_and_login_walls_bounce_her_back():
     assert result["likes"] == 0 and "没点动" in ask.seen[2][1]["content"]              # 被弹窗挡住没点动：告诉她，不当成点了赞
 
 
+def test_a_feeling_must_be_about_something_on_the_screen():
+    ask = scripted(step("open", app="X"),
+                   step("scroll", feel="北山街的银杏黄了，想出去走走", about="北山街的梧桐和银杏黄了", share=0.5),   # 这是她"听说的事"，屏幕上没有
+                   step("open", app="微博"),
+                   step("scroll", feel="这条有意思", about="“微博上的一条热门”", share=0.4), step("stop"))
+    result, _ = browse(ask, steps=10)
+    assert [n["title"] for n in result["notes"]] == ["微博上的一条热门"]          # 屏幕上没有的不算刷到
+    ask = scripted(step("open", app="微博"), *[step("scroll")] * 4, step("stop"))
+    browse(ask, FakeBrowser(endless=True))                                        # 一直滑得出新东西的信息流
+    assert "滑出来的第 3 条新内容" in ask.seen[4][1]["content"]
+    assert "已经连着滑了 4 下" in ask.seen[5][1]["content"] and "已经连着滑了" not in ask.seen[4][1]["content"]   # 提醒她可以退出去或换地方
+    # 模型少填字段也尽量认：没填 app，但话里说了去哪
+    lenient = scripted({"do": "open", "why": "先去微博看看"}, {"do": "open", "why": "随便看看"}, {"do": "click"}, {"do": "stop"})
+    result, _ = browse(lenient)
+    assert result["apps"] == ["微博"] and "没看懂要打开哪个" not in lenient.seen[1][1]["content"]
+    assert "屏幕上没有这个编号" in lenient.seen[3][1]["content"]
+    nowhere = scripted({"do": "open", "why": "随便看看"}, {"do": "scroll"}, {"do": "stop"})
+    browse(nowhere)
+    assert "没看懂要打开哪个" in nowhere.seen[1][1]["content"] and "只能 open 一个地方" in nowhere.seen[2][1]["content"]
+
+
+def test_she_puts_the_phone_down_when_her_time_is_up():
+    import time
+    ask = scripted(*[step("open", app="X")] * 5)
+    result = surf.browse("她的自我卡：……", APPS, steps=40, ask=ask, browser=FakeBrowser(), check_url=public_only,
+                         until=time.time() - 1)                      # 世界里这回刷手机已经到点了
+    assert result["calls"] == 1 and result["apps"] == [] and "放下手机" in ask.seen[0][1]["content"]
+    result = surf.browse("她的自我卡：……", APPS, steps=40, ask=scripted(step("open", app="X"), step("stop")),
+                         browser=FakeBrowser(), check_url=public_only, until=time.time() + 600)
+    assert result["apps"] == ["X"]                                   # 没到点：照常
+
+
 def test_she_does_not_get_stuck_on_a_page():
     ask = scripted(step("open", app="微博"), *[step("scroll")] * 4, step("stop"))
     result, window = browse(ask)
@@ -462,6 +509,12 @@ def test_she_does_not_get_stuck_on_a_page():
     result, window = browse(ask, FakeBrowser(no_back=True))
     assert window.log == [("open", HOME), ("click", "e2"), ("back",), ("open", HOME)]
     assert "退不回去，回到了X的首页" in ask.seen[3][1]["content"]
+    # 她打开的第一页再往回退是空白页：也回首页
+    blank = FakeBrowser()
+    blank.back = lambda: (blank.log.append(("back",)), setattr(blank, "at", "about:blank"))
+    PAGES["about:blank"] = ("", "")
+    browse(scripted(step("open", app="X"), step("back"), step("stop")), blank)
+    assert blank.log == [("open", HOME), ("back",), ("open", HOME)] and blank.at == HOME
 
 
 def test_dead_browser_does_not_hang_the_session():
@@ -539,6 +592,14 @@ def test_browser_trouble_falls_back_to_plain_reading(engine, monkeypatch):
     moves = (step("open", app="X"), {"do": "open", "link": 1}, {"do": "stop", "feel": "有意思", "share": 0.5})
     landed = _surf_once(engine, "w", ask=scripted(*moves), fetch=fetch, make_browser=lambda: window)
     assert landed == ["刷手机看到《鱼龙和沧龙》：有意思"] and window.closed       # 浏览器打不开：这回改用不开浏览器的方式
+
+
+def test_she_knows_who_he_is_online(engine):
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        surf.state(w)["friends"].append({"app": "X", "handle": "@someone", "name": "某人", "who": "他（和你聊天的那个人）",
+                                         "note": "他关注了你。"})
+        assert "X 上的 @someone（某人）是他（和你聊天的那个人）。他关注了你。" in surf.brief(c, w, "neno")
 
 
 def test_offline_does_not_use_up_her_day(engine):

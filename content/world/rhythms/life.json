@@ -2001,9 +2001,9 @@
   "want": 0.65
  },
  "surf": {
-  "note": "上网：她刷手机时真的在上网（只看不登录）。每次最多 steps 步，一步一次便宜模型调用；每天最多 sessions_per_day 次。block 是不去的站（主机名里含这些词）。",
+  "note": "上网：她刷手机时真的在上网。不用浏览器的方式每次最多 steps 步；用浏览器时见 browser.steps，并且世界里这回刷手机到点了就放下。每天最多 sessions_per_day 次。模型走 WORLD_SURF_URL / WORLD_SURF_MODEL（用户定：本机 magpie 网关的 deepseek，不限调用次数）。block 是不去的站（主机名里含这些词）。",
   "actor": "neno",
-  "sessions_per_day": 3,
+  "sessions_per_day": 6,
   "steps": 6,
   "feeds": [
    "zhihu",
@@ -2019,38 +2019,40 @@
    "bet365"
   ],
   "browser": {
-   "note": "她自己的浏览器（真 Chrome，开在隐藏桌面上，agent-browser 驱动）。share：一回上网里用浏览器的比例，其余走不用浏览器的方式。apps 是手机桌面上的地方；X 要等她的账号登录好再把 enabled 改成 true。她能点赞、收藏、关注（每天有上限），不能发帖、回复、转发、花钱、动账号。",
+   "note": "她自己的浏览器（真 Chrome，开在隐藏桌面上，agent-browser 驱动）。share：一回上网里用浏览器的比例，其余走不用浏览器的方式。apps 是手机桌面上的地方；X、小红书、Reddit 是用户在她的专属窗口里登录好的（2026-11-12）。她能点赞、收藏、关注（每天有上限），不能发帖、回复、转发、花钱、动账号。",
    "share": 0.7,
-   "steps": 10,
+   "steps": 40,
    "likes_per_day": 10,
    "follows_per_day": 2,
    "apps": [
     {
      "name": "X",
      "url": "https://x.com/home",
-     "hint": "她自己的号",
-     "enabled": false
+     "hint": "她自己的号 @NenoAgent"
     },
     {
-     "name": "微博",
-     "url": "https://weibo.com/hot/weibo/102803",
-     "hint": "热门"
+     "name": "小红书",
+     "url": "https://www.xiaohongshu.com/explore",
+     "hint": "她自己的号"
     },
     {
-     "name": "微博热搜",
-     "url": "https://s.weibo.com/top/summary"
-    },
-    {
-     "name": "抖音",
-     "url": "https://www.douyin.com/jingxuan"
+     "name": "Reddit",
+     "url": "https://www.reddit.com/",
+     "hint": "她自己的号"
     },
     {
      "name": "B站",
      "url": "https://www.bilibili.com/"
     },
     {
-     "name": "小红书",
-     "url": "https://www.xiaohongshu.com/explore"
+     "name": "微博热搜",
+     "url": "https://s.weibo.com/top/summary",
+     "hint": "没登录，只能看榜"
+    },
+    {
+     "name": "抖音",
+     "url": "https://www.douyin.com/jingxuan",
+     "hint": "没登录"
     }
    ]
   }

@@ -181,22 +181,36 @@ class Browser:
 
 # ── 快照 → 给模型看的一屏 ────────────────────────────────────────────────────
 
-_LINE = re.compile(r'^\s*- (\w+)(?: "((?:[^"\\]|\\.)*)")?(.*)$')
+_LINE = re.compile(r'^(\s*)- (\w+)(?: "((?:[^"\\]|\\.)*)")?(.*)$')
+_JUNK = re.compile(r"ICP备|公网安备|许可证|备案|举报|网信算备|©|营业执照|资格证书|经营者信息|^地址：|^电话：|有限公司$"
+                   r"|keyboard shortcuts|^Skip to|^跳到|^跳至")
 _KINDS = {"link": "", "button": "按钮 ", "textbox": "输入框 ", "searchbox": "输入框 ", "combobox": "输入框 ", "tab": "标签 "}
 
 
 def condense(snapshot: str) -> tuple[list[str], dict[str, tuple[str, str]]]:
-    """agent-browser 的快照 → (一行行给模型看的字, {编号: (角色, 文字)})。结构性的行不要，重复的字不要。"""
+    """agent-browser 的快照 → (一行行给模型看的字, {编号: (角色, 文字)})。结构性的行不要，重复的字不要。
+    页面有正文区（main）时只给正文区里的字——导航栏、页脚不占她的屏幕；编号表仍收全页的（搜索框常在正文区外面）。"""
+    rows = [found for found in map(_LINE.match, snapshot.splitlines()) if found]
+    inside, depth = [False] * len(rows), None
+    for i, found in enumerate(rows):
+        indent = len(found.group(1))
+        if depth is not None and indent <= depth:
+            depth = None
+        if depth is None and found.group(2) == "main":
+            depth = indent
+        inside[i] = depth is not None
+    scoped = any(inside)
     lines: list[str] = []
     refs: dict[str, tuple[str, str]] = {}
     last = None
-    for raw in snapshot.splitlines():
-        found = _LINE.match(raw)
-        if not found:
-            continue
-        role, rest = found.group(1), found.group(3)
-        name = clean((found.group(2) or "").replace("\\n", " ").replace('\\"', '"'), 160)
+    for found, shown in zip(rows, inside):
+        role, rest = found.group(2), found.group(4)
+        name = clean((found.group(3) or "").replace("\\n", " ").replace('\\"', '"'), 160)
         ref = re.search(r"ref=(e\d+)", rest)
+        if ref and role in _KINDS and name:
+            refs[ref.group(1)] = (role, name)
+        if (scoped and not shown) or _JUNK.search(name):
+            continue
         if role == "article":
             if lines and lines[-1] != "——":
                 lines.append("——")   # 一条帖子 / 一篇内容的分隔
@@ -210,7 +224,6 @@ def condense(snapshot: str) -> tuple[list[str], dict[str, tuple[str, str]]]:
             last = name
         elif ref and role in _KINDS and name:
             lines.append(f"[{ref.group(1)}] {_KINDS[role]}{name}")
-            refs[ref.group(1)] = (role, name)
             last = name
         elif role == "image" and len(name) > 3 and name != last:
             lines.append(f"（图：{name[:50]}）")

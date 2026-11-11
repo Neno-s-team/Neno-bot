@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import os
 import re
 import socket
 from html.parser import HTMLParser
@@ -35,6 +36,29 @@ def config(w) -> dict | None:
     return (rhythms.config(w) or {}).get("surf")
 
 
+def request(messages, schema, name, max_tokens) -> str:
+    """替她刷手机的那个模型。默认和 NPC 同一个（npcs._request）；
+    设了 WORLD_SURF_URL + WORLD_SURF_MODEL 就走那里（比如本机网关），密钥 WORLD_SURF_API_KEY。"""
+    url, model = os.getenv("WORLD_SURF_URL", "").strip(), os.getenv("WORLD_SURF_MODEL", "").strip()
+    if not url or not model:
+        from app.services.world import npcs
+        return npcs._request(messages, schema, name, max_tokens)
+    from app.llm.openrouter_client import chat_with_openrouter
+    return chat_with_openrouter(
+        api_key=os.getenv("WORLD_SURF_API_KEY", "").strip() or "local", url=url, model_name=model, messages=messages,
+        timeout=45, max_tokens=max_tokens, purpose="world_surf",
+        extra_body={"response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}})
+
+
+def _answer(raw: str) -> dict:
+    """模型的回答 → dict。有的线路不严格按格式来（外面包一层 ```json、前后带话），把花括号那一段抠出来。"""
+    text = str(raw or "")
+    data, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])   # 只认第一段（有的回答后面还拖着别的）
+    if not isinstance(data, dict) or "do" not in data:
+        raise ValueError("回答里没有 do")
+    return data
+
+
 def enabled(w) -> bool:
     return bool(config(w))
 
@@ -42,7 +66,7 @@ def enabled(w) -> bool:
 def state(w) -> dict:
     st = w["settings"].setdefault("surf", {})
     for name, empty in (("day", ""), ("sessions", 0), ("calls", 0), ("jobs", []), ("seen", []), ("likes", 0),
-                        ("follows", 0), ("apps", {})):
+                        ("follows", 0), ("apps", {}), ("friends", [])):
         st.setdefault(name, empty)
     return st
 
@@ -312,7 +336,8 @@ PROMPT = """你在替"她"刷手机。她是谁见下面的自我卡。这是她
 - share：0 到 1，她有多想把这个跟亲近的人说。
 - do：open（点屏幕上的一条）/ search（搜点东西）/ back（退回上一屏）/ stop（不看了）。
 - link：open 时给屏幕上的编号，否则 null；query：search 时给短的搜索词，否则 null。
-- why：一句话，她为什么想点这个 / 搜这个 / 不看了。"""
+- why：一句话，她为什么想点这个 / 搜这个 / 不看了。
+六个字段都要有，样子像这样：{"feel": "", "share": 0, "do": "open", "link": 3, "query": null, "why": "这个标题有意思"}"""
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["feel", "share", "do", "link", "query", "why"],
           "properties": {"feel": {"type": "string"}, "share": {"type": "number"},
@@ -344,8 +369,8 @@ def session(brief: str, feeds: list[str], seen: list[str], pick, *, steps: int, 
                    + ("\n\n（看完这一眼就放下手机：do 填 stop）" if last else ""))
         result["calls"] += 1
         try:
-            move = json.loads(ask([{"role": "system", "content": PROMPT}, {"role": "user", "content": content}],
-                                  SCHEMA, "surf_step", 300))
+            move = _answer(ask([{"role": "system", "content": PROMPT}, {"role": "user", "content": content}],
+                               SCHEMA, "surf_step", 300))
             share = max(0.0, min(1.0, float(move.get("share") or 0)))
         except Exception:
             break  # 模型没给出能用的回答：这回到此为止
@@ -420,7 +445,7 @@ def due(c, w) -> dict | None:
     if spec and browser.available() and sample(w["seed"], "surf:" + doing["job"], "mode") < spec.get("share", 0.7):
         # 这一回用她自己的浏览器。常去的地方排前面（去得多的越排越前——习惯是自己养出来的）
         apps = sorted((a for a in spec["apps"] if a.get("enabled", True)), key=lambda a: -st["apps"].get(a["name"], 0))
-        job["browser"] = {"apps": apps, "steps": spec.get("steps", 10),
+        job["browser"] = {"apps": apps, "steps": spec.get("steps", 40), "seconds": doing["until"] - w["sim_time"],
                           "limits": {"likes": max(0, spec.get("likes_per_day", 10) - st["likes"]),
                                      "follows": max(0, spec.get("follows_per_day", 2) - st["follows"])}}
     return job
@@ -451,6 +476,10 @@ def brief(c, w, aid: str) -> str:
     small = [m["text"] for m in moments.recent(c, w, aid)]
     if small:
         lines.append("今天碰到的小事：" + "；".join(small))
+    # 网上她认得的人（只存在这个世界的数据里，不进仓库）：比如和她聊天的那个人在 X 上的号
+    for friend in state(w)["friends"]:
+        lines.append(f"{friend['app']} 上的 {friend['handle']}（{friend.get('name') or ''}）是{friend['who']}。"
+                     + (friend.get("note") or ""))
     return "\n".join(lines)
 
 
@@ -504,6 +533,9 @@ BROWSE_PROMPT = """你在替"她"刷手机，这回用的是她自己的浏览�
 - do：open（在手机桌面上打开一个地方，app 填名字）/ click（点一个带编号的，ref 填编号，如 e12）/ scroll（往下滑）/
   search（在这个网站里搜，query 填词）/ back（退回上一页）/ home（回手机桌面）/ stop（不看了）。用不到的字段填 null。
 - why：一句话，她为什么这么做。
+八个字段都要有，样子像这样：
+{"feel": "", "about": "", "share": 0, "do": "open", "app": "小红书", "ref": null, "query": null, "why": "先看看小红书"}
+{"feel": "这也太好笑了", "about": "今天杭州的银杏", "share": 0.4, "do": "click", "app": null, "ref": "e12", "query": null, "why": "想点开看看"}
 她可以点赞、收藏、关注；不能发帖、回复、转发、买东西、登录或注册——那些按钮点了没用。"""
 
 BROWSE_SCHEMA = {"type": "object", "additionalProperties": False,
@@ -515,7 +547,8 @@ BROWSE_SCHEMA = {"type": "object", "additionalProperties": False,
 
 SCREEN_CHARS = 3000
 # 她现在不能做的事：往外发东西、花钱、动账号。按按钮上的字拦（宁可多拦）。
-_NO_PUBLISH = ("发帖", "发布", "发送", "回复", "转帖", "转发", "引用", "私信", "Post", "Reply", "Repost", "Quote", "Send", "Message")
+_NO_PUBLISH = ("发帖", "发布", "发送", "回复", "转帖", "转发", "引用", "私信", "创建", "Post", "Reply", "Repost", "Quote", "Send",
+               "Message", "Create")
 _NO_MONEY = ("购买", "支付", "下单", "结算", "购物车", "充值", "打赏", "订阅", "Buy", "Pay", "Checkout", "Subscribe", "Premium")
 _NO_ACCOUNT = ("登录", "注册", "退出", "Log in", "Sign in", "Sign up", "Log out", "删除", "Delete", "屏蔽", "Block", "举报",
                "Report", "取消关注", "Unfollow", "设置", "Settings")
@@ -533,11 +566,21 @@ def _kind(name: str) -> str:
     """这个按钮是干嘛的：like / follow / no（不让点）/ 空串（随便点）。"""
     if any(word in name for word in _NO_PUBLISH + _NO_MONEY + _NO_ACCOUNT):
         return "no"
-    if re.search(r"点赞|喜欢|\bLike\b", name) and not re.search(r"已点赞|已喜欢|取消|Liked|Unlike", name):
+    if re.search(r"点赞|喜欢|赞同|\bLikes?\b|\bUpvote\b", name) and not re.search(
+            r"已点赞|已喜欢|已赞同|取消|Liked|Unlike|Upvoted", name):
         return "like"
-    if re.fullmatch(r"(关注|Follow)( @?\S+)?", name.strip()):
+    if re.fullmatch(r"(关注|回关|加入|Follow back|Follow|Join)( @?\S+)?", name.strip()):
         return "follow"
     return ""
+
+
+def _on_screen(about: str, shown: list[str]) -> bool:
+    """她说有感觉的那条，是不是真的在这一屏上（拿开头几个字去对）。没说是哪条就算在。"""
+    if not about:
+        return True
+    squeeze = lambda text: re.sub(r"\s+", "", text)  # noqa: E731
+    head = squeeze(about)[:8]
+    return len(head) >= 3 and head in squeeze("".join(shown))
 
 
 def _key(line: str) -> str:
@@ -563,22 +606,25 @@ def _window(lines: list[str], seen: set[str]) -> tuple[list[str], bool]:
     return shown, False
 
 
-def browse(brief: str, apps: list[dict], *, steps: int, ask, browser, limits: dict | None = None, check_url=None) -> dict:
+def browse(brief: str, apps: list[dict], *, steps: int, ask, browser, limits: dict | None = None, check_url=None,
+           until: float | None = None) -> dict:
     """用她的浏览器上一次网。browser 是 browser.Browser（或测试里的假浏览器）；第一次打开地方时才真的启动。
-    一个地方都没打开成就抛 Unavailable（调用方退回不用浏览器的上网）。"""
+    一个地方都没打开成就抛 Unavailable（调用方退回不用浏览器的上网）。
+    until：她在世界里这回刷手机到什么时候（真实时间戳）——到点了就看最后一眼、放下。"""
+    import time
     from app.services.world.browser import Unavailable, condense
     limits = {"likes": 10, "follows": 2, **(limits or {})}
     check_url = check_url or check
     did = ""   # 上一步做了什么
     result: dict = {"mode": "browser", "pages": [], "queries": [], "notes": [], "calls": 0, "trail": [], "apps": [],
                     "likes": 0, "follows": 0}
-    where, notice, empty = None, "", 0
+    where, notice, empty, slides = None, "", 0, 0
     seen: set[str] = set()   # 这一页上她已经看过的行
     start = {a["name"]: a["url"] for a in apps}
     walls: dict[str, int] = {}
     try:
         for step in range(steps):
-            last = step == steps - 1
+            last = step == steps - 1 or (until is not None and time.time() >= until)
             if where is not None:
                 title, url = _title(browser.title()), browser.url()
                 if _walled(url, title):   # 点进去是登录页：她在这儿没有号。回这个地方的首页；再碰到就回桌面
@@ -610,27 +656,32 @@ def browse(brief: str, apps: list[dict], *, steps: int, ask, browser, limits: di
                        + ("\n\n（看完这一眼就放下手机：do 填 stop）" if last else ""))
             result["calls"] += 1
             try:
-                move = json.loads(ask([{"role": "system", "content": BROWSE_PROMPT}, {"role": "user", "content": content}],
-                                      BROWSE_SCHEMA, "surf_browse", 300))
+                move = _answer(ask([{"role": "system", "content": BROWSE_PROMPT}, {"role": "user", "content": content}],
+                                   BROWSE_SCHEMA, "surf_browse", 300))
                 share = max(0.0, min(1.0, float(move.get("share") or 0)))
             except Exception:
                 break
             feel = clean(str(move.get("feel") or ""), 60)
-            if feel and where is not None and shown:
-                result["notes"].append({"title": clean(str(move.get("about") or ""), 40) or title, "url": url, "note": feel,
-                                        "share": share, "app": where})
+            about = clean(str(move.get("about") or ""), 40).strip("《》「」“”\"' ")
+            if feel and where is not None and shown and _on_screen(about, shown):
+                result["notes"].append({"title": about or title, "url": url, "note": feel, "share": share, "app": where})
             if last:
                 break
             notice, do = "", move.get("do")
             did = do
+            if do != "scroll":
+                slides = 0
             try:
                 if do == "home":
                     where = None
                 elif do == "open":   # 在桌面上打开一个地方；正看着别处时也可以直接换过去
-                    app = next((a for a in apps if a["name"] == move.get("app")), None) or next(
-                        (a for a in apps if move.get("app") and str(move["app"]) in a["name"]), None)
+                    said = str(move.get("app") or "")
+                    app = (next((a for a in apps if a["name"] == said), None)
+                           or next((a for a in apps if said and (said in a["name"] or a["name"] in said)), None)
+                           or next((a for a in apps if a["name"] in str(move.get("why") or "")), None))  # 没填 app，但话里说了去哪
                     if app is None:
-                        break
+                        notice = "没看懂要打开哪个：app 填桌面上的名字"
+                        continue
                     browser.open(app["url"])
                     check_url(browser.url())
                     where = app["name"]
@@ -638,14 +689,20 @@ def browse(brief: str, apps: list[dict], *, steps: int, ask, browser, limits: di
                     result["apps"].append(app["name"])
                     result["trail"].append(f"打开了{app['name']}")
                 elif where is None:
-                    break   # 在桌面上只能打开一个地方或者不看了
+                    if do == "stop":
+                        break
+                    notice = "现在在手机桌面上：只能 open 一个地方，或者 stop"
+                    continue
                 elif do == "scroll":
+                    slides += 1
+                    if slides >= 4:
+                        notice = f"在这页已经连着滑了 {slides} 下：没意思就 back 退出去，或者 open 换个地方"
                     if not more:
                         browser.scroll()   # 这一页现有的都看过了：真的往下滑，等它加载更多
                 elif do == "back":
                     browser.back()
                     seen.clear()
-                    if browser.url() == url:   # 退不回去（有的站把上一页顶掉了）：回这个地方的首页
+                    if browser.url() == url or not browser.url().startswith("http"):   # 退不回去 / 退到了空白页：回这个地方的首页
                         browser.open(start[where])
                         notice = f"退不回去，回到了{where}的首页"
                 elif do == "search":
@@ -661,7 +718,7 @@ def browse(brief: str, apps: list[dict], *, steps: int, ask, browser, limits: di
                     result["trail"].append(f"在{where}搜了「{query}」")
                     seen.clear()
                 elif do == "click":
-                    ref = str(move.get("ref") or "").lstrip("@")
+                    ref = str(move.get("ref") or "").strip("@[] ")
                     if ref not in refs:
                         notice = "屏幕上没有这个编号"
                         continue
