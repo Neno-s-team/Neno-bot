@@ -45,6 +45,8 @@ def _free(c):
     neno["state"].pop("doing", None)
     neno["parent_id"] = "my_room"
     save_entity(c, neno)
+    w_now = c.execute("SELECT sim_time FROM world_worlds WHERE world_id='w'").fetchone()[0]
+    c.execute("UPDATE world_need SET value=0.55, at=? WHERE world_id='w' AND actor_id='neno' AND need='hunger'", (w_now,))  # 饿着
     return entity(c, "w", "neno")
 
 

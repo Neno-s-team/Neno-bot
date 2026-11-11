@@ -239,6 +239,23 @@ def _routine(c, w, task):
                 tasks.begin(c, w, aid, key + ":crunch")
                 job(c, w["world_id"], key + ":late", w["sim_time"] + late * 3600 + 60, "routine", {**p, "crunched": True})
                 return
+        first = entry.get("before")
+        if first and not p.get("prepared"):
+            # 睡前先做的事（洗澡）：今天还没做就先做，再睡；太累了可能直接倒头就睡
+            from app.services.world import life
+            last = w["settings"].get("life_last_done", {}).get(aid, {}).get(first["activity"], -1e12)
+            tired = _value_at(_rows(c, w["world_id"], aid)["fatigue"], w["sim_time"]) > 0.8
+            chance = first["tired_chance"] if tired else first["chance"]
+            if w["sim_time"] - last > first["within_hours"] * 3600 and _draw(w, key, "before") < chance:
+                if actor["state"].get("doing"):
+                    end_activity(c, w, aid, reason="换去做别的")
+                    actor = entity(c, w["world_id"], aid)
+                actor["parent_id"] = first["place"]
+                save_entity(c, actor)
+                hours = _draw(w, key, "before-hours", *cfg["activities"][first["activity"]]["hours"])
+                start_activity(c, w, aid, first["activity"], source="routine:before-" + entry["id"], hours=hours, key=key + ":before")
+                job(c, w["world_id"], key + ":then", w["sim_time"] + hours * 3600 + 60, "routine", {**p, "prepared": True})
+                return
         if actor["state"].get("doing"):
             end_activity(c, w, aid, reason="作息到点")
             actor = entity(c, w["world_id"], aid)

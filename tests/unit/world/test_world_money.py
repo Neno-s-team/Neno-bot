@@ -35,6 +35,8 @@ def _set(c, balance=None, stock=None):
     neno = entity(c, "w", "neno")
     neno["state"].pop("doing", None)
     neno["parent_id"] = "my_room"
+    w_now = c.execute("SELECT sim_time FROM world_worlds WHERE world_id='w'").fetchone()[0]
+    c.execute("UPDATE world_need SET value=0.55, at=? WHERE world_id='w' AND actor_id='neno' AND need='hunger'", (w_now,))  # 饿着
     if balance is not None:
         neno["state"]["credits"] = balance
     save_entity(c, neno)

@@ -108,6 +108,8 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
             continue
         if choice.get("fixes") and not broken:
             continue
+        if any(needs.get(need, 0.0) < level for need, level in choice.get("needs_above", {}).items()):
+            continue  # 不饿不吃：刚吃饱不会又去买吃的
         bonus = 0.0
         if choice.get("venue"):
             if not city.enabled(w):
@@ -139,6 +141,8 @@ def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
         score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0) + plans.get(choice["id"], 0.0) + bonus
         score += almanac.boost(w, w["sim_time"], choice.get("when"))  # 周末想出门、考试周想学习
         score += stirred.get(choice["id"], 0.0)
+        score += by_hour(choice, hour)                       # 到点想做：饭点想吃饭、晚上想看剧
+        score -= enough(w, aid, choice, push["top"])         # 今天做够了：学了几小时就不太想再学
         score += money.pinch(wallet, cost)  # 手头紧时贵的事不太想做（不是不能）
         activity = choice.get("activity") or "eat"
         if activity in _WORK:
@@ -234,7 +238,7 @@ def _pick_venue(w, aid, choice, here, hour, key, wallet=None):
 
 
 _WORK = ("study",)
-_LEISURE = ("scroll", "outing", "read", "stroll", "drink")
+_LEISURE = ("scroll", "outing", "read", "stroll", "drink", "watch")
 
 
 def _cost(c, w, choice, place) -> float:
@@ -245,6 +249,45 @@ def _cost(c, w, choice, place) -> float:
     if choice.get("eat") and _has(c, w, choice["eat"]):
         cost += float(entity(c, w["world_id"], choice["eat"])["state"].get("price_credits") or 0)
     return cost
+
+
+def by_hour(choice: dict, hour: float) -> float:
+    """选项的 `by_hour`：[[从, 到, 加减], …]，这个钟点落在哪段就加哪段。"""
+    return sum(delta for low, high, delta in choice.get("by_hour", []) if low <= hour < high)
+
+
+def _today(w, aid) -> dict:
+    """今天（凌晨 4 点换日：熬夜算前一天的）各类事做了几小时。"""
+    day = almanac.local_date(w, w["sim_time"] - 4 * 3600).isoformat()
+    book = w["settings"].setdefault("life_today", {})
+    if book.get(aid, {}).get("day") != day:
+        book[aid] = {"day": day, "hours": {}}
+    return book[aid]
+
+
+def tally(w, aid, doing) -> None:
+    hours = max(0.0, (w["sim_time"] - doing["since"]) / 3600)
+    book = _today(w, aid)["hours"]
+    book[doing["activity"]] = round(book.get(doing["activity"], 0.0) + hours, 3)
+    w["settings"].setdefault("life_last_done", {}).setdefault(aid, {})[doing["activity"]] = w["sim_time"]
+
+
+def enough(w, aid, choice: dict, pressed: float = 0.0) -> float:
+    """选项的 `enough`：这类事一天的量（每天抽一个，周末/考试周按 when 伸缩；手上的事急了会多做）。
+    做到六成以后兴致开始掉，超了掉得更快——是减分，不是到点禁止。"""
+    spec = choice.get("enough")
+    if not spec:
+        return 0.0
+    book = _today(w, aid)
+    target = rhythms._draw(w, f"enough:{aid}:{book['day']}:{spec['key']}", "target", *spec["hours"])
+    tags = almanac.day(w, w["sim_time"] - 4 * 3600)["tags"]
+    for tag, mult in spec.get("when", {}).items():
+        if tag in tags:
+            target *= mult
+    if spec.get("pressure"):
+        target *= 1 + spec["pressure"] * pressed
+    ratio = book["hours"].get(spec["key"], 0.0) / max(0.25, target)
+    return spec.get("steep", 1.5) * max(0.0, ratio - 0.6)
 
 
 def all_choices(w, aid) -> list[dict]:
@@ -275,6 +318,8 @@ def broken_items(c, w, aid) -> list[dict]:
 
 def after(c, w, aid, doing, reason) -> None:
     """自己修东西：做完按概率修好一件（先修平时要用的），修不好就是修不好，过阵子可能再试。"""
+    if enabled(w, aid):
+        tally(w, aid, doing)
     spec = rhythms.config(w)["activities"].get(doing["activity"], {})
     if "fix_chance" not in spec or reason != "到时间了":
         return

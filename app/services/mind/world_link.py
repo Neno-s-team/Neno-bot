@@ -33,6 +33,10 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
     "stroll": (3, "兜里", False),
     "chat": (2, "身边", False),
     "attend": (1, "包里", True),     # 听讲座、开题会：偶尔瞄一眼
+    "watch": (3, "手边", False),
+    "chores": (3, "兜里", False),
+    "exercise": (2, "放在一边", False),
+    "shower": (1, "洗手台上", False),
     "outing": (3, "手里", False),
     "shop": (3, "兜里", False),
     "drink": (3, "桌上", False),
@@ -42,7 +46,8 @@ _IDLE = (3, "身边", False)
 _LABELS = {"sleep": "睡觉", "meeting": "组会", "class": "上课", "commute": "在路上", "study": "看文献写论文",
            "read": "看闲书", "eat": "吃东西", "cook": "做饭", "call": "和爸妈打电话", "rest": "歇会儿", "scroll": "刷手机",
            "stroll": "散步", "chat": "跟人聊天", "fix": "折腾坏了的东西",
-           "drink": "喝奶茶/咖啡", "shop": "买东西", "outing": "出去逛逛", "attend": "听讲座/参加活动"}
+           "drink": "喝奶茶/咖啡", "shop": "买东西", "outing": "出去逛逛", "attend": "听讲座/参加活动",
+           "watch": "看剧", "chores": "收拾屋子", "exercise": "运动", "shower": "洗澡"}
 
 
 def enabled() -> bool:

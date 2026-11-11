@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+import pytest
+
 from app.services.world.engine import WorldEngine
 from app.services.world.models import Advance, WorldCreate
 from app.storage.world_store import WorldStore, world
@@ -299,3 +301,137 @@ def test_what_breaks_follows_fragility(tmp_path):
     assert picks["lamp"] == 0
     assert picks["hair_dryer"] > 4 * picks["laptop"] and picks["kettle"] > 2 * picks["laptop"]
     assert picks["laptop"] > 0  # 难得，但不是不会
+
+
+# ── 一天的节奏：到点想做、做够了不想做、睡前洗澡 ─────────────────────────────
+
+def _fresh(c):
+    from app.storage.world_store import entity, save_entity
+    neno = entity(c, "w", "neno")
+    neno["state"].pop("doing", None)
+    neno["parent_id"] = "my_room"
+    save_entity(c, neno)
+    return entity(c, "w", "neno")
+
+
+def _scores_at(c, w):
+    from app.services.world import life
+    return {ch["id"]: s for ch, _, s in life._candidates(c, w, "neno", _fresh(c), "k", 10.0)}
+
+
+def test_mealtimes_and_evenings_pull(tmp_path):
+    """饭点更想吃饭，晚上更想看剧；别的钟点没有这份加成。"""
+    from app.services.world import life
+    engine = make(tmp_path, "clock")
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")           # 周二 07:00
+        choices = {ch["id"]: ch for ch in w["settings"]["rhythms"]["choices"]}
+        assert life.by_hour(choices["eat_out"], 12.0) == 0.55 and life.by_hour(choices["eat_out"], 15.0) == 0
+        assert life.by_hour(choices["watch_show"], 20.5) == 0.35 and life.by_hour(choices["watch_show"], 14.0) == 0
+        assert life.by_hour(choices["rest_sofa"], 12.0) == 0
+        def hungry_at(hours):       # 同样的饿，只换钟点
+            w["sim_time"] += hours * 3600
+            c.execute("UPDATE world_need SET value=0.5, at=? WHERE world_id='w' AND actor_id='neno' AND need='hunger'",
+                      (w["sim_time"],))
+            return _scores_at(c, w)
+
+        noon = hungry_at(5)         # 12:00
+        tea = hungry_at(3)          # 15:00
+    assert noon["eat_out"] - tea["eat_out"] == pytest.approx(0.55, abs=0.05)
+
+
+def test_enough_for_today(tmp_path):
+    """学了一阵之后今天就不太想再学了；周末的量更少；手上的事急了会多学。不是禁止。"""
+    from app.services.world import life
+    engine = make(tmp_path, "enough")
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["sim_time"] += 7 * 3600   # 周二 14:00
+        w["settings"]["tasks"]["items"] = {}   # 手上没有要交的事（急的时候量会放大，另测）
+        study = next(ch for ch in w["settings"]["rhythms"]["choices"] if ch["id"] == "study_desk")
+        book = life._today(w, "neno")
+        assert life.enough(w, "neno", study) == 0
+        book["hours"]["study"] = 1.0
+        assert life.enough(w, "neno", study) == 0                         # 才学了一小时：谈不上嫌多
+        book["hours"]["study"] = 2.0
+        some = life.enough(w, "neno", study)
+        book["hours"]["study"] = 6.0
+        lots = life.enough(w, "neno", study)
+        assert 0 <= some < lots and lots > 0.5
+        assert life.enough(w, "neno", study, pressed=1.0) < lots          # 急的时候多学一点也不嫌多
+        calm = _scores_at(c, w)
+        assert "study_desk" in calm                                       # 减分，不是不能
+        book["hours"]["study"] = 0.0
+        fresh = _scores_at(c, w)
+        assert fresh["study_desk"] - calm["study_desk"] == pytest.approx(lots)
+        assert fresh["read_bed"] == pytest.approx(calm["read_bed"])       # 学够了不影响看闲书
+        w["sim_time"] += 4 * 86400  # 周六 14:00：换了一天，账本清零；同样学 2 小时，周末已经嫌多
+        life._today(w, "neno")["hours"]["study"] = 2.0
+        weekend = life.enough(w, "neno", study)
+    assert weekend > some + 0.3
+
+
+def test_hours_are_tallied_per_day_with_4am_rollover(tmp_path):
+    from app.services.world import life
+    engine = make(tmp_path, "tally")
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["sim_time"] += 16.5 * 3600      # 周二 23:30
+        life.tally(w, "neno", {"activity": "study", "since": w["sim_time"] - 2 * 3600})
+        w["sim_time"] += 2 * 3600         # 周三 01:30：熬夜还算前一天
+        life.tally(w, "neno", {"activity": "study", "since": w["sim_time"] - 1.5 * 3600})
+        assert life._today(w, "neno")["hours"]["study"] == pytest.approx(3.5)
+        w["sim_time"] += 6 * 3600         # 07:30：新的一天
+        assert life._today(w, "neno")["hours"] == {}
+        assert w["settings"]["life_last_done"]["neno"]["study"] == pytest.approx(w["sim_time"] - 6 * 3600)
+
+
+def test_shower_before_bed_unless_done_or_too_tired(tmp_path, monkeypatch):
+    import json
+    from app.services.world import rhythms
+    from app.storage.world_store import entity
+    engine = make(tmp_path, "bed")
+
+    def bedtime(c, w, key, draw=0.1):
+        monkeypatch.setattr(rhythms, "_draw", lambda w, k, purpose, low=0.0, high=1.0: low + (high - low) * draw)
+        _fresh(c)
+        rhythms._routine(c, w, {"job_id": key, "run_at": w["sim_time"],
+                                "payload": {"actor_id": "neno", "entry": "sleep", "day": 0, "until": None, "begin": w["sim_time"]}})
+        return entity(c, "w", "neno")["state"]["doing"]["activity"]
+
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["sim_time"] += 17.7 * 3600      # 周三 00:42
+        c.execute("UPDATE world_jobs SET status='cancelled' WHERE kind='routine'")
+        assert bedtime(c, w, "b1") == "shower"                                  # 今天还没洗：先洗
+        then = [json.loads(r[0]) for r in c.execute("SELECT payload FROM world_jobs WHERE job_id='b1:then'")]
+        assert then and then[0]["prepared"] is True
+        _fresh(c)
+        rhythms._routine(c, w, {"job_id": "b1:then", "run_at": w["sim_time"], "payload": then[0]})
+        assert entity(c, "w", "neno")["state"]["doing"]["activity"] == "sleep"  # 洗完去睡，不会再洗一遍
+        w["settings"]["life_last_done"] = {"neno": {"shower": w["sim_time"] - 3 * 3600}}
+        assert bedtime(c, w, "b2") == "sleep"                                   # 晚上洗过了：直接睡
+        w["settings"]["life_last_done"] = {}
+        assert bedtime(c, w, "b3", draw=0.95) == "sleep"                        # 这回懒得洗（抽签）
+        c.execute("UPDATE world_need SET value=0.95, at=? WHERE world_id='w' AND actor_id='neno' AND need='fatigue'",
+                  (w["sim_time"],))
+        assert bedtime(c, w, "b4", draw=0.7) == "sleep"                         # 累瘫了：同样的签，平时会洗，这回倒头就睡
+
+
+def test_not_hungry_does_not_eat(tmp_path):
+    """刚吃饱不会又去吃；饿了这些选项才回来。"""
+    engine = make(tmp_path, "full")
+    with engine.store.transaction(write=True) as c:
+        w = world(c, "w")
+        w["sim_time"] += 5 * 3600   # 12:00
+
+        def at(hunger):
+            c.execute("UPDATE world_need SET value=?, at=? WHERE world_id='w' AND actor_id='neno' AND need='hunger'",
+                      (hunger, w["sim_time"]))
+            return set(_scores_at(c, w))
+
+        full, peckish, hungry = at(0.1), at(0.32), at(0.6)
+    meals = {"eat_home", "eat_out", "cook", "snack"}
+    assert not full & meals
+    assert "eat_out" in peckish and "snack" not in peckish
+    assert {"eat_out", "snack"} <= hungry

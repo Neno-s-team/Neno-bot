@@ -6,7 +6,7 @@
   "hunger": {
    "label": "饥饿",
    "initial": 0.2,
-   "rate_per_hour": 0.08,
+   "rate_per_hour": 0.095,
    "day_variation": 0.25,
    "urge": [
     0.45,
@@ -110,7 +110,7 @@
   "need": "hunger",
   "variation": 0.25,
   "relief": {
-   "neno:meal": 0.6,
+   "neno:meal": 0.75,
    "neno:bread": 0.35,
    "neno:apple": 0.15,
    "neno:egg": 0.1,
@@ -510,8 +510,8 @@
   "rest": {
    "label": "歇会儿",
    "hours": [
-    0.25,
-    0.75
+    0.3,
+    1.0
    ],
    "rates": {
     "fatigue": -0.1
@@ -695,6 +695,46 @@
     "fatigue": 0.04,
     "social": -0.03
    }
+  },
+  "watch": {
+   "label": "看剧",
+   "hours": [
+    0.7,
+    2.2
+   ],
+   "rates": {
+    "fatigue": -0.01
+   }
+  },
+  "chores": {
+   "label": "收拾屋子、洗衣服",
+   "hours": [
+    0.4,
+    1.2
+   ],
+   "rates": {
+    "fatigue": 0.03
+   }
+  },
+  "exercise": {
+   "label": "运动",
+   "hours": [
+    0.5,
+    1.1
+   ],
+   "rates": {
+    "fatigue": 0.08
+   }
+  },
+  "shower": {
+   "label": "洗澡",
+   "hours": [
+    0.3,
+    0.6
+   ],
+   "rates": {
+    "fatigue": -0.03
+   }
   }
  },
  "travel_minutes": {
@@ -720,7 +760,14 @@
      "place": "my_room",
      "start": "00:40",
      "jitter_min": 50,
-     "skip": 0.0
+     "skip": 0.0,
+     "before": {
+      "activity": "shower",
+      "place": "home_bath",
+      "within_hours": 18,
+      "chance": 0.9,
+      "tired_chance": 0.5
+     }
     },
     {
      "id": "class",
@@ -857,10 +904,10 @@
    "id": "study_desk",
    "activity": "study",
    "place": "my_room",
-   "base": 1.0,
+   "base": 0.7,
    "hours": [
     9,
-    23
+    23.5
    ],
    "pref": "my_room",
    "uses": [
@@ -871,13 +918,44 @@
     "holiday": -0.3,
     "exam": 0.4,
     "break": -0.35
-   }
+   },
+   "enough": {
+    "key": "study",
+    "hours": [
+     3.0,
+     5.5
+    ],
+    "when": {
+     "weekend": 0.4,
+     "holiday": 0.3,
+     "break": 0.5,
+     "exam": 1.4
+    },
+    "pressure": 0.7
+   },
+   "by_hour": [
+    [
+     9,
+     12,
+     0.2
+    ],
+    [
+     14,
+     17.5,
+     0.15
+    ],
+    [
+     22,
+     24,
+     -0.6
+    ]
+   ]
   },
   {
    "id": "study_library",
    "activity": "study",
    "place": "library",
-   "base": 0.7,
+   "base": 0.55,
    "hours": [
     9,
     21
@@ -892,13 +970,39 @@
     "holiday": -0.4,
     "exam": 0.4,
     "break": -0.5
-   }
+   },
+   "enough": {
+    "key": "study",
+    "hours": [
+     3.0,
+     5.5
+    ],
+    "when": {
+     "weekend": 0.4,
+     "holiday": 0.3,
+     "break": 0.5,
+     "exam": 1.4
+    },
+    "pressure": 0.7
+   },
+   "by_hour": [
+    [
+     9,
+     12,
+     0.2
+    ],
+    [
+     14,
+     17.5,
+     0.15
+    ]
+   ]
   },
   {
    "id": "study_cafe",
    "activity": "study",
    "place": "cafe",
-   "base": 0.4,
+   "base": 0.45,
    "hours": [
     9,
     19
@@ -912,7 +1016,28 @@
     "weekend": 0.1,
     "exam": 0.2,
     "break": -0.2
-   }
+   },
+   "enough": {
+    "key": "study",
+    "hours": [
+     3.0,
+     5.5
+    ],
+    "when": {
+     "weekend": 0.4,
+     "holiday": 0.3,
+     "break": 0.5,
+     "exam": 1.4
+    },
+    "pressure": 0.7
+   },
+   "by_hour": [
+    [
+     14,
+     17.5,
+     0.15
+    ]
+   ]
   },
   {
    "id": "read_bed",
@@ -927,13 +1052,27 @@
    "when": {
     "weekend": 0.1,
     "break": 0.15
-   }
+   },
+   "enough": {
+    "key": "read",
+    "hours": [
+     1,
+     2.5
+    ]
+   },
+   "by_hour": [
+    [
+     21.5,
+     24,
+     0.25
+    ]
+   ]
   },
   {
    "id": "scroll",
    "activity": "scroll",
    "place": "here",
-   "base": 0.7,
+   "base": 0.6,
    "hours": [
     0,
     24
@@ -941,6 +1080,13 @@
    "pref": "phone",
    "when": {
     "break": 0.1
+   },
+   "enough": {
+    "key": "scroll",
+    "hours": [
+     1,
+     2.5
+    ]
    }
   },
   {
@@ -954,6 +1100,13 @@
    ],
    "relieves": {
     "fatigue": 1.5
+   },
+   "enough": {
+    "key": "rest",
+    "hours": [
+     1,
+     2
+    ]
    }
   },
   {
@@ -987,7 +1140,15 @@
    "when": {
     "weekend": 0.1
    },
-   "outdoor": 1.0
+   "outdoor": 1.0,
+   "enough": {
+    "key": "stroll",
+    "hours": [
+     0.7,
+     1.5
+    ]
+   },
+   "cooldown_hours": 5
   },
   {
    "id": "eat_home",
@@ -1003,7 +1164,27 @@
    },
    "cooldown_hours": 2.5,
    "activity": "eat",
-   "group": "meal"
+   "group": "meal",
+   "by_hour": [
+    [
+     7,
+     9.5,
+     0.4
+    ],
+    [
+     11.3,
+     13.2,
+     0.55
+    ],
+    [
+     17.3,
+     19.5,
+     0.55
+    ]
+   ],
+   "needs_above": {
+    "hunger": 0.3
+   }
   },
   {
    "id": "eat_canteen",
@@ -1019,7 +1200,22 @@
    },
    "campus_only": true,
    "cooldown_hours": 2.5,
-   "group": "meal"
+   "group": "meal",
+   "by_hour": [
+    [
+     11.3,
+     13.2,
+     0.55
+    ],
+    [
+     17.3,
+     19.5,
+     0.55
+    ]
+   ],
+   "needs_above": {
+    "hunger": 0.3
+   }
   },
   {
    "id": "snack",
@@ -1033,7 +1229,10 @@
    "relieves": {
     "hunger": 1.0
    },
-   "cooldown_hours": 2
+   "cooldown_hours": 2,
+   "needs_above": {
+    "hunger": 0.35
+   }
   },
   {
    "id": "coffee",
@@ -1048,7 +1247,8 @@
    "relieves": {
     "fatigue": 0.6
    },
-   "cooldown_hours": 3
+   "cooldown_hours": 3,
+   "activity": "drink"
   },
   {
    "id": "cook",
@@ -1067,6 +1267,21 @@
    "group": "meal",
    "when": {
     "weekend": 0.15
+   },
+   "by_hour": [
+    [
+     11.3,
+     13.2,
+     0.55
+    ],
+    [
+     17.3,
+     19.5,
+     0.55
+    ]
+   ],
+   "needs_above": {
+    "hunger": 0.3
    }
   },
   {
@@ -1123,7 +1338,17 @@
    "cooldown_hours": 3,
    "pref": "eat_out",
    "group": "meal",
-   "outdoor": 0.3
+   "outdoor": 0.3,
+   "by_hour": [
+    [
+     7,
+     9.5,
+     0.4
+    ]
+   ],
+   "needs_above": {
+    "hunger": 0.3
+   }
   },
   {
    "id": "eat_out",
@@ -1154,6 +1379,21 @@
    "when": {
     "weekend": 0.1,
     "holiday": 0.15
+   },
+   "by_hour": [
+    [
+     11.3,
+     13.2,
+     0.55
+    ],
+    [
+     17.3,
+     19.5,
+     0.55
+    ]
+   ],
+   "needs_above": {
+    "hunger": 0.3
    }
   },
   {
@@ -1172,14 +1412,17 @@
    "base": 0.1,
    "hours": [
     21,
-    24
+    23
    ],
    "relieves": {
     "hunger": 1.5
    },
    "cooldown_hours": 20,
    "pref": "eat_out",
-   "group": "meal"
+   "group": "meal",
+   "needs_above": {
+    "hunger": 0.3
+   }
   },
   {
    "id": "milk_tea",
@@ -1263,19 +1506,120 @@
    },
    "outdoor": 0.5,
    "group": "outing"
+  },
+  {
+   "id": "watch_show",
+   "activity": "watch",
+   "place": "home_living",
+   "base": 0.4,
+   "hours": [
+    12,
+    24.5
+   ],
+   "pref": "drama",
+   "by_hour": [
+    [
+     19.5,
+     23.5,
+     0.35
+    ]
+   ],
+   "when": {
+    "weekend": 0.15,
+    "break": 0.15
+   },
+   "enough": {
+    "key": "watch",
+    "hours": [
+     1,
+     3
+    ]
+   }
+  },
+  {
+   "id": "tidy",
+   "activity": "chores",
+   "place": "home_living",
+   "base": 0.1,
+   "hours": [
+    8,
+    21
+   ],
+   "cooldown_hours": 48,
+   "when": {
+    "weekend": 0.35
+   }
+  },
+  {
+   "id": "yoga",
+   "activity": "exercise",
+   "place": "home_living",
+   "base": 0.12,
+   "hours": [
+    7,
+    21.5
+   ],
+   "pref": "exercise",
+   "cooldown_hours": 30,
+   "by_hour": [
+    [
+     7,
+     9,
+     0.15
+    ],
+    [
+     18.5,
+     21,
+     0.15
+    ]
+   ]
+  },
+  {
+   "id": "run_river",
+   "activity": "exercise",
+   "place": "riverside",
+   "base": 0.08,
+   "hours": [
+    18.5,
+    21.5
+   ],
+   "pref": "exercise",
+   "cooldown_hours": 40,
+   "outdoor": 1.0,
+   "weather_not": "rain"
+  },
+  {
+   "id": "shower",
+   "activity": "shower",
+   "place": "home_bath",
+   "base": 0.55,
+   "hours": [
+    21.5,
+    24.5
+   ],
+   "cooldown_hours": 18,
+   "by_hour": [
+    [
+     21.5,
+     24.5,
+     0.7
+    ]
+   ]
   }
  ],
  "preferences": {
-  "my_room": 0.3,
+  "my_room": 0.2,
   "library": 0.1,
-  "cafe": 0.0,
+  "cafe": 0.15,
   "novel": 0.2,
   "phone": 0.1,
   "riverside": 0.2,
   "eat_out": 0.0,
   "milk_tea": 0.1,
   "outing": 0.1,
-  "lecture": 0.1
+  "lecture": 0.1,
+  "drama": 0.2,
+  "exercise": 0.0
  },
  "chooser": {
   "temperature": 0.35,
@@ -1312,7 +1656,7 @@
   ]
  },
  "groups": {
-  "meal": 2.5,
+  "meal": 3.5,
   "outing": 44
  },
  "calendar": {
