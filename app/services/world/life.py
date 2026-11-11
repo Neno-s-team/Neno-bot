@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.world import almanac, city, happenings, money, rhythms, tasks
+from app.services.world import almanac, city, happenings, moments, money, rhythms, tasks
 from app.services.world import weather as weather_mood
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
@@ -406,6 +406,12 @@ def go(c, w, aid, choice, place, hours, key) -> None:
         happenings.know(c, w, aid, happenings.state(w)["items"][way["delay"]], "坐地铁碰上了", key)
     money.spend(c, w, aid, money.fare(w, way), "车费", "交通", key + ":fare", force=True, exact=True)
     if travel > 0:
+        # 路上的小事：多半没有；有的会耽误几分钟
+        small = moments.trigger(c, w, aid, "go", {"mode": (way or {}).get("mode", "walk"), "minutes": travel * 60,
+                                                  "place": place, "activity": activity}, key)
+        if small and small.get("minutes"):
+            travel += small["minutes"] / 60
+    if travel > 0:
         rhythms.start_activity(c, w, aid, "commute", source="life:travel", hours=travel, key=key + ":go", after=after)
         if way and way.get("label"):
             mover = entity(c, w["world_id"], aid)
@@ -437,6 +443,8 @@ def arrive(c, w, aid, after, key) -> None:
     happenings.learn(c, w, aid, "pass", key, place=after["place"])  # 到了一个地方，看到那儿在发生的事
     if after["activity"] in _WORK:
         tasks.begin(c, w, aid, key)  # 坐下来学：挑手上的一件事来做
+    moments.trigger(c, w, aid, "arrive", {"activity": after["activity"], "place": after["place"],
+                                          "choice": after["source"].split(":", 1)[-1]}, key)
     habits = w["settings"].setdefault("life_habits", {}).setdefault(aid, {})
     for k in list(habits):
         habits[k] *= 0.97  # 不去就慢慢淡

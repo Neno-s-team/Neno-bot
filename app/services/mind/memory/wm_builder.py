@@ -82,6 +82,9 @@ def _render_situation(situation: dict[str, Any]) -> str:
         lines.append(f"今天：{situation['day_note']}")
     if situation.get("weather"):
         lines.append(f"外面：{situation['weather']}")
+    if situation.get("moments"):
+        lines.append("今天碰到的小事（聊到可以随口提，不用都说）：")
+        lines.extend(f"- {item}" for item in situation["moments"])
     if situation.get("money"):
         lines.append(f"手头：{situation['money']}")
     if situation.get("tasks"):
@@ -172,7 +175,7 @@ def build_working_memory(
             situation["body"] = seg["body"]
         if seg.get("broken"):
             situation["broken"] = seg["broken"]
-        for name in ("home", "day_note", "weather", "happenings", "money", "tasks"):
+        for name in ("home", "day_note", "weather", "happenings", "money", "tasks", "moments"):
             if seg.get(name):
                 situation[name] = seg[name]
         if seg.get("contacts"):

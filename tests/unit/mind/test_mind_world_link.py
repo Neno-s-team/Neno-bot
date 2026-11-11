@@ -265,3 +265,21 @@ def test_she_knows_what_is_due_and_what_she_is_working_on(linked):
     lived = world_link.day_events(T0 - 60, T0 + 60)
     assert "补文献综述到期了还没交" in " ".join(lived)
     assert "这天在「改开题报告第二章」上花了 2.5 小时" in lived
+
+
+def test_small_things_reach_her_mind(linked):
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    from app.storage.world_store import emit, entity, save_entity, world as load_world
+    _set_doing(linked, "read")
+    with linked.store.transaction(write=True) as c:
+        w = load_world(c, "life")
+        neno = entity(c, "life", "neno")
+        neno["state"]["recent_moments"] = [{"at": T0 - 2 * 3600, "text": "路边蹲着一只很胖的橘猫，盯着我看", "share": 0.7, "mood": 0.3}]
+        save_entity(c, neno)
+        emit(c, w, "m1", "life.moment", {"id": "cat_roadside", "text": "路边蹲着一只很胖的橘猫，盯着我看", "share": 0.7}, "neno")
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="今天怎么样",
+                                             history=[], self_card="")
+    text = wm_builder.render_working_memory(memory)
+    assert "今天碰到的小事" in text and "- 2 小时前：路边蹲着一只很胖的橘猫，盯着我看" in text
+    assert any("路边蹲着一只很胖的橘猫" in x for x in world_link.day_events(T0 - 60, T0 + 60))

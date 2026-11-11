@@ -1577,5 +1577,14 @@
    "crunch_max_hours": 3,
    "idle_task_chance": 0.2
   }
+ },
+ "moments": {
+  "pool": "life",
+  "actor": "neno",
+  "chance": {
+   "go": 0.1,
+   "arrive": 0.14,
+   "finish": 0.12
+  }
  }
 }

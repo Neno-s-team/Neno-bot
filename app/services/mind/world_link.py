@@ -163,6 +163,15 @@ def _around(w: dict[str, Any]) -> dict[str, Any]:
             result["tasks"] = todo
     except Exception:
         pass
+    try:
+        from app.services.world import moments
+        from app.storage.db import get_conn
+        with get_conn() as conn:
+            small = moments.recent(conn, w, config.MIND_WORLD_ACTOR)
+        if small:
+            result["moments"] = [f"{timeline.ago(m['at'], now)}：{m['text']}" for m in small]
+    except Exception:
+        pass
     lines = []
     for item in happenings.known_list(w, config.MIND_WORLD_ACTOR)[:6]:
         if item["start"] > now:
@@ -277,6 +286,8 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
             text = f"去了{p.get('title')}" if p.get("times", 1) == 1 else None
         elif kind == "weather.changed":
             text = f"天气：{p.get('to')}" + (f"，{round(p['temp'])}°C" if p.get("temp") is not None else "")
+        elif kind == "life.moment":
+            text = p.get("text")
         elif kind == "task.assigned":
             text = f"{p.get('from')}布置了：{p.get('title')}"
         elif kind == "task.progress":

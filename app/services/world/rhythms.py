@@ -354,6 +354,10 @@ def end_activity(c, w, aid, reason="到时间了"):
     if doing.get("task"):
         from app.services.world import tasks
         tasks.finish(c, w, aid, doing)
+    if doing["activity"] != "commute" and reason in ("到时间了", "作息到点"):
+        from app.services.world import moments
+        moments.trigger(c, w, aid, "finish", {"activity": doing["activity"], "hours": worked, "place": actor["parent_id"],
+                                              "choice": str(doing.get("source", "")).split(":", 1)[-1]}, doing["job"])
     from app.services.world import happenings
     if doing["activity"] == "scroll":
         happenings.learn(c, w, aid, "scroll", doing["job"])

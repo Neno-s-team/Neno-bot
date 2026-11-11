@@ -112,9 +112,9 @@ def test_noise_changes_ranking_between_draws(tmp_path):
             c.execute("UPDATE world_entities SET state=json_remove(state,'$.doing') WHERE world_id='w' AND entity_id='neno'")
             life.choose(c, w, {"job_id": f"probe{n}", "payload": {"actor_id": "neno"}, "run_at": w["sim_time"]})
             row = c.execute("SELECT payload FROM world_events WHERE event_key=?", (f"probe{n}:chose",)).fetchone()
-            orders.add(tuple(x[0] for x in json.loads(row[0])["options"]))
+            orders.add(tuple((x[0], x[1]) for x in json.loads(row[0])["options"]))
             c.execute("ROLLBACK TO probe")
-    assert len(orders) > 1
+    assert len(orders) > 1   # 同样的状态，每次的分数（进而先后）不一样：噪声在起作用
 
 
 def test_failed_choice_cools_down(tmp_path, monkeypatch):

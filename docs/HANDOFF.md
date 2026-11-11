@@ -217,6 +217,10 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 见 `docs/world-events.md` 的 T1。`tasks.py`：按规律布置、学习才涨进度、越急越想学、可能熬夜、到期没交有后果、导师会来布置和催。**来源和工作量是占位。**
 变异自检工具：`data/tmp/mutate.py`（读 `mutations.json`，逐条改坏→跑测试→还原）；data/ 不入库，要用时照这个写。
 
+## 5.15 小事表（2026-11-12）
+
+见 `docs/world-events.md` 的 S1。`moments.py` + `content/world/moments/life/*.json`（173 行）：路上/到达/做完三个触发点就地抽小事，带后果和"值不值得说"。加内容只加行。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。
