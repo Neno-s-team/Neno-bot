@@ -17,7 +17,7 @@ import os
 import time
 from typing import Any
 
-from app.services.world import rhythms
+from app.services.world import city, rhythms
 from app.storage.world_store import encode, entity, emit, save_entity, world
 
 DECIDE_PROMPT = """你在过自己的日子，现在要决定接下来干什么。
@@ -108,7 +108,7 @@ def queue_decision(c, w, aid, options, reason, key) -> int:
                             + list(rhythms.felt(c, w, aid).values())) or "还行",
            "now": time.strftime("%H:%M", time.gmtime(w["sim_time"] + w["settings"]["utc_offset_minutes"] * 60)),
            "plans": "；".join(_plans()) or "没特别的",
-           "options": [{"id": ch["id"], "what": _label(c, w, ch), "where": entity(c, w["world_id"], pl)["label"]}
+           "options": [{"id": ch["id"], "what": _label(c, w, ch), "where": city.label(c, w, pl), "place": pl}
                        for ch, pl, _ in sorted(options, key=lambda o: -o[2])[:5]]}
     cursor = c.execute(
         "INSERT INTO world_llm_calls(world_id,kind,subject,status,created_at,sim_time,model,context) VALUES (?,?,?,'queued',?,?,?,?)",
@@ -175,7 +175,8 @@ def apply_decision(c, w, row, data) -> dict:
     if actor["state"].get("doing"):
         return {"skipped": "already busy"}
     choice = next(ch for ch in rhythms.config(w)["choices"] if ch["id"] == choice_id)
-    place = actor["parent_id"] if choice["place"] == "here" else choice["place"]
+    picked = next((o.get("place") for o in ctx["options"] if o["id"] == choice_id), None)
+    place = picked or (actor["parent_id"] if choice["place"] == "here" else choice["place"])
     deadline = life._next_obligation(c, w, aid)
     room = (deadline - w["sim_time"]) / 3600 if deadline else 24.0
     thought = str(data.get("murmur") or "")[:40]

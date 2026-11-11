@@ -36,7 +36,8 @@ LEVELS: dict[str, tuple[int, str, bool]] = {
 _IDLE = (3, "身边", False)
 _LABELS = {"sleep": "睡觉", "meeting": "组会", "class": "上课", "commute": "在路上", "study": "看文献写论文",
            "read": "看闲书", "eat": "吃东西", "cook": "做饭", "call": "和爸妈打电话", "rest": "歇会儿", "scroll": "刷手机",
-           "stroll": "散步", "chat": "跟人聊天", "fix": "折腾坏了的东西"}
+           "stroll": "散步", "chat": "跟人聊天", "fix": "折腾坏了的东西",
+           "drink": "喝奶茶/咖啡", "shop": "买东西", "outing": "出去逛逛"}
 
 
 def enabled() -> bool:
@@ -90,12 +91,22 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
         return None
     doing = actor["state"].get("doing") or {}
     seg = _segment(doing.get("activity"), doing.get("since"), doing.get("until"), _place_label(actor["parent_id"]))
+    if doing.get("activity") == "commute" and (doing.get("after") or {}).get("place"):
+        # 路上：怎么去、去哪（"坐3号线（三坝→武林广场）去武林银泰"）
+        seg["activity"] = f"在路上，{doing.get('route') or ''}去{_place_label(doing['after']['place'])}"
     conditions = [c["label"] for c in actor["state"].get("conditions", []) if c.get("until", 0) > (ts or clock.now())]
     if conditions:
         seg["body"] = "，".join(conditions)
     broken = _broken_items()
     if broken:
         seg["broken"] = "、".join(broken)
+    w = _world()
+    if w is not None:
+        from app.services.world import city
+        try:
+            seg["home"] = city.home_line(w)
+        except Exception:
+            pass
     contacts = [x for x in actor["state"].get("recent_contacts", []) if (ts or clock.now()) - x["at"] < 12 * 3600]
     if contacts:
         from app.services.mind import timeline
@@ -189,6 +200,8 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
         elif kind == "perturb.happened" and (row["actor_id"] == config.MIND_WORLD_ACTOR or p.get("target") == "street"):
             broke = [x["label"] for x in p.get("applied", []) if x.get("label") and x.get("broke")]
             text = f"{broke[0]}坏了" if broke else p.get("label")
+        elif kind == "life.visit":
+            text = f"去了{p.get('name')}" + ("（第一次去）" if p.get("visits") == 1 else "")
         elif kind == "life.fixed":
             text = f"把{p.get('label')}修好了"
         elif kind == "life.fix_failed":

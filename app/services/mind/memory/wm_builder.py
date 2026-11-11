@@ -76,6 +76,8 @@ def _render_situation(situation: dict[str, Any]) -> str:
             lines.append(f"今天：{note}")
         if situation.get("last_thought"):
             lines.append(f"你{situation['last_thought']}")
+    if situation.get("home"):
+        lines.append(situation["home"])
     lines.append(f"可打断等级：{situation['interrupt_level']}（world={situation['world']}）")
     for notice in situation.get("retracted") or []:
         lines.append(notice)
@@ -158,6 +160,8 @@ def build_working_memory(
             situation["body"] = seg["body"]
         if seg.get("broken"):
             situation["broken"] = seg["broken"]
+        if seg.get("home"):
+            situation["home"] = seg["home"]
         if seg.get("contacts"):
             situation["contacts"] = seg["contacts"]
         if seg.get("last_thought"):

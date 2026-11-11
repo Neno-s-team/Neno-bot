@@ -198,6 +198,10 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
   模拟 3 种子 × 1 年，落在她身上：每月约 4.8 件小事（好吃的 2.2、没睡好 1、丢零钱 .9、坏东西 .5）、感冒 ~4 次/年、发烧 <1 次/年、电脑约 4 年坏一次。
 - **她自己拿主意失败时不再反复问**（首日 17:49–17:52 断网，同一件事连问 4 次、把当天 6 次额度用光）：失败退回规则那一次带 `no_ask`；没打到模型的失败（`provider_error`）不计入当天额度；"当天"按她本地日算（原来按 UTC，早上 8 点才换日）。
 
+## 5.11 真实城市：杭州（2026-11-11，C1/C2）
+
+见 `docs/city-plan.md`。OSM 真实骨架 + 按密度补生成小店，`content/world/city/hangzhou.json`（`scripts/build_city.py` 构建，缓存在 data/tmp/osm）。她住紫金文苑、在浙大紫金港；路程按坐标和真实地铁；出门挑具体哪家店，有常去的、偶尔试新的。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

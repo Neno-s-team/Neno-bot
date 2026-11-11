@@ -653,6 +653,37 @@
     "fatigue": 0.04
    },
    "fix_chance": 0.4
+  },
+  "drink": {
+   "label": "喝奶茶/咖啡",
+   "hours": [
+    0.2,
+    0.7
+   ],
+   "rates": {
+    "fatigue": -0.02
+   }
+  },
+  "shop": {
+   "label": "买东西",
+   "hours": [
+    0.3,
+    1.0
+   ],
+   "rates": {
+    "fatigue": 0.03
+   }
+  },
+  "outing": {
+   "label": "出去逛逛",
+   "hours": [
+    1.5,
+    4
+   ],
+   "rates": {
+    "fatigue": 0.05,
+    "social": -0.05
+   }
   }
  },
  "travel_minutes": {
@@ -913,7 +944,7 @@
    "id": "eat_home",
    "eat": "home_food",
    "place": "home_kitchen",
-   "base": 0.55,
+   "base": 0.3,
    "hours": [
     7,
     24
@@ -922,7 +953,8 @@
     "hunger": 2.0
    },
    "cooldown_hours": 2.5,
-   "activity": "eat"
+   "activity": "eat",
+   "group": "meal"
   },
   {
    "id": "eat_canteen",
@@ -937,7 +969,8 @@
     "hunger": 2.0
    },
    "campus_only": true,
-   "cooldown_hours": 2.5
+   "cooldown_hours": 2.5,
+   "group": "meal"
   },
   {
    "id": "snack",
@@ -981,7 +1014,8 @@
    "relieves": {
     "hunger": 2.2
    },
-   "cooldown_hours": 4
+   "cooldown_hours": 4,
+   "group": "meal"
   },
   {
    "id": "call_parents",
@@ -1008,6 +1042,150 @@
    ],
    "fixes": true,
    "cooldown_hours": 5
+  },
+  {
+   "id": "breakfast_out",
+   "activity": "eat",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "breakfast",
+     "snack",
+     "noodle"
+    ],
+    "within_m": 1500,
+    "meal": true
+   },
+   "base": 0.45,
+   "hours": [
+    6.5,
+    10
+   ],
+   "relieves": {
+    "hunger": 2.0
+   },
+   "cooldown_hours": 3,
+   "pref": "eat_out",
+   "group": "meal"
+  },
+  {
+   "id": "eat_out",
+   "activity": "eat",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "noodle",
+     "snack",
+     "fast_food",
+     "mala",
+     "restaurant"
+    ],
+    "within_m": 2500,
+    "meal": true
+   },
+   "base": 0.6,
+   "hours": [
+    10.5,
+    21
+   ],
+   "relieves": {
+    "hunger": 2.0
+   },
+   "cooldown_hours": 2.5,
+   "pref": "eat_out",
+   "group": "meal"
+  },
+  {
+   "id": "late_snack",
+   "activity": "eat",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "restaurant",
+     "snack",
+     "noodle"
+    ],
+    "within_m": 1500,
+    "meal": true
+   },
+   "base": 0.1,
+   "hours": [
+    21,
+    24
+   ],
+   "relieves": {
+    "hunger": 1.5
+   },
+   "cooldown_hours": 20,
+   "pref": "eat_out",
+   "group": "meal"
+  },
+  {
+   "id": "milk_tea",
+   "activity": "drink",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "milk_tea",
+     "cafe"
+    ],
+    "within_m": 1500
+   },
+   "base": 0.25,
+   "hours": [
+    10,
+    21.5
+   ],
+   "cooldown_hours": 6,
+   "pref": "milk_tea"
+  },
+  {
+   "id": "groceries",
+   "activity": "shop",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "market",
+     "supermarket",
+     "fruit"
+    ],
+    "within_m": 2000
+   },
+   "base": 0.25,
+   "hours": [
+    8,
+    21
+   ],
+   "cooldown_hours": 20
+  },
+  {
+   "id": "go_out",
+   "activity": "outing",
+   "place": "venue",
+   "venue": {
+    "kinds": [
+     "mall",
+     "attraction",
+     "museum",
+     "park",
+     "bookstore",
+     "cinema"
+    ],
+    "within_m": 20000,
+    "town": true,
+    "minutes_scale": 40,
+    "consider": 40
+   },
+   "base": 0.15,
+   "hours": [
+    10,
+    20
+   ],
+   "cooldown_hours": 30,
+   "pref": "outing",
+   "relieves": {
+    "social": 0.6
+   }
   }
  ],
  "preferences": {
@@ -1016,7 +1194,10 @@
   "cafe": 0.0,
   "novel": 0.2,
   "phone": 0.1,
-  "riverside": 0.2
+  "riverside": 0.2,
+  "eat_out": 0.0,
+  "milk_tea": 0.1,
+  "outing": 0.1
  },
  "chooser": {
   "temperature": 0.35,
@@ -1027,6 +1208,32 @@
    60
   ],
   "broken_penalty": 0.8,
-  "fix_urgency": 0.8
+  "fix_urgency": 0.8,
+  "curiosity": 0.15
+ },
+ "city": {
+  "name": "hangzhou",
+  "places": {
+   "home_living": "home",
+   "home_kitchen": "home",
+   "my_room": "home",
+   "home_bath": "home",
+   "street": "home",
+   "campus": "campus.east_gate",
+   "library": "campus.library",
+   "seminar_room": "campus.west",
+   "advisor_office": "campus.west",
+   "canteen": "campus.west",
+   "metro": "home",
+   "cafe": "nearest:cafe",
+   "convenience": "nearest:convenience",
+   "riverside": "nearest:river"
+  },
+  "away": [
+   "parents_home"
+  ]
+ },
+ "groups": {
+  "meal": 2.5
  }
 }

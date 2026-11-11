@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.world import rhythms
+from app.services.world import city, rhythms
 from app.storage.world_store import WorldError, emit, entity, job, save_entity
 
 _AREAS = {
@@ -20,7 +20,9 @@ _AREAS = {
 }
 
 
-def _area(place: str) -> str:
+def _area(place: str, w=None) -> str:
+    if w is not None and city.enabled(w):
+        return city.area(w, place)
     for name, places in _AREAS.items():
         if place in places:
             return name
@@ -33,6 +35,8 @@ def enabled(w, aid) -> bool:
 
 
 def travel_minutes(w, here: str, there: str) -> float:
+    if city.enabled(w):
+        return city.route(w, here, there)["minutes"]
     if _area(here) == _area(there):
         return 0.0
     table = rhythms.config(w).get("travel_minutes", {})
@@ -70,7 +74,7 @@ def _habit_key(w, place: str) -> str:
     return f"{place}:{hour // 3}"
 
 
-def _candidates(c, w, aid, actor):
+def _candidates(c, w, aid, actor, key: str = "", room: float | None = None):
     cfg = rhythms.config(w)
     here = actor["parent_id"]
     hour = ((w["sim_time"] + w["settings"]["utc_offset_minutes"] * 60) % 86400) / 3600
@@ -87,19 +91,36 @@ def _candidates(c, w, aid, actor):
     for choice in cfg["choices"]:
         if cooling.get(choice["id"], 0) > w["sim_time"]:
             continue
+        if choice.get("group") and cooling.get("group:" + choice["group"], 0) > w["sim_time"]:
+            continue  # 刚在外面吃过，就不会回家再吃一顿
         low, high = choice["hours"]
         if not low <= hour < high:
             continue
         if choice.get("weather_not") and weather == choice["weather_not"]:
             continue
-        if choice.get("campus_only") and _area(here) != "campus":
+        if choice.get("campus_only") and _area(here, w) != "campus":
             continue
         if choice.get("fixes") and not broken:
             continue
-        place = here if choice["place"] == "here" else choice["place"]
-        if not _has(c, w, place) or not entity(c, w["world_id"], place)["state"].get("open", True):
-            continue
-        score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0) + plans.get(choice["id"], 0.0)
+        bonus = 0.0
+        if choice.get("venue"):
+            if not city.enabled(w):
+                continue
+            picked = _pick_venue(w, aid, choice, here, hour, key or f"t{int(w['sim_time'])}")
+            if picked is None:
+                continue
+            place, bonus = picked
+        else:
+            place = here if choice["place"] == "here" else choice["place"]
+            if not _has(c, w, place) or not entity(c, w["world_id"], place)["state"].get("open", True):
+                continue
+        if room is not None and city.enabled(w):
+            # 去一趟、做一会儿、再赶回下一件事：时间不够就不起这个念头（不会为了 20 分钟跑去 10 公里外看电影）
+            way = city.route(w, here, place)["minutes"] / 60
+            low = cfg["activities"][choice.get("activity") or "eat"]["hours"][0]
+            if 2 * way + low > room:
+                continue
+        score = choice.get("base", 0.5) + prefs.get(choice.get("pref", ""), 0.0) + plans.get(choice["id"], 0.0) + bonus
         for need, weight in choice.get("relieves", {}).items():
             score += weight * max(0.0, needs.get(need, 0.0) - 0.3)
         score += cfg["chooser"]["habit_weight"] * min(1.0, habits.get(_habit_key(w, place), 0.0) / 5)
@@ -108,7 +129,7 @@ def _candidates(c, w, aid, actor):
         spec = cfg["activities"].get(choice.get("activity") or "eat", {})
         if spec.get("requires_company") and not _someone_at(c, w, aid, place):
             continue
-        if sick and _area(place) != "home":
+        if sick and _area(place, w) != "home":
             score -= 1.0  # 不舒服时不太想出门，但不是不能
         if choice.get("fixes"):
             # 坏得越久越烦：一天内把"想修"的劲涨满
@@ -118,6 +139,62 @@ def _candidates(c, w, aid, actor):
             score -= cfg["chooser"].get("broken_penalty", 0.8)  # 电脑坏了也能翻纸质的，只是没那么想
         result.append((choice, place, score))
     return result
+
+
+_EVERYDAY = ("noodle", "snack", "breakfast", "fast_food", "mala", "restaurant", "milk_tea", "cafe", "bakery",
+             "fruit", "market", "supermarket", "convenience", "express", "pharmacy", "canteen")
+
+
+def _venue_memory(w, aid) -> dict:
+    """她在这一片住了好几年：第一次用到城市时，家和学校附近的店她多半已经知道——
+    越近越可能去过；好吃的成了常去的，难吃的记得难吃。之后才是真的"第一次去"。"""
+    memory = w["settings"].setdefault("life_venues", {})
+    if aid in memory:
+        return memory[aid]
+    from app.services.world.randomness import sample
+    known: dict = {}
+    cfg = city.config(w)
+    for anchor, reach in (("my_room", 1500), ("campus", 1000)):
+        if anchor not in cfg.get("places", {}):
+            continue
+        for v in city.nearby(w, anchor, list(_EVERYDAY), reach, limit=200):
+            d = city.dist(city.point(w, anchor), (v["lat"], v["lon"]))
+            if v["id"] in known or sample(w["seed"], v["id"], "known") > 0.85 - 0.5 * d / reach:
+                continue
+            quality = 2 * sample(w["seed"], v["id"], "venue-quality") - 1
+            visits = 1 + int(sample(w["seed"], v["id"], "visits") * (12 if quality > 0.2 else 3))
+            known[v["id"]] = {"like": round(0.8 * quality + 0.2 * (2 * sample(w["seed"], v["id"], "like") - 1), 3),
+                              "visits": visits, "first": None}
+    memory[aid] = known
+    return known
+
+
+def _pick_venue(w, aid, choice, here, hour, key):
+    """城里挑具体一家：近的、开着的、去过觉得好的、偶尔想试试没去过的，加一点那天的心血来潮。
+    返回 (店 id, 对这件事兴致的加减)；附近没开着的就 None。"""
+    spec = choice["venue"]
+    found = [v for v in city.nearby(w, here, spec["kinds"], spec.get("within_m", 2500), town=spec.get("town", False),
+                                    limit=spec.get("consider", 25)) if city.open_at(v, hour)]
+    if not found:
+        return None
+    memory = _venue_memory(w, aid)
+    curiosity = rhythms.config(w)["chooser"].get("curiosity", 0.3)
+    best = None
+    for v in found:
+        minutes = city.route(w, here, v["id"])["minutes"]
+        seen = memory.get(v["id"])
+        # 去过的：印象 + 熟悉（去得多了就顺脚）；没去过的：一点好奇。大多数时候去常去的那几家
+        known = seen["like"] + 0.25 * min(seen["visits"], 6) / 6 if seen else curiosity
+        if seen and seen.get("last"):
+            ago = (w["sim_time"] - seen["last"]) / 3600
+            known -= 0.6 if ago < 20 else 0.25 if ago < 60 else 0.0  # 昨天刚吃过，今天换一家
+        score = (-minutes / spec.get("minutes_scale", 20) + known
+                 + 0.3 * (2 * rhythms._draw(w, key, f"venue:{choice['id']}:{v['id']}") - 1))
+        if best is None or score > best[1]:
+            best = (v["id"], score, minutes, seen["like"] if seen else 0.0)
+    # 想不想出门：只看路远不远、那家有多喜欢；没去过的店不扣兴致
+    far = max(0.0, best[2] - 5) / spec.get("minutes_scale", 20)  # 楼下五分钟以内不算远
+    return best[0], max(-1.0, min(0.6, 0.5 * max(0.0, best[3]) - 0.4 * far))
 
 
 def broken_items(c, w, aid) -> list[dict]:
@@ -189,7 +266,7 @@ def choose(c, w, task) -> None:
     cfg, key = rhythms.config(w), task["job_id"]
     deadline = _next_obligation(c, w, aid)
     room = (deadline - w["sim_time"]) / 3600 if deadline else 24.0
-    options = _candidates(c, w, aid, actor)
+    options = _candidates(c, w, aid, actor, key, room)
     if not options or room < 0.25:
         emit(c, w, key + ":idle", "life.idle", {"room_hours": round(room, 2)}, aid)
         if room >= 0.25:
@@ -225,8 +302,11 @@ def choose(c, w, task) -> None:
                 intents.mark_done(choice["id"], w["sim_time"])
             except Exception:
                 pass
+        cooling = w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})
         if choice.get("cooldown_hours"):
-            w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})[choice["id"]] =                 w["sim_time"] + choice["cooldown_hours"] * 3600
+            cooling[choice["id"]] = w["sim_time"] + choice["cooldown_hours"] * 3600
+        if choice.get("group"):
+            cooling["group:" + choice["group"]] = w["sim_time"] + cfg.get("groups", {}).get(choice["group"], 2) * 3600
     except WorldError as error:
         # 这件事现在做不成（没钱、东西没了、店关了）：一段时间内不再想它
         w["settings"].setdefault("life_cooldown", {}).setdefault(aid, {})[choice["id"]] = w["sim_time"] + 3 * 3600
@@ -238,12 +318,21 @@ def _do(c, w, aid, actor, choice, place, room, key) -> None:
     cfg = rhythms.config(w)
     activity = choice.get("activity") or "eat"
     span = cfg["activities"][activity]["hours"]
-    travel = travel_minutes(w, actor["parent_id"], place) / 60
+    way = city.route(w, actor["parent_id"], place) if city.enabled(w) else None
+    travel = (way["minutes"] if way else travel_minutes(w, actor["parent_id"], place)) / 60
     hours = min(rhythms._draw(w, key, "hours", *span), max(0.1, room - travel - 0.05))
     after = {"activity": activity, "place": place, "hours": hours, "source": "life:" + choice["id"],
              "eat": choice.get("eat")}
+    if choice.get("venue"):
+        city.ensure_place(c, w, place)
+        after["venue"] = {"id": place, "price": city.price(city.data(w)["by_id"][place]),
+                          "meal": bool(choice["venue"].get("meal"))}
     if travel > 0:
         rhythms.start_activity(c, w, aid, "commute", source="life:travel", hours=travel, key=key + ":go", after=after)
+        if way and way.get("label"):
+            mover = entity(c, w["world_id"], aid)
+            mover["state"]["doing"]["route"] = way["label"]  # 她知道自己是怎么去的：走路/骑车/坐几号线
+            save_entity(c, mover)
     else:
         arrive(c, w, aid, after, key)
 
@@ -255,11 +344,25 @@ def arrive(c, w, aid, after, key) -> None:
         save_entity(c, actor)
     if after.get("eat"):
         _eat(c, w, aid, after["eat"], key)
+    if after.get("venue"):
+        _visit(c, w, aid, after["venue"], key)
     rhythms.start_activity(c, w, aid, after["activity"], source=after["source"], hours=after.get("hours"), key=key + ":do")
     habits = w["settings"].setdefault("life_habits", {}).setdefault(aid, {})
     for k in list(habits):
         habits[k] *= 0.97  # 不去就慢慢淡
     habits[_habit_key(w, after["place"])] = habits.get(_habit_key(w, after["place"]), 0.0) + 1
+
+
+def _visit(c, w, aid, venue, key) -> None:
+    """到了城里的某家店：记一笔（去过几次、花了多少），在外面吃饭也算吃饱。钱的账（C 之后）再接。"""
+    memory = _venue_memory(w, aid)
+    seen = memory.setdefault(venue["id"], {"like": 0.0, "visits": 0, "first": w["sim_time"]})
+    seen["visits"] += 1
+    seen["last"] = w["sim_time"]
+    if venue.get("meal"):
+        rhythms.on_consume(c, w, aid, "neno:meal", 1, key)
+    emit(c, w, key + ":visit", "life.visit", {"venue": venue["id"], "name": city.label(c, w, venue["id"]),
+                                              "price": venue.get("price", 0), "visits": seen["visits"]}, aid)
 
 
 def _eat(c, w, aid, item_id, key) -> None:
@@ -288,6 +391,7 @@ def taste(c, w, aid, doing, reason) -> None:
     source = doing.get("source", "")
     if not enabled(w, aid) or not source.startswith("life:") or source == "life:travel":
         return
+    _venue_taste(c, w, aid, reason)
     choice = next((ch for ch in rhythms.config(w)["choices"] if "life:" + ch["id"] == source), None)
     if not choice or not choice.get("pref"):
         return
@@ -295,9 +399,9 @@ def taste(c, w, aid, doing, reason) -> None:
     mood = 2 * rhythms._draw(w, key, "mood") - 1          # 那天就是觉得好/不好
     place = entity(c, w["world_id"], entity(c, w["world_id"], aid)["parent_id"])
     weather = place["state"].get("weather")
-    if weather is None and _has(c, w, "street") and _area(place["entity_id"]) == "out":
+    if weather is None and _has(c, w, "street") and _area(place["entity_id"], w) == "out":
         weather = entity(c, w["world_id"], "street")["state"].get("weather")
-    if weather == "rain" and _area(place["entity_id"]) == "out":
+    if weather == "rain" and _area(place["entity_id"], w) == "out":
         mood -= 0.6
     needs = {n: rhythms._value_at(r, w["sim_time"]) for n, r in rhythms._rows(c, w["world_id"], aid).items()}
     mood -= 0.5 * max(0.0, needs.get("fatigue", 0) - 0.7) + 0.5 * max(0.0, needs.get("hunger", 0) - 0.7)
@@ -308,6 +412,24 @@ def taste(c, w, aid, doing, reason) -> None:
     prefs[choice["pref"]] = max(-0.6, min(0.8, old + 0.08 * max(-1.0, min(1.0, mood))))
     emit(c, w, key, "life.taste", {"pref": choice["pref"], "from": round(old, 3), "to": round(prefs[choice["pref"]], 3),
                                    "weather": weather}, aid)
+
+
+def _venue_taste(c, w, aid, reason) -> None:
+    """在城里某家店待完：印象 = 这家店本身（种子定的隐藏品质，好吃难吃是店的事）+ 那天的心情。
+    第一次去印象定得重，之后慢慢修正。"""
+    here = entity(c, w["world_id"], aid)["parent_id"]
+    seen = w["settings"].get("life_venues", {}).get(aid, {}).get(here)
+    if seen is None:
+        return
+    from app.services.world.randomness import sample
+    quality = 2 * sample(w["seed"], here, "venue-quality") - 1
+    key = f"venue-taste:{aid}:{here}:{int(w['sim_time'])}"
+    mood = 2 * rhythms._draw(w, key, "mood") - 1 - (0.3 if reason != "到时间了" else 0.0)
+    felt = 0.7 * quality + 0.3 * mood
+    weight = 0.6 if seen["visits"] <= 1 else 0.25
+    old = seen.get("like", 0.0)
+    seen["like"] = round(max(-1.0, min(1.0, old + weight * (felt - old))), 3)
+    emit(c, w, key, "life.venue_taste", {"venue": here, "from": old, "to": seen["like"]}, aid)
 
 
 def handle(c, w, task) -> bool:

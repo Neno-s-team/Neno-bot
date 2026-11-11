@@ -39,3 +39,11 @@ def test_restart_adds_new_template_things_without_touching_old(tmp_path):
         assert entity(c, "life", "kettle")["label"] == "电热水壶"
         assert entity(c, "life", "hair_dryer")["label"] == "吹风机"
         assert entity(c, "life", "laptop")["state"]["broken"]
+
+
+def test_template_places_take_their_real_names(tmp_path):
+    engine = WorldEngine(WorldStore(tmp_path / "w.db"))
+    _ensure_life_world(engine, "life")
+    with engine.store.transaction() as c:
+        assert entity(c, "life", "cafe")["label"] == "政苑咖啡馆"
+        assert entity(c, "life", "riverside")["label"] == "东环河边"

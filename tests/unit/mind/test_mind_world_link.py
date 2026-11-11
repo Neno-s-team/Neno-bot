@@ -151,3 +151,13 @@ def test_she_knows_what_broke_and_whether_she_fixed_it(linked):
     memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="在干嘛",
                                              history=[], self_card="")
     assert "坏着" not in wm_builder.render_working_memory(memory)
+
+
+def test_she_knows_which_city_she_lives_in(linked):
+    from app.services.mind.memory import wm_builder
+    from app.services.mind.schemas import L1Appraisal
+    _set_doing(linked, "read")
+    memory = wm_builder.build_working_memory("tg:x", l1=L1Appraisal.from_dict({"cues": []}), message="你在哪个城市",
+                                             history=[], self_card="")
+    text = wm_builder.render_working_memory(memory)
+    assert "你住杭州紫金文苑（三坝地铁站附近），学校在浙江大学紫金港校区" in text
