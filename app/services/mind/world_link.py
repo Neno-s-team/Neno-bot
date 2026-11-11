@@ -147,7 +147,7 @@ def _around(w: dict[str, Any]) -> dict[str, Any]:
             when = f"{timeline.day_word(item['start'], now)} {clock_text(item['start'])}"
         elif item["multi"]:
             last = item["end"] - 1
-            when = "这阵子" + (f"（到{timeline.day_word(last, now)}）" if last - now < 30 * 86400 else "")
+            when = "这阵子" + (f"（到{timeline.day_word(last, now)}）" if 86400 < last - now < 30 * 86400 else "")
         else:
             when = "现在"
         tail = "；".join(x for x in (item["detail"], "打算去" if item["planned"] else "", "去过了" if item["been"] else "") if x)
