@@ -17,6 +17,12 @@ os.environ["TZ"] = config.MIND_TIMEZONE or "Asia/Shanghai"
 if hasattr(time, "tzset"):
     time.tzset()
 
+# 测试进程绝不启动线上世界。.env 里 WORLD_ENABLED=true 时，集成测试起整个 app 会在真实的 data/bot.db 上
+# 再跑一个世界引擎：推进线上世界、取天气、调 NPC 模型、做现实同步（app.main 启动时拿的是真实库路径，
+# isolated_db 罩不住）。需要世界的测试自己在临时库上建引擎。
+for _name in ("WORLD_ENABLED", "WORLD_NPC_ENABLED", "WORLD_REAL_WEATHER", "WORLD_REAL_FEED", "WORLD_COGNITION_AUTOSTART"):
+    os.environ[_name] = "false"
+
 
 @pytest.fixture()
 def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
