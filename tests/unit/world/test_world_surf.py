@@ -430,7 +430,7 @@ def test_she_cannot_publish_spend_or_touch_the_account():
     assert surf._kind("正在关注") == "" and surf._kind("取消关注 @hz") == "no" and surf._kind("书签") == ""
     assert surf._kind("28 Likes. Like") == "like" and surf._kind("赞同") == "like" and surf._kind("Liked") == ""   # 英文界面、Reddit
     assert surf._kind("Follow @nasa") == "follow" and surf._kind("加入") == "follow" and surf._kind("Following") == ""
-    assert surf._kind("Follow back @Xuanye5250") == "follow"
+    assert surf._kind("Follow back @someone") == "follow"
     assert {surf._kind(x) for x in ("64 Replies. Reply", "22 reposts. Repost", "Post", "创建帖子", "Direct Messages",
                                     "Subscribe to Premium", "Log out")} == {"no"}
     assert surf._kind("Show 315 posts") == "" and surf._kind("Replies") == "" and surf._kind("Bookmark") == ""
