@@ -125,6 +125,9 @@ def export(target: Path, root: Path = ROOT) -> list[str]:
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(target, filter="data")
     (target / ".gitignore").write_bytes(IGNORE.encode("utf-8"))
+    if (target / ".git").exists():          # 发布仓库：暂存这次快照；Windows 上解包会丢可执行位，补回去
+        subprocess.run(["git", "add", "-A"], cwd=target, check=True, capture_output=True)
+        subprocess.run(["git", "update-index", "--chmod=+x", "start.sh"], cwd=target, check=True, capture_output=True)
     print(f"导出 {len(paths)} 个文件到 {target}")
     for name in missing:
         print(f"注意：白名单里的 {name} 还没提交，这次没导出")

@@ -266,7 +266,9 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
   `tests/unit/test_channels.py` 里有一条断言保证模板本身没有配置问题。
 - **发布**：`python scripts/export_release.py data/release/neno` —— 按白名单从 **已提交内容**（`git archive HEAD`）导出，
   再拿本机 `.env` 的密钥/账号、数据库里记的账号名去比对导出的文件，另按通用格式找密钥和邮箱；有发现退出码 1。
-  `data/release/neno` 自己是一个 git 仓库（远端是发布仓库），每次发布是一次快照提交。开发笔记、内部计划、`prompts/system.txt`、`assets/` 不导出。
+  `data/release/neno` 自己是一个 git 仓库，远端是发布仓库 <https://github.com/Neno-s-team/Neno>（2026-11-12 建，AGPL-3.0），
+  每次发布是一次快照提交：导出脚本会顺手暂存并给 `start.sh` 补可执行位，之后在那个目录里 `git commit` + `git push`。
+  开发笔记、内部计划、`prompts/system.txt`、`assets/` 不导出。
 - 发布前在导出目录里用全新 venv 跑一遍测试、真聊两句（`data/tmp/e2e_release.py`，后端开在 8011）。
 - 真人号 Telegram（TDLib）的步骤在 `docs/telegram-user-account.md`；结构说明 `docs/how-it-works.md`。
 
