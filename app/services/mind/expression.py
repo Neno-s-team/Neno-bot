@@ -24,6 +24,7 @@ def _build_e2_messages(
     style_examples: str = "",
     line_lengths: list[int] | None = None,
     doing: str = "",
+    initiative: bool = False,
 ) -> list[dict]:
     from app.services.mind import timeline
     recent_text = "\n".join(timeline.turns_with_time(recent_turns[-config.MIND_RECENT_TURNS:]))
@@ -41,12 +42,17 @@ def _build_e2_messages(
     if sticker_hint:
         sticker_line = f"\n想发表情包就单独一行写 [表情包：{sticker_hint}]。"
 
+    if initiative:
+        # 主动找他：没有要回的消息，是她自己想说
+        lead = f"（他这会儿没发消息，是你想主动找他。）\n\n你想说的意思：{points}"
+        manner = "像平时手机上随手发消息那样打字"
+    else:
+        lead = f"对方：{message[:800]}\n\n你想回的意思：{points}"
+        manner = "像平时手机上随手回那样打字"
     prompt = f"""{recent_text}
-对方：{message[:800]}
-
-你想回的意思：{points}{inner}{hidden_line}
+{lead}{inner}{hidden_line}
 发 {plan.n_messages} 条。{length_line}{sticker_line}
-像平时手机上随手回那样打字，别解释、别总结、别为了显得自然而加戏。
+{manner}，别解释、别总结、别为了显得自然而加戏。
 {f"（你此刻：{doing}。被问到可以照实说，没问就不用提。）" if doing else "不知道自己此刻具体在干嘛就别编具体的事。"}一条一行，只输出要发的内容。"""
 
     system_blocks = [
@@ -98,6 +104,7 @@ def run_e2(
     session_id: str | None = None,
     style_seed: str | None = None,
     doing: str = "",
+    initiative: bool = False,
 ) -> str:
     from app.services.mind import style_corpus
 
@@ -108,6 +115,7 @@ def run_e2(
         plan, style_card, sticker_table_text, recent_turns, message,
         hidden=hidden, sticker_hint=sticker_hint, style_examples=examples,
         line_lengths=draw_line_lengths(seed, plan.n_messages, plan.length), doing=doing,
+        initiative=initiative,
     )
     raw = request_model_response(
         model_name=config.MIND_EXPR_MODEL,

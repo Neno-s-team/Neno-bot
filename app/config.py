@@ -182,3 +182,8 @@ MIND_IN_CHAT_GLANCE_SEC = _env_float("MIND_IN_CHAT_GLANCE_SEC", 2.0)
 # 点开后等对方停顿多少秒再开始想（按收到时的等级），最长等 MIND_SETTLE_MAX_SEC
 MIND_SETTLE_SEC = json.loads(os.getenv("MIND_SETTLE_SEC", "").strip() or '{"2": 10, "3": 10, "4": 5}')
 MIND_SETTLE_MAX_SEC = _env_float("MIND_SETTLE_MAX_SEC", 30.0)
+# 主动找他（app/services/mind/proactive.py）：off 不动 / shadow 全流程跑但只记不发 / on 真发
+MIND_PROACTIVE = os.getenv("MIND_PROACTIVE", "off").strip().lower() or "off"
+MIND_PROACTIVE_IDLE_MIN = _env_float("MIND_PROACTIVE_IDLE_MIN", 20.0)      # 刚聊过这么久之内，话会在聊天里自然带出来，不算主动
+MIND_PROACTIVE_EXPIRE_MIN = _env_float("MIND_PROACTIVE_EXPIRE_MIN", 30.0)  # 排好了却发不出去（断网），过这么久作废
+MIND_PROACTIVE_FUSE = _env_int("MIND_PROACTIVE_FUSE", 20)                  # 保险丝：一天最多想这么多回，防出错刷屏烧钱；不是行为上限

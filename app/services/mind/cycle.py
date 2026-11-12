@@ -187,6 +187,7 @@ def _run_l2(
     wm_json: str | None,
     existing: dict[str, Any],
     trace_id: str | None,
+    initiative: str = "",
 ) -> tuple[L2Result | None, dict[str, Any] | None, dict[str, Any] | None]:
     """L2/L3 + 一致性检查。返回 (结果, wm, 失败信息)。
 
@@ -231,6 +232,7 @@ def _run_l2(
                 extra_errors=errors or None,
                 trace_id=trace_id,
                 session_id=session_id,
+                initiative=initiative,
             )
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
@@ -285,8 +287,12 @@ def run_cycle(
     plan_patch: dict[str, Any] | None = None,
     preset_l1_json: str | None = None,
     allow_fallback: bool = True,
+    initiative: str = "",
+    commit: bool = True,
 ) -> str:
-    """allow_fallback=False（异步作业）：L1/E2/E3 失败直接抛出，由作业重试，
+    """initiative 非空：没有来消息，是她自己起了念头想找他（主动联系）——想清楚后可以决定不发，返回空串。
+    commit=False：只想不记（影子模式：话没真发出去，不能记成"跟他说过了"）。
+    allow_fallback=False（异步作业）：L1/E2/E3 失败直接抛出，由作业重试，
     不退回不带人设卡的旧单次调用（那会产出"我是 AI"之类的出戏回复）。"""
 
     def _fallback() -> str:
@@ -411,11 +417,19 @@ def run_cycle(
                 wm_json=stored_wm,
                 existing=existing,
                 trace_id=trace_id,
+                initiative=initiative,
             )
             if failure is not None:
                 degraded = failure["degraded"]
                 # 失败细节留在 check_json；completed 的 cycle 不写 error 字段
                 update_cycle(cycle_id, degraded=degraded)
+
+    if initiative and (l2 is None or not l2.decision.reply or not l2.say_points):
+        # 主动找他：想了想算了（或没想成）→ 不发。没想成也不走"保守回一句"——没人在等她回。
+        update_cycle(cycle_id, final_text="", status="completed")
+        log_event("mind", "initiative_declined", trace_id=trace_id, session_id=session_id,
+                  cycle_id=cycle_id, degraded=degraded or "")
+        return ""
 
     # ── E1 规划 ───────────────────────────────────────────────────────────────
     if not existing.get("plan_json"):
@@ -451,6 +465,7 @@ def run_cycle(
                 session_id=session_id,
                 style_seed=cycle_id,
                 doing=_doing_now(),
+                initiative=bool(initiative),
             )
             update_cycle(cycle_id, expr_text=expr_text)
         except Exception as exc:
@@ -493,7 +508,7 @@ def run_cycle(
     # 只在 E3 成功、L2 有效（非降级）、且未提交过时执行
     latest = get_cycle(cycle_id) or existing
     committed = int(latest.get("memory_committed") or 0)
-    if l2 is not None and not degraded and not committed:
+    if commit and l2 is not None and not degraded and not committed:
         try:
             memory_commit.commit_memory(
                 session_id=session_id,

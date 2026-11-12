@@ -141,7 +141,23 @@ def process_due_batch(limit: int = 50) -> dict[str, int]:
                       session_id=record["session_id"], error_type=type(exc).__name__)
     if config.MIND_REFLECT_ENABLED:
         done["reflections"] = process_reflections(ts)
+    done["proactive"] = process_proactive(ts)
     return done
+
+
+def process_proactive(ts: float) -> int:
+    """主动找他：只对"家"会话（接着世界的那个），和回复作业同一把会话锁。默认关（MIND_PROACTIVE）。"""
+    from app.services.mind import proactive
+
+    session_id = config.MIND_HOME_SESSION
+    if proactive.mode() == "off" or not session_id or not config.MIND_ASYNC_DELIVERY:
+        return 0
+    with _lock(session_id):
+        try:
+            return 1 if proactive.tick(session_id, ts).get("outcome") else 0
+        except Exception as exc:
+            log_event("mind", "proactive_tick_failed", session_id=session_id, error_type=type(exc).__name__)
+            return 0
 
 
 def process_reflections(ts: float) -> int:

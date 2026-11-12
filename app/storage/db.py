@@ -426,6 +426,33 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_mind_delivery_due"
             " ON mind_delivery(session_id, status, send_at)"
         )
+        # 主动找他：一行一个念头（从哪来、什么时候冒出来、最后怎么了）
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mind_proactive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                key TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 0.0,
+                born_at REAL NOT NULL DEFAULT 0.0,
+                due_at REAL NOT NULL DEFAULT 0.0,
+                expire_at REAL NOT NULL DEFAULT 0.0,
+                status TEXT NOT NULL DEFAULT 'waiting',
+                reason TEXT NOT NULL DEFAULT '',
+                cycle_id TEXT,
+                final_text TEXT,
+                decided_at REAL,
+                created_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mind_proactive_due"
+            " ON mind_proactive(session_id, status, due_at)"
+        )
     from app.storage.image_store import init_image_store
     init_image_store()
 

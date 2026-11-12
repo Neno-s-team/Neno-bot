@@ -239,6 +239,20 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 不能发东西、花钱、动账号。依赖：`data/tools/agent-browser`（npm 装，不入库）和本机的 Chrome。
 账号靠用户用 `scripts/open-neno-browser.ps1` 手动登录。X 账号登录好之后把 `surf.browser.apps` 里 X 的 `enabled` 改成 true。
 
+## 5.19 主动找他（2026-11-12）
+
+`app/services/mind/proactive.py`，表 `mind_proactive`（一行一个念头）。开关 `MIND_PROACTIVE`：`off`（默认）/ `shadow`（全流程跑，只记不发）/ `on`（真发）。
+只对"家"会话（`MIND_HOME_SESSION`）生效，由 `scheduler.process_proactive` 每个 tick 调一次（内部约 30 秒一回），和回复作业同一把会话锁。
+
+- **念头从哪来**（都是已有数据）：世界里 `share ≥ 0.5` 的小事（含刷到的东西）；在意事项；睡前想的"明天……"里对不上世界活动的；18 小时以上没说话；她主动发了他没回。
+- **会不会冒出来**：登记时按种子抽两次——想不想说（分量 × 亲近度）、过多久冒出来（分量越大越快，最长 4 小时）。只抽一次，结局是定的。
+- **时机**：她醒着、手机在手边（打断等级 ≥ 2 且没静音）；没在聊（最后一条消息 20 分钟以上、没有待处理的来信和待发的回复）。
+- **用户定的三条**（2026-11-12）：不设每日上限、不设安静时段、他没回她大多会追。所以频率是动态的：她发了没回的回数 → 再发的概率 `STILL = [1, 0.85, 0.45, 0.15, 0.05]`，他一回就清零。`MIND_PROACTIVE_FUSE`（默认一天 20 回）只是保险丝，防出错刷屏烧钱。
+- **想清楚再说**：`cycle.run_cycle(initiative=…)`——L1 用预置的（没有来信可评），深思层的提示词换成"他没发消息，是你自己想找他"，`decision.reply=false` 就是"算了"；措辞层同一套风格。影子模式 `commit=False`，不提交记忆（话没真发，不能记成说过了）。
+- **发**：`delivery.plan_deliveries` → 网关照常轮询发出；发成功才进聊天记录。还没发出去时他先来消息，现有的 `on_new_message` 会作废它。排了超过 `MIND_PROACTIVE_EXPIRE_MIN`（30 分钟）还发不出去的作废，不补发。
+- **看记录**：`venv/Scripts/python -m app.services.mind.proactive`，一行一个念头和结局。
+- 没做：发图、发刷到的链接；聊到一半他不回了的追问（现在只追她主动发的）。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。
@@ -249,7 +263,7 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - **在意事项进白天**：L1 输入多一行"心里记挂着"；工作记忆【在意事项】最多 3 条（很在意/有点在意/隐约记着）；L1 线索撞上在意事项会随机升温 0.05–0.25。
 - 模型失败：重试到 `MIND_JOB_MAX_ATTEMPTS`，最后一次只做规则部分（`result.model = failed:*`）；当晚没聊天不调模型。
 - 测试 `tests/unit/mind/test_mind_p4.py` 8 条，随机与限幅规则逐条做过"改成固定 → 测试失败"自检。
-- 未做：翻聊天记录让模糊记忆变清晰（属世界动作，P5）；次日意图/主动联系（只记在 result 的 tomorrow，不执行）；自我模型微调（等人设）；疲劳/深夜对情绪归世界（P5 从 world_need 读）。
+- 未做：翻聊天记录让模糊记忆变清晰（属世界动作，P5）；~~次日意图/主动联系~~（次日意图见 D4 `intents.py`，主动联系见 5.19）；自我模型微调（等人设）；疲劳/深夜对情绪归世界（P5 从 world_need 读）。
 
 ## 7. 世界引擎：已有什么
 

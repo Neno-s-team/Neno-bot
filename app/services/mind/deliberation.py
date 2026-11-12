@@ -283,6 +283,7 @@ def build_deliberation_messages(
     leak_cap: float,
     sticker_names: set[str] | None = None,
     extra_errors: list[str] | None = None,
+    initiative: str = "",
 ) -> list[dict]:
     error_block = ""
     if extra_errors:
@@ -293,6 +294,14 @@ def build_deliberation_messages(
         sticker_block = "、".join(sorted(n for n in sticker_names if n))[:2000]
     else:
         sticker_block = "无"
+    if initiative:
+        # 没有来消息：是她自己起了念头想找他。发不发由她想清楚后定。
+        now_block = f"【此刻】\n他没有发新消息。是你自己起了个念头，想主动找他：{initiative[:400]}"
+        reply_rule = ("l2.decision.reply：想清楚后真要发就 true；这事已经跟他说过、没必要、不合适，"
+                      "或者想想还是算了，就 false（false 时 l3.say_points 留空）")
+    else:
+        now_block = f"【当前消息】\n{message[:800]}"
+        reply_rule = "l2.decision.reply 恒为 true"
     prompt = f"""你是 Neno 的深思层（L2）与自我层（L3）。先想清楚，再决定怎么表现。
 
 【工作记忆】
@@ -304,13 +313,12 @@ def build_deliberation_messages(
 【可用表情包】
 {sticker_block}
 
-【当前消息】
-{message[:800]}
+{now_block}
 
 【输出要求】
 只输出一个 JSON 对象，结构为 {{"l2": {{...}}, "l3": {{...}}}}，不要任何其他内容。
 - l2.interpretation：对用户意图的揣测；l2.feeling：想清楚后的感受。
-- l2.decision.reply 恒为 true；l2.decision.world_action 恒为 false（世界未接入）。
+- {reply_rule}；l2.decision.world_action 恒为 false（世界未接入）。
 - l2.intents：你打算做的事，只能是提议；action 用第一人称动词短语、不带主语（例："去买奶茶"）。
 - l2.state_delta：本人情绪变化，各分量在 ±0.3 内。
 - l2.memory_notes：≤3 条，"她视角"的经历摘要。
@@ -451,6 +459,7 @@ def run_deliberation(
     extra_errors: list[str] | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
+    initiative: str = "",
 ) -> tuple[L2Result, str]:
     """调用一次 L2/L3；返回 (结果, 实际使用的模型名)。解析失败抛 ValueError。"""
     model_name = config.MIND_THINK_MODEL or config.CHAT_MODEL_NAME
@@ -462,6 +471,7 @@ def run_deliberation(
         leak_cap=leak_cap,
         sticker_names=sticker_names,
         extra_errors=extra_errors,
+        initiative=initiative,
     )
     extra = {
         **config.MIND_THINK_EXTRA_BODY,
