@@ -189,19 +189,68 @@ def test_bot_does_not_lose_a_message_when_the_backend_is_down(bot):
 
 # ── run.py：一条命令启动 ────────────────────────────────────────────────────
 
-def test_first_run_makes_a_working_env_and_asks_for_the_key_once(tmp_path, capsys):
+def test_first_run_asks_which_provider_then_the_key_and_tries_it(tmp_path, capsys):
     example = Path(run.ROOT / ".env.example")
     env = tmp_path / ".env"
-    asked = []
-    values = run.ensure_env(ask=lambda prompt: asked.append(prompt) or " sk-or-test ", path=env, example=example)
-    assert len(asked) == 1 and values["OPENROUTER_API_KEY"] == "sk-or-test"
+    asked, tried = [], []
+    answers = iter(["", " sk-ds-test "])                                    # 回车 = 选 1（DeepSeek）；然后粘贴密钥
+    values = run.ensure_env(ask=lambda prompt: asked.append(prompt) or next(answers), path=env, example=example,
+                            check=lambda v: tried.append(v["DEEPSEEK_API_KEY"]) or "")
+    assert len(asked) == 2 and tried == ["sk-ds-test"]
+    assert values["MODEL_PRESET"] == "cn" and values["DEEPSEEK_API_KEY"] == "sk-ds-test" and values["OPENROUTER_API_KEY"] == ""
     assert len(values["NENO_INTERNAL_TOKEN"]) >= 24 and values["ADMIN_TOKEN"] != values["NENO_INTERNAL_TOKEN"]
     assert run.problems(values) == []                                       # 模板本身就是一份能用的配置
     assert values["MIND_HOME_SESSION"] == "me" and values["MIND_WORLD_ID"] == "neno-life" and values["TELEGRAM_BOT_TOKEN"] == ""
-    again = run.ensure_env(ask=lambda prompt: pytest.fail("不该再问"), path=env, example=example)
-    assert again == values                                                  # 第二次运行：不再问，也不重新生成暗号
+    assert run.models(values)["MIND_THINK_MODEL"] == "deepseek:deepseek-v4-pro"
+    again = run.ensure_env(ask=lambda prompt: pytest.fail("不该再问"), path=env, example=example,
+                           check=lambda v: pytest.fail("不该再测"))
+    assert again == values                                                  # 第二次运行：不再问、不再测，也不重新生成暗号
     with pytest.raises(SystemExit):
-        run.ensure_env(ask=lambda prompt: "", path=tmp_path / "other.env", example=example)
+        run.ensure_env(ask=lambda prompt: "", path=tmp_path / "other.env", example=example, check=lambda v: "")
+
+
+def test_first_run_can_pick_openrouter_and_retry_a_wrong_key(tmp_path, capsys):
+    example = Path(run.ROOT / ".env.example")
+    answers = iter(["2", "sk-or-wrong", "", "sk-or-right"])                 # 选 2；第一次密钥不对；回车重输；这次对了
+    results = iter(["OpenRouter 说这个密钥不对。", ""])
+    values = run.ensure_env(ask=lambda prompt: next(answers), path=tmp_path / ".env", example=example,
+                            check=lambda v: next(results))
+    assert values["MODEL_PRESET"] == "intl" and values["OPENROUTER_API_KEY"] == "sk-or-right" and values["DEEPSEEK_API_KEY"] == ""
+    assert run.problems(values) == [] and "密钥不对" in capsys.readouterr().out
+    answers = iter(["1", "sk-ds-x", "s"])                                   # 测不过，输入 s 先跳过
+    skipped = run.ensure_env(ask=lambda prompt: next(answers), path=tmp_path / "b.env", example=example,
+                             check=lambda v: "连不上 DeepSeek（ConnectionError）。检查网络。")
+    assert skipped["DEEPSEEK_API_KEY"] == "sk-ds-x"
+
+
+def test_trying_a_key_sends_one_tiny_request_per_provider():
+    sent = []
+
+    class Reply:
+        def __init__(self, code):
+            self.status_code, self.text = code, "详情"
+
+    def post(code):
+        return lambda url, **kw: sent.append((url, kw)) or Reply(code)
+
+    cn = {"MODEL_PRESET": "cn", "DEEPSEEK_API_KEY": "ds"}
+    assert run.try_keys(cn, post=post(200)) == "" and len(sent) == 1         # 一家只测一次，不是每层一次
+    url, kw = sent[0]
+    assert url == "https://api.deepseek.com/chat/completions" and kw["headers"]["Authorization"] == "Bearer ds"
+    assert kw["json"]["model"] == "deepseek-flash" and kw["json"]["reasoning_effort"] == "none" and kw["proxies"] is None
+    sent.clear()
+    both = {"MODEL_PRESET": "cn-gemini", "DEEPSEEK_API_KEY": "ds", "OPENROUTER_API_KEY": "or", "OPENROUTER_PROXY": "http://127.0.0.1:7890"}
+    assert run.try_keys(both, post=post(200)) == "" and [u for u, _ in sent] == [
+        "https://api.deepseek.com/chat/completions", "https://openrouter.ai/api/v1/chat/completions"]
+    assert sent[1][1]["proxies"] == {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
+    assert sent[1][1]["json"]["model"] == "google/gemini-3.8-flash" and "reasoning_effort" not in sent[1][1]["json"]
+    assert run.try_keys(cn, post=post(401)) == "DeepSeek 说这个密钥不对。"
+    assert "没有余额" in run.try_keys(cn, post=post(402)) and "500" in run.try_keys(cn, post=post(500))
+
+    def down(url, **kw):
+        raise ConnectionError("x")
+
+    assert run.try_keys({"MODEL_PRESET": "intl", "OPENROUTER_API_KEY": "or"}, post=down).startswith("连不上 OpenRouter（ConnectionError）")
 
 
 def test_set_env_changes_one_line_and_leaves_the_rest(tmp_path):
@@ -214,8 +263,16 @@ def test_set_env_changes_one_line_and_leaves_the_rest(tmp_path):
 
 
 def test_problems_are_spotted_before_starting():
-    ok = {"OPENROUTER_API_KEY": "k", "MIND_ENABLED": "true", "MIND_ASYNC_DELIVERY": "true", "MIND_L1_MODEL": "m"}
+    ok = {"MODEL_PRESET": "cn", "DEEPSEEK_API_KEY": "k", "MIND_ENABLED": "true", "MIND_ASYNC_DELIVERY": "true"}
     assert run.problems(ok) == []
-    assert run.problems({**ok, "OPENROUTER_API_KEY": ""}) == ["OPENROUTER_API_KEY 没填"]
-    assert len(run.problems({**ok, "MIND_ASYNC_DELIVERY": "false", "MIND_L1_MODEL": ""})) == 2
+    assert run.problems({**ok, "DEEPSEEK_API_KEY": ""}) == ["DEEPSEEK_API_KEY 没填"]
+    assert run.problems({**ok, "MODEL_PRESET": "cn-gemini"}) == ["OPENROUTER_API_KEY 没填"]       # 这个档位要两个密钥
+    assert run.problems({**ok, "MIND_EXPR_MODEL": "openrouter:google/gemini-3.8-flash"}) == ["OPENROUTER_API_KEY 没填"]
+    assert "不认识" in run.problems({**ok, "MODEL_PRESET": "cheap"})[0]
+    assert len(run.problems({**ok, "MIND_ASYNC_DELIVERY": "false"})) == 1
     assert "MIND_WORLD_ID" in run.problems({**ok, "WORLD_ENABLED": "true"})[0]
+    # 老配置（没设档位）：各层自己写模型名，都走 OpenRouter
+    legacy = {"OPENROUTER_API_KEY": "k", "MIND_ENABLED": "true", "MIND_ASYNC_DELIVERY": "true", "MIND_L1_MODEL": "anthropic/claude-haiku-5.5"}
+    assert run.problems(legacy) == []
+    assert run.problems({**legacy, "OPENROUTER_API_KEY": ""}) == ["OPENROUTER_API_KEY 没填"]
+    assert "MIND_L1_MODEL" in run.problems({**legacy, "MIND_L1_MODEL": ""})[0]

@@ -31,9 +31,8 @@ from app.utils.logging_utils import log_event
 
 
 def require_api_key() -> str:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
-    return OPENROUTER_API_KEY
+    """没写提供方的模型用的密钥。可以是空的：模型名写了"提供方:"的不需要它，缺不缺由调用口去判断。"""
+    return OPENROUTER_API_KEY or ""
 
 
 def request_model_response(

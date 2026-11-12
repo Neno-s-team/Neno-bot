@@ -35,6 +35,10 @@ def _cors_origins() -> tuple[str, ...]:
 
 
 # ── LLM provider ────────────────────────────────────────────────────────────
+# 档位：设了 MODEL_PRESET 就先把没单独写的各层模型填进环境（app/llm/presets.py）；没设就不动。
+from app.llm import presets as _presets
+
+MODEL_PRESET = _presets.apply()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = (
     os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()

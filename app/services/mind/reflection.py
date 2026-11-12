@@ -311,6 +311,19 @@ def _apply_notes(conn, session_id, night, window_end, thought, material, known_i
             summary["notes"] += 1
 
 
+def _cited(values, known_ids) -> list[int]:
+    """模型引用的记录号里真实存在的那些。不存在的丢掉（便宜模型会编号）；"#21" 这种写法也认；别的怪值跳过。"""
+    found = []
+    for value in values or []:
+        try:
+            number = int(str(value).strip().lstrip("#"))
+        except (TypeError, ValueError):
+            continue
+        if number in known_ids and number not in found:
+            found.append(number)
+    return found
+
+
 def _apply_beliefs(conn, session_id, thought, known_ids, summary):
     beliefs = {r["subject"]: dict(r) for r in conn.execute(
         "SELECT id, subject, content, confidence, evidence_json, version FROM mind_belief WHERE session_id = ?",
@@ -320,7 +333,7 @@ def _apply_beliefs(conn, session_id, thought, known_ids, summary):
         content = str(item.get("content") or "").strip()[:300]
         if not subject or not content:
             continue
-        evidence = [int(x) for x in (item.get("evidence") or []) if int(x) in known_ids]
+        evidence = _cited(item.get("evidence"), known_ids)
         update = BeliefUpdate(subject=subject, content=content,
                               confidence=max(0.0, min(1.0, float(item.get("confidence") or 0.0))), evidence=evidence)
         apply_belief_update(conn, session_id, update, beliefs.get(subject))
@@ -354,7 +367,7 @@ def _apply_concerns(conn, session_id, night, thought, material, known_ids, summa
         if not title:
             continue
         decay = _between([0.1, 0.45], session_id, night, title, "decay")
-        evidence = [int(x) for x in (item.get("evidence") or []) if int(x) in known_ids]
+        evidence = _cited(item.get("evidence"), known_ids)
         concerns.open_concern(conn, session_id, title, str(item.get("detail") or ""),
                               min(0.8, float(item.get("intensity") or 0.4)), decay, evidence, now)
         summary["concerns_new"] += 1

@@ -18,7 +18,8 @@ An AI companion who lives her own day in a simulated world that runs on real tim
 
 ## 五分钟跑起来
 
-需要：Python 3.10 以上；一个 [OpenRouter](https://openrouter.ai/keys) 的密钥（充几美元能用很久）。
+需要：Python 3.10 以上；一个大模型的密钥——国内推荐 [DeepSeek](https://platform.deepseek.com/api_keys)
+（直连，支付宝/微信充值，充 10 块钱能用很久），海外可以用 [OpenRouter](https://openrouter.ai/keys)。
 
 ```bash
 git clone https://github.com/Neno-s-team/Neno.git
@@ -28,7 +29,7 @@ cd Neno
 - **Windows**：双击 `start.bat`（或在终端里运行 `.\start.bat`）
 - **macOS / Linux**：`./start.sh`
 
-第一次运行会自动建环境、装依赖，问你要一次密钥，然后你就在这个终端里跟她聊天了。
+第一次运行会自动建环境、装依赖，问你用哪家的模型、要一次密钥并当场测一下，然后你就在这个终端里跟她聊天了。
 她的数据都在本机的 `data/` 目录里。想从头再来，停掉后删掉 `data/`。
 
 > 她回得有快有慢是正常的：消息要等她看手机时才会被看到，她在路上可能几分钟，在上课、睡觉就更久。
@@ -46,15 +47,20 @@ cd Neno
 
 ## 要花多少钱
 
-所有模型调用都走你自己的 OpenRouter 密钥。默认配置是省钱档。
+所有模型调用都走你自己的密钥，不经过任何别人的服务器。`.env` 里一个 `MODEL_PRESET` 决定用哪一档：
 
-| 档位 | 用的模型 | 价格（每百万字，输入 / 输出） | 大概花费 |
-| --- | --- | --- | --- |
-| 省钱档（默认） | `claude-haiku-5.5` + `deepseek-v4.1-flash` | $0.10 / $0.50 | 正常聊天一天几毛到一块钱人民币 |
-| 质量档 | 深思 `claude-opus-5.5`，措辞 `gemini-4-carbon` | $4 / $20 和 $2 / $10 | 贵二十倍左右，说话明显更像人 |
+| 档位 | 给谁 | 深思 | 措辞 | 要几个密钥 |
+| --- | --- | --- | --- | --- |
+| `cn`（默认） | 国内用户 | DeepSeek V4 Pro | DeepSeek V4 Pro | 1 个 DeepSeek |
+| `cn-gemini` | 能连上 OpenRouter 的 | DeepSeek V4 Pro | Gemini 3.8 Flash | DeepSeek + OpenRouter |
+| `intl` | 海外用户 | DeepSeek V4 Pro | Gemini 3.8 Flash | 1 个 OpenRouter |
+| `high` | 不在乎钱 | Claude Opus 5.5 | Gemini 4 Carbon | 1 个 OpenRouter |
 
-花费是估算，取决于聊多少。换档只要改 `.env` 里几行，文件里有注释。她的世界自己运转也会调模型，
-但都是便宜模型，而且每天有上限。
+其余的（第一反应、世界里的小决定、身边的人、上网、睡前回想、看图）各档都用最便宜的 DeepSeek V4.1 Flash。
+
+- **大概花费**（估算，以各家价格页为准）：默认档一条认真想过的回复几分钱人民币，随口一回不到一分钱。
+  DeepSeek 工作日高峰时段价格翻倍。她的世界自己运转也会调模型，但都是最便宜的那个，而且每天有上限。
+- **想细调**：某一层单独换模型，写成 `提供方:模型名`（`deepseek:` / `openrouter:` / `custom:` 任何 OpenAI 兼容的地址），`.env` 里有例子。
 
 ## 把她改成你想要的样子
 

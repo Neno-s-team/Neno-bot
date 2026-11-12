@@ -10,7 +10,8 @@ import requests
 from app.storage.operations import operations
 
 
-def measured_post(url, *, headers, json: dict, timeout, proxies, purpose='chat', trace_id=None, session_id=None):
+def measured_post(url, *, headers, json: dict, timeout, proxies, purpose='chat', trace_id=None, session_id=None,
+                  provider=None):
     store = operations()
     limit = os.getenv('LLM_DAILY_BUDGET_USD', '').strip()
     if limit:
@@ -20,7 +21,7 @@ def measured_post(url, *, headers, json: dict, timeout, proxies, purpose='chat',
             raise RuntimeError('Configured UTC-day LLM spend threshold reached')
     started = time.perf_counter()
     row = dict(id=uuid.uuid4().hex, created_at=time.time(), purpose=purpose, model=json.get('model', ''),
-               trace_id=trace_id, session_id=session_id, provider=None, provider_request_id=None,
+               trace_id=trace_id, session_id=session_id, provider=provider or None, provider_request_id=None,
                status='network_error', input_tokens=None, output_tokens=None, cache_read_tokens=None,
                cache_write_tokens=None, reasoning_tokens=None, cost_usd=None, latency_ms=None, error=None)
     try:
@@ -30,13 +31,18 @@ def measured_post(url, *, headers, json: dict, timeout, proxies, purpose='chat',
             data = response.json()
             usage = data.get('usage') or {}
             details = usage.get('prompt_tokens_details') or usage.get('input_tokens_details') or {}
-            row.update(provider=data.get('provider'), provider_request_id=data.get('id'),
+            # 花费：这一家自己报了就用它的（OpenRouter）；没报就按价格表估（DeepSeek 官方）
+            from app.llm import providers
+            reported = usage.get('cost')
+            if reported is None and response.ok:
+                reported = providers.cost(provider or '', json.get('model', ''), usage, row['created_at'])
+            row.update(provider=data.get('provider') or provider or None, provider_request_id=data.get('id'),
                        input_tokens=usage.get('prompt_tokens', usage.get('input_tokens')),
                        output_tokens=usage.get('completion_tokens', usage.get('output_tokens')),
                        cache_read_tokens=details.get('cached_tokens', usage.get('cache_read_input_tokens')),
                        cache_write_tokens=details.get('cache_write_tokens', usage.get('cache_creation_input_tokens')),
                        reasoning_tokens=(usage.get('completion_tokens_details') or {}).get('reasoning_tokens'),
-                       cost_usd=usage.get('cost'))
+                       cost_usd=reported)
             if not response.ok:
                 row['error'] = str((data.get('error') or {}).get('code') or row['status'])[:120]
         except (ValueError, AttributeError, TypeError):

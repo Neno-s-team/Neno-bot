@@ -6,10 +6,13 @@ from urllib.parse import urlparse
 import requests
 
 from app.config import OPENROUTER_PROXY
+from app.llm import providers
 from app.utils.logging_utils import log_event
 
 
-def _proxies() -> dict | None:
+def _proxies(provider: str = "") -> dict | None:
+    if provider == "deepseek":
+        return None                          # 国内直连：不走专门给 OpenRouter 配的代理
     if OPENROUTER_PROXY:
         return {"http": OPENROUTER_PROXY, "https": OPENROUTER_PROXY}
     return None
@@ -142,6 +145,11 @@ def chat_with_openrouter(
     return_message: bool = False,
     purpose: str = "chat",
 ) -> str | dict:
+    """所有模型调用的唯一出口。model_name 可以写成"提供方:模型名"（见 app/llm/providers.py）：
+    写了就用那家的地址和密钥；没写就用传进来的 url 和 api_key（老用法，默认是 OpenRouter）。"""
+    provider, url, api_key, model_name = providers.resolve(model_name, url, api_key)
+    if not api_key:
+        raise RuntimeError("没有可用的模型密钥：模型名没写提供方，OPENROUTER_API_KEY 也没填")
     is_anthropic = _is_anthropic_messages_url(url)
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -186,6 +194,7 @@ def chat_with_openrouter(
             payload["tool_choice"] = tool_choice
     if session_id and urlparse(str(url or "")).netloc == "openrouter.ai":
         payload["session_id"] = "neno:" + hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
+    payload = providers.adapt(provider, payload)      # 额外参数是按 OpenRouter 写法组的，换成这一家认的
 
     started = time.perf_counter()
     log_event(
@@ -198,8 +207,8 @@ def chat_with_openrouter(
 
     try:
         from app.services.usage import measured_post
-        resp = measured_post(url, headers=headers, json=payload, timeout=timeout, proxies=_proxies(),
-                             purpose=purpose, trace_id=trace_id, session_id=session_id)
+        resp = measured_post(url, headers=headers, json=payload, timeout=timeout, proxies=_proxies(provider),
+                             purpose=purpose, trace_id=trace_id, session_id=session_id, provider=provider)
     except requests.RequestException as e:
         log_event(
             "openrouter",

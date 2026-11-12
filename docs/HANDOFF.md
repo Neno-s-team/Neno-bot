@@ -272,6 +272,25 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - 发布前在导出目录里用全新 venv 跑一遍测试、真聊两句（`data/tmp/e2e_release.py`，后端开在 8011）。
 - 真人号 Telegram（TDLib）的步骤在 `docs/telegram-user-account.md`；结构说明 `docs/how-it-works.md`。
 
+## 5.21 国内模型接入：提供方和档位（2026-11-12，主线任务第 1 步）
+
+规划见 `docs/mobile-plan.md` 第 1 节。所有模型调用最后都汇到 `app/llm/openrouter_client.chat_with_openrouter`，提供方这一层只加在那一处。
+
+- **提供方**（`app/llm/providers.py`）：模型名写成 `提供方:模型名` 就用那家的地址和密钥——`deepseek`（`DEEPSEEK_API_KEY`）、
+  `openrouter`、`custom`（`CUSTOM_LLM_URL` / `CUSTOM_LLM_API_KEY`，任何 OpenAI 兼容地址）。没写提供方的照旧用调用方传的地址和密钥
+  （老配置、本机网关都走这条）。只认已知的提供方名，因为 OpenRouter 的模型名自己带冒号（`x/y:free`）。
+- **参数转换**（`providers.adapt`，只对 DeepSeek 官方做）：各层的额外参数是按 OpenRouter 写法组的。
+  `reasoning.effort` → `reasoning_effort`（none/low/high/max）；**官方默认开着思考，没要求思考的请求明确传 none**；
+  `json_schema` 强制结构 → `json_object`，并把结构写进最后一条用户消息（官方不能强制结构，靠各层的解析和检查兜底）；
+  system 的分块内容压成字符串；去掉 `provider`、`session_id`、`cache_control`、`reasoning_details`。
+- **档位**（`app/llm/presets.py`）：`MODEL_PRESET=cn | cn-gemini | intl | high`，在 `app/config.py` 最前面把没单独写的各层模型填进环境；
+  **没设就不动**（线上的老 `.env` 不受影响）。档位表在 `docs/mobile-plan.md` 1.2。
+- **花费**：OpenRouter 自己报；DeepSeek 不报，`providers.cost` 按官方价格表估，工作日 UTC 01–04、06–10 点翻倍（没扣节假日，略高估）。
+  `llm_usage.provider` 现在记的是我们认的提供方名。
+- **`run.py` 第一次运行**：问用 DeepSeek 还是 OpenRouter → 要密钥 → `try_keys` 每家真发一次最小请求（401/402/连不上各有一句人话）→ 不对可重输或跳过。
+- **睡前回想引用不存在的记录**：`reflection._cited` 只留真实存在的记录号，`"#21"` 这种写法也认，怪值跳过——不强制结构的模型不会让整晚的回想报废。
+- **还没验的**：手上没有 DeepSeek 官方密钥，`cn` 档没真调过（转换是照 2026-11-12 的官方文档写的）；`intl` 档经 OpenRouter 实测见下。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

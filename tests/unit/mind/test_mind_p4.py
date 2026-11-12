@@ -120,6 +120,23 @@ def test_small_talk_gets_remembered_and_concerns_open(p4, monkeypatch):
     assert belief["confidence"] == pytest.approx(config.MIND_BELIEF_INIT_MAX)
 
 
+def test_records_the_model_made_up_are_dropped_not_remembered(p4, monkeypatch):
+    """便宜模型会引用不存在的记录号：丢掉那个引用，不写进记忆；写成 "#12" 的也认。"""
+    _say("user", "我最近在学吉他 手指都磨出茧了", at("2026-11-09 20:00"))
+    _cycle(at("2026-11-09 20:00"))
+    real = memory_store.insert_episode(S, "c1", 0, summary="他说最近在学吉他，手指磨出了茧", importance=0.5,
+                                       ts=at("2026-11-09 20:00"))
+    _use(monkeypatch, Reflector({
+        "new_concerns": [{"title": "他的考试", "detail": "下周三", "intensity": 0.5, "evidence": [99999, f"#{real}", "不是数字"]}],
+        "belief_updates": [{"subject": "他", "content": "最近压力有点大", "confidence": 0.5, "evidence": [88888, real, real]}],
+    }))
+    row = _run_now(p4)
+    assert row["status"] == "done" and json.loads(row["result_json"])["model"] == "ok"
+    assert concerns.list_open(S)[0]["evidence"] == [real]
+    assert json.loads(fetch_one("SELECT evidence_json FROM mind_belief WHERE session_id = ?", (S,))["evidence_json"]) == [real]
+    assert reflection._cited([3, "#3", " 4 ", None, "x", 7], {3, 4}) == [3, 4]
+
+
 def test_model_failure_retries_then_still_does_rule_parts(p4, monkeypatch):
     reflector = Reflector(fail=99)
     _use(monkeypatch, reflector)
