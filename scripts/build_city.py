@@ -89,7 +89,10 @@ def metro(elements: list[dict]) -> dict:
                 if not stops or stops[-1] != name:
                     stops.append(name)
         ref = rel["tags"].get("ref") or rel["tags"].get("name", "?")
-        line = ref if not ref[0].isdigit() else f"{ref}号线"
+        if ":" in ref:      # 没有编号、名字是"地铁 12号线: 东坝北 → 四季青桥"这种：只留线路名
+            ref = ref.split(":")[0].replace("地铁", "").strip()
+        # OSM 里有的线用的是规划编号（北京的 "24;L2" 是亦庄线）：城市包的 build.line_names 给出平时的叫法
+        line = LINE_NAMES.get(ref) or (ref if not ref[0].isdigit() or ref.endswith("线") else f"{ref}号线")
         key = (line, frozenset(stops))
         if len(stops) < 2 or key in seen:
             continue  # 反方向同一段只留一条
@@ -196,6 +199,11 @@ SHOPS = [
     ("florist", "花店", 0.5, [9, 21], [30, 90], ["{x}花店"]),
 ]
 # 小店名字的前缀。带地方味（周边城市名、"老杭州"）：别的城市在 pack.json 的 build.owners 里给自己的一份。
+# 带本地口味的那几行（杭州：片儿川、拌川、杭帮菜）：别的城市在 pack.json 的 build.local_shops 里按"细类 → 新的一行"换掉
+for _i, _row in enumerate(SHOPS):
+    _swap = (SPEC.get("local_shops") or {}).get(_row[1])
+    if _swap:
+        SHOPS[_i] = (_row[0], _swap["label"], _row[2], _row[3], _row[4], _swap["names"])
 OWNERS = SPEC.get("owners") or [
     "老王", "张记", "阿姨", "胖子", "小李", "老陈", "金华", "温州", "绍兴", "宁波", "衢州", "老街", "巷口", "一品",
     "好再来", "阿强", "老周", "小城", "满记", "福记", "阿婆", "东北", "蜀香", "湘味", "老杭州", "知味", "方老大", "邓记"]
@@ -261,6 +269,7 @@ def _short(name: str) -> str:
 
 NOT_A_PLACE = ("电器", "来伊份", "娱乐", "有限公司", "苏宁", "国美")
 FAMOUS = SPEC["famous"]      # 这座城里有名的去处（名字 → 类别）
+LINE_NAMES = SPEC.get("line_names", {})
 
 
 def town_places(elements: list[dict]) -> list[dict]:
@@ -298,6 +307,8 @@ def build(refresh: bool = False) -> dict:
             continue
         kind = ("residential" if tags.get("landuse") == "residential" else "park" if tags.get("leisure") == "park"
                 else "river" if tags.get("waterway") else "gym")
+        if tags["name"] in SPEC.get("skip_areas", []):
+            continue  # 这座城里名字怪、不该当"江边"的水道之类
         if any(a["name"] == tags["name"] and a["kind"] == kind for a in areas):
             continue  # 一条河在 OSM 里是很多段，只留一个代表点
         areas.append({"name": tags["name"], "kind": kind, "lat": round(p[0], 6), "lon": round(p[1], 6),

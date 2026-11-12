@@ -38,9 +38,13 @@ def dist(a, b) -> float:
 DEFAULT = "hangzhou"
 
 
-def packs() -> list[str]:
-    """有哪些城市可选。"""
-    return sorted(p.parent.name for p in CONTENT.glob("*/pack.json") if (p.parent / "map.json").is_file())
+def packs(include_draft: bool = False) -> list[str]:
+    """有哪些城市可选。标了 draft 的（还没人过一遍）默认不算，但可以用 WORLD_CITY 指名用。"""
+    found = []
+    for path in sorted(CONTENT.glob("*/pack.json")):
+        if (path.parent / "map.json").is_file() and (include_draft or not json.loads(path.read_text(encoding="utf-8")).get("draft")):
+            found.append(path.parent.name)
+    return found
 
 
 @lru_cache(maxsize=16)
@@ -63,6 +67,7 @@ def apply_pack(cfg: dict, name: str | None = None) -> dict:
     info = pack(name or default_name())
     result = copy.deepcopy(cfg)
     result["city"]["name"] = info["name"]
+    result["city"].setdefault("places", {}).update(info.get("places") or {})      # 这座城里个别固定地点另有所指
     if "happenings" in result:
         result["happenings"]["pool"] = list(info["events"])
     if "real" in result:
@@ -102,7 +107,7 @@ def data(w) -> dict:
 # ── 地点 → 坐标 ───────────────────────────────────────────────────────────────
 
 def _resolve(city: dict, spec: str):
-    """模板固定地点的坐标说明：home / campus.library / venue:<id> / 直接 [lat, lon]。"""
+    """模板固定地点的坐标说明：home / campus.library / venue:<id> / area:<名字> / nearest:<类别> / 直接 [lat, lon]。"""
     if isinstance(spec, list):
         return tuple(spec)
     if spec == "home":
@@ -116,7 +121,14 @@ def _resolve(city: dict, spec: str):
     if spec.startswith("nearest:"):
         v = nearest_to_home(city, spec[8:])
         return (v["lat"], v["lon"]) if v else None
+    if spec.startswith("area:"):
+        v = _area(city, spec[5:])
+        return (v["lat"], v["lon"]) if v else None
     return None
+
+
+def _area(city: dict, name: str) -> dict | None:
+    return next((a for a in city.get("areas", []) if a["name"] == name), None)
 
 
 def anchor_labels(w) -> dict[str, str]:
@@ -131,6 +143,10 @@ def anchor_labels(w) -> dict[str, str]:
             v = nearest_to_home(data_, spec[8:])
             if v:
                 result[place] = v["name"] + ("边" if v["kind"] in ("river", "park") and not v["name"].endswith("边") else "")
+        elif isinstance(spec, str) and spec.startswith("area:"):
+            v = _area(data_, spec[5:])
+            if v:
+                result[place] = v["name"] + ("边" if v["kind"] == "river" else "")
     return result
 
 

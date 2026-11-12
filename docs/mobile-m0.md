@@ -24,7 +24,9 @@
 - **Flet 的包库（`pypi.flet.dev`）里有**：`pydantic_core-2.46.4-1-cp312-cp312-android_24_arm64_v8a.whl`，x86_64 和 cp313、cp314 的也有，
   平台标签和 Chaquopy 用的是同一种写法。配套的 pydantic 是 2.13.4（FastAPI 要求 pydantic ≥ 2.9，够）。
 - 所以构建里加了 `--extra-index-url https://pypi.flet.dev`，固定 `pydantic==2.13.4`、`pydantic-core==2.46.4`。
-- 风险：这个包是别人按他们自己的 Python 构建编的，跟 Chaquopy 的解释器合不合，要装上跑了才知道。
+- 查了打进安装包的 `_pydantic_core.cpython-312.so`（arm64 和 x86_64）：只依赖 `libpython3.12.so`、`libdl.so`、`libc.so`，
+  和 Chaquopy 自己编的 Pillow 依赖的是同一个 `libpython3.12.so`，没有别的特殊依赖。合得上的可能性很大。
+- 风险：这个包是别人按他们自己的 Python 构建编的，跟 Chaquopy 的解释器合不合，最终要装上跑了才知道。
   合不上的退路：自己交叉编译（Rust + maturin + NDK），或者手机上不走 FastAPI，界面直接调 Python 函数
   （我们自己的代码只有 5 个文件用到 pydantic）。
 

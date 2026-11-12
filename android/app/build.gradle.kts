@@ -49,7 +49,7 @@ android {
 chaquopy {
     defaultConfig {
         version = "3.12"
-        buildPython("py", "-3.12")      // 构建机上要有同一个小版本的 Python
+        // 构建机上要有同一个小版本的 Python。Chaquopy 自己会找：Windows 上 `py -3.12`，Linux / macOS 上 `python3.12`。
         pip {
             // pydantic-core 是 Rust 写的，Chaquopy 自己的包库里没有；Flet 的包库里有同样标签的安卓版（2.46.4 ↔ pydantic 2.13.4）。
             options("--extra-index-url", "https://pypi.flet.dev")

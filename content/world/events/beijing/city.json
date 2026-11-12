@@ -1,0 +1,287 @@
+{
+ "note": "北京特有的：花期按北京常年大致时间，地名是北京的。初稿，日期待核对。",
+ "pool": [
+  {
+   "id": "ginkgo",
+   "scope": "city",
+   "title": "圆明园的银杏黄了",
+   "detail": "银杏大道这阵子人很多",
+   "place": {
+    "name": "圆明园遗址公园"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "10-25",
+    "to": "11-12"
+   },
+   "channels": {
+    "scroll": 0.5
+   },
+   "via": {
+    "scroll": "小红书"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "base": 0.2,
+    "open": [
+     8,
+     17
+    ],
+    "outdoor": 1.0,
+    "when": {
+     "weekend": 0.35
+    },
+    "times": 2,
+    "doing": "在圆明园看银杏"
+   }
+  },
+  {
+   "id": "red_leaves",
+   "scope": "city",
+   "title": "香山的红叶红了",
+   "detail": "周末上山的路会堵",
+   "place": {
+    "name": "香山公园"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "10-18",
+    "to": "11-10"
+   },
+   "channels": {
+    "scroll": 0.45
+   },
+   "via": {
+    "scroll": "小红书"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "base": 0.1,
+    "open": [
+     8,
+     17
+    ],
+    "outdoor": 1.0,
+    "when": {
+     "weekend": 0.35
+    },
+    "times": 1,
+    "doing": "在香山看红叶"
+   }
+  },
+  {
+   "id": "cherry",
+   "scope": "city",
+   "title": "玉渊潭的樱花开了",
+   "place": {
+    "name": "玉渊潭公园"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "03-22",
+    "to": "04-12"
+   },
+   "channels": {
+    "scroll": 0.45
+   },
+   "via": {
+    "scroll": "小红书"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "base": 0.15,
+    "open": [
+     8,
+     17
+    ],
+    "outdoor": 1.0,
+    "when": {
+     "weekend": 0.35
+    },
+    "times": 1,
+    "doing": "在玉渊潭看樱花"
+   }
+  },
+  {
+   "id": "lotus",
+   "scope": "city",
+   "title": "圆明园的荷花开了",
+   "place": {
+    "name": "圆明园遗址公园"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "06-25",
+    "to": "08-10"
+   },
+   "channels": {
+    "scroll": 0.35
+   },
+   "via": {
+    "scroll": "小红书"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "base": 0.1,
+    "open": [
+     7,
+     18
+    ],
+    "outdoor": 1.0,
+    "when": {
+     "weekend": 0.35
+    },
+    "times": 1,
+    "doing": "在圆明园看荷花"
+   }
+  },
+  {
+   "id": "ice_rink",
+   "scope": "city",
+   "title": "什刹海能滑冰了",
+   "place": {
+    "name": "什刹海"
+   },
+   "schedule": {
+    "kind": "season",
+    "from": "01-01",
+    "to": "02-05"
+   },
+   "channels": {
+    "scroll": 0.4
+   },
+   "via": {
+    "scroll": "小红书"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "base": 0.12,
+    "open": [
+     9,
+     17
+    ],
+    "outdoor": 1.0,
+    "when": {
+     "weekend": 0.35
+    },
+    "times": 1,
+    "doing": "在什刹海滑冰"
+   }
+  },
+  {
+   "id": "catkins",
+   "scope": "city",
+   "title": "满城飞杨柳絮",
+   "detail": "出门得戴口罩",
+   "schedule": {
+    "kind": "season",
+    "from": "04-10",
+    "to": "05-05"
+   },
+   "channels": {
+    "scroll": 0.35,
+    "pass": 1.0
+   },
+   "via": {
+    "scroll": "朋友圈"
+   }
+  },
+  {
+   "id": "temple_fair",
+   "scope": "city",
+   "title": "地坛庙会",
+   "detail": "春节那几天",
+   "place": {
+    "name": "地坛公园"
+   },
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "2027-02-07"
+    ],
+    "start": 9,
+    "hours": 7
+   },
+   "lead_days": [
+    3,
+    6
+   ],
+   "channels": {
+    "scroll": 0.7
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "interest": 0.3,
+    "outdoor": 0.6,
+    "doing": "在地坛逛庙会"
+   }
+  },
+  {
+   "id": "new_year_eve",
+   "scope": "city",
+   "title": "西单跨年",
+   "detail": "人会很多",
+   "place": {
+    "name": "西单大悦城"
+   },
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "12-31"
+    ],
+    "start": 20.5,
+    "hours": 4
+   },
+   "lead_days": [
+    4,
+    8
+   ],
+   "channels": {
+    "scroll": 0.8
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "attend": {
+    "activity": "outing",
+    "pref": "outing",
+    "interest": 0.2,
+    "outdoor": 0.6,
+    "doing": "在西单跨年"
+   }
+  },
+  {
+   "id": "marathon",
+   "scope": "city",
+   "title": "北京马拉松",
+   "detail": "早上长安街一带很多路封了",
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "2027-10-31"
+    ],
+    "start": 7,
+    "hours": 6
+   },
+   "lead_days": [
+    3,
+    7
+   ],
+   "channels": {
+    "scroll": 0.6
+   },
+   "via": {
+    "scroll": "朋友圈"
+   }
+  }
+ ]
+}

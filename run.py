@@ -147,8 +147,9 @@ def cities(root: Path = ROOT) -> list[tuple[str, str]]:
 
     found = []
     for path in sorted((root / "content" / "world" / "city").glob("*/pack.json")):
-        if (path.parent / "map.json").is_file():
-            found.append((path.parent.name, json.loads(path.read_text(encoding="utf-8")).get("label") or path.parent.name))
+        info = json.loads(path.read_text(encoding="utf-8"))
+        if (path.parent / "map.json").is_file() and not info.get("draft"):      # 草稿（还没人过一遍）不拿出来选
+            found.append((path.parent.name, info.get("label") or path.parent.name))
     return sorted(found, key=lambda item: (item[0] != "hangzhou", item[0]))
 
 
