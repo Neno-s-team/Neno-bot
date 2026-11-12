@@ -141,6 +141,34 @@ def ensure_env(ask=input, path: Path = ENV, example: Path | None = None, check=t
     return read_env(path)
 
 
+def cities(root: Path = ROOT) -> list[tuple[str, str]]:
+    """有哪些城市可选：[(名字, 显示名)]，杭州排第一（它是做得最细的那座）。"""
+    import json
+
+    found = []
+    for path in sorted((root / "content" / "world" / "city").glob("*/pack.json")):
+        if (path.parent / "map.json").is_file():
+            found.append((path.parent.name, json.loads(path.read_text(encoding="utf-8")).get("label") or path.parent.name))
+    return sorted(found, key=lambda item: (item[0] != "hangzhou", item[0]))
+
+
+def ensure_city(ask=input, path: Path = ENV, root: Path = ROOT) -> str:
+    """她住在哪座城市：只在世界还没建的时候问一次（建好以后改了也不算数——中途换城等于搬家）。返回选中的城市名。"""
+    values = read_env(path)
+    if values.get("WORLD_CITY"):
+        return values["WORLD_CITY"]
+    options = cities(root)
+    if (root / "data" / "bot.db").exists() or len(options) <= 1:
+        return options[0][0] if options else ""
+    print("\n她住在哪座城市？选离你近的，你们就在同一片天气里，能看同一场电影和展览。")
+    for i, (_, label) in enumerate(options, 1):
+        print(f"  {i}. {label}")
+    pick = ask("输入序号，直接回车选 1：").strip()
+    name = options[int(pick) - 1 if pick.isdigit() and 1 <= int(pick) <= len(options) else 0][0]
+    set_env("WORLD_CITY", name, path)
+    return name
+
+
 def problems(values: dict[str, str]) -> list[str]:
     """启动前能看出来的配置问题。"""
     from app.llm import presets
@@ -162,7 +190,9 @@ def problems(values: dict[str, str]) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     os.chdir(ROOT)
-    values = ensure_env()
+    ensure_env()
+    ensure_city()
+    values = read_env()
     found = problems(values)
     for item in found:
         print("配置问题：" + item)

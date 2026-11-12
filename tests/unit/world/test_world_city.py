@@ -206,7 +206,7 @@ def test_one_city_setting_decides_map_events_and_local_listings(monkeypatch):
     from app.services.world import rhythms
 
     monkeypatch.delenv("WORLD_CITY", raising=False)
-    assert city.packs() == ["hangzhou"] and city.default_name() == "hangzhou"
+    assert "hangzhou" in city.packs() and city.default_name() == "hangzhou"
     cfg = rhythms.load("life")
     assert cfg["city"]["name"] == "hangzhou" and cfg["real"]["city"] == "hangzhou"
     assert cfg["happenings"]["pool"] == ["common", "hangzhou"]              # 全国通用的 + 这座城特有的

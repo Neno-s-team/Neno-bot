@@ -148,6 +148,8 @@ def nearest_to_home(city: dict, kind: str) -> dict | None:
     """模板里的"楼下咖啡店""便利店""江边"钉到家附近真实/补生成的那一家（河、公园在 areas 里）。"""
     home = (city["anchors"]["home"]["lat"], city["anchors"]["home"]["lon"])
     pool = [v for v in city["venues"] if v["kind"] == kind and not v.get("town")] +            [a for a in city.get("areas", []) if a["kind"] == kind and not a.get("campus")]
+    if not pool and kind == "river":
+        return nearest_to_home(city, "park")      # 有的城市家附近没有河：散步就去最近的公园
     return min(pool, key=lambda v: dist(home, (v["lat"], v["lon"])), default=None)
 
 

@@ -253,6 +253,39 @@ def test_trying_a_key_sends_one_tiny_request_per_provider():
     assert run.try_keys({"MODEL_PRESET": "intl", "OPENROUTER_API_KEY": "or"}, post=down).startswith("连不上 OpenRouter（ConnectionError）")
 
 
+def test_first_run_asks_which_city_only_when_there_is_a_choice(tmp_path, capsys):
+    assert run.cities()[0] == ("hangzhou", "杭州")                           # 真的城市包：杭州排第一
+    root, env = tmp_path / "repo", tmp_path / ".env"
+    env.write_text("A=1\n", encoding="utf-8")
+
+    def pack(name, label):
+        folder = root / "content" / "world" / "city" / name
+        folder.mkdir(parents=True)
+        (folder / "pack.json").write_text('{"name": "%s", "label": "%s"}' % (name, label), encoding="utf-8")
+        (folder / "map.json").write_text("{}", encoding="utf-8")
+
+    pack("hangzhou", "杭州")
+    assert run.ensure_city(ask=lambda p: pytest.fail("只有一座城，不该问"), path=env, root=root) == "hangzhou"
+    assert "WORLD_CITY" not in run.read_env(env)
+    pack("beijing", "北京")
+    pack("chengdu", "成都")
+    (root / "content" / "world" / "city" / "draft").mkdir()                  # 没做完的（没有地图）不算
+    assert run.cities(root) == [("hangzhou", "杭州"), ("beijing", "北京"), ("chengdu", "成都")]
+    assert run.ensure_city(ask=lambda p: "3", path=env, root=root) == "chengdu"
+    assert run.read_env(env)["WORLD_CITY"] == "chengdu" and "2. 北京" in capsys.readouterr().out
+    assert run.ensure_city(ask=lambda p: pytest.fail("选过了，不该再问"), path=env, root=root) == "chengdu"
+    other = tmp_path / "b.env"
+    other.write_text("A=1\n", encoding="utf-8")
+    assert run.ensure_city(ask=lambda p: "", path=other, root=root) == "hangzhou"       # 直接回车：第一座
+    assert run.ensure_city(ask=lambda p: "99", path=tmp_path / "c.env", root=root) == "hangzhou"
+    (root / "data").mkdir()
+    (root / "data" / "bot.db").write_text("", encoding="utf-8")              # 世界已经建好了：不问，问了也不算数
+    fresh = tmp_path / "d.env"
+    fresh.write_text("A=1\n", encoding="utf-8")
+    assert run.ensure_city(ask=lambda p: pytest.fail("世界建好了，不该问"), path=fresh, root=root) == "hangzhou"
+    assert "WORLD_CITY" not in run.read_env(fresh)
+
+
 def test_set_env_changes_one_line_and_leaves_the_rest(tmp_path):
     env = tmp_path / ".env"
     env.write_text("# 注释\nA=1\nB = old\n", encoding="utf-8")
