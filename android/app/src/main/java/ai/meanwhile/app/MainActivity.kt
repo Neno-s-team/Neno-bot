@@ -1,194 +1,143 @@
 package ai.meanwhile.app
 
+import ai.meanwhile.app.ui.ChatModel
+import ai.meanwhile.app.ui.ChatScreen
+import ai.meanwhile.app.ui.ChooseScreen
+import ai.meanwhile.app.ui.InnerSheet
+import ai.meanwhile.app.ui.LoadingScreen
+import ai.meanwhile.app.ui.MeanwhileTheme
+import ai.meanwhile.app.ui.Onboarding
+import ai.meanwhile.app.ui.SettingsScreen
+import ai.meanwhile.app.ui.Ta
+import ai.meanwhile.app.ui.ThoughtsScreen
+import ai.meanwhile.app.ui.reduceMotion
+import ai.meanwhile.app.ui.restartApp
 import android.Manifest
-import android.app.Activity
-import android.app.AlertDialog
-import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.text.InputType
-import android.view.Gravity
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.TextView
-import com.chaquo.python.Python
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import kotlin.concurrent.thread
+import android.graphics.Color
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 
-/**
- * M0 的验证界面：只为打通"发一条 → 她回"和看诊断，不是给用户的界面（那是 M1 的事）。
- * 界面就是又一个"通道"：交消息、取到点该发的、回执，全走本机 HTTP。
- */
-class MainActivity : Activity() {
-    private val ui = Handler(Looper.getMainLooper())
-    private lateinit var log: TextView
-    private lateinit var scroll: ScrollView
-    private lateinit var status: TextView
-    @Volatile private var alive = false
-    private val base = "http://127.0.0.1:${BackendService.PORT}"
-    private val session = "me"
-
+/** 界面入口。界面只是又一个"通道"：打开就是和 TA 的对话；设置从名字胶囊进去，造物者模式藏在设置里。 */
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pad = (12 * resources.displayMetrics.density).toInt()
-        status = TextView(this).apply { text = "正在启动…"; setPadding(pad, pad, pad, pad / 2) }
-        log = TextView(this).apply { textSize = 16f; setPadding(pad, pad, pad, pad); setTextIsSelectable(true) }
-        scroll = ScrollView(this).apply { addView(log) }
-        val input = EditText(this).apply { hint = "跟她说点什么"; maxLines = 3 }
-        val send = Button(this).apply { text = "发送" }
-        val probe = Button(this).apply { text = "诊断" }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(pad, 0, pad, pad)
-            addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            addView(send)
-            addView(probe)
-        }
-        setContentView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            fitsSystemWindows = true
-            addView(status)
-            addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            addView(row)
-        })
-        send.setOnClickListener {
-            val text = input.text.toString().trim()
-            if (text.isNotEmpty()) {
-                input.setText("")
-                line("我：$text")
-                thread { say(text) }
-            }
-        }
-        probe.setOnClickListener { thread { runProbe() } }
-        if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        val saved = BackendService.prefs(this)
-        if (saved.getString("deepseek_key", "").isNullOrEmpty() && saved.getString("openrouter_key", "").isNullOrEmpty()) {
-            askKey()
-        } else {
-            startBackend()
-        }
+        // 内容铺到屏幕最底下，系统导航条透明地盖在上面：不要它自己那条半透明的色带（跟页面底色对不上）
+        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT))
+        if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+        setContent { MeanwhileTheme { App(onLeave = { moveTaskToBack(true) }) } }
     }
 
-    /** 第一次打开：选哪家、粘贴密钥。 */
-    private fun askKey() {
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val deepseek = RadioButton(this).apply { text = "DeepSeek（国内直连）"; id = 1 }
-        val openrouter = RadioButton(this).apply { text = "OpenRouter（要能连上海外）"; id = 2 }
-        val group = RadioGroup(this).apply { addView(deepseek); addView(openrouter); check(1) }
-        val key = EditText(this).apply { hint = "把密钥粘贴到这里"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad / 2, pad, 0); addView(group); addView(key) }
-        AlertDialog.Builder(this).setTitle("她需要一个大模型来想事情").setView(box).setCancelable(false)
-            .setPositiveButton("开始") { _, _ ->
-                val china = group.checkedRadioButtonId == 1
-                BackendService.prefs(this).edit()
-                    .putString("preset", if (china) "cn" else "intl")
-                    .putString(if (china) "deepseek_key" else "openrouter_key", key.text.toString().trim())
-                    .apply()
-                startBackend()
-            }.show()
+    override fun onResume() {
+        super.onResume()
+        Hub.chatOpen = true
+        Notifier.clear(this)
     }
 
-    private fun startBackend() {
-        startForegroundService(Intent(this, BackendService::class.java))
-        if (!alive) {
-            alive = true
-            thread(name = "neno-pump") { pump() }
+    override fun onPause() {
+        Hub.chatOpen = false
+        super.onPause()
+    }
+}
+
+/** 第一次打开走到哪了：选她或他和城市 → 填密钥 → 搭世界的加载动画 → 聊天。 */
+private fun stage(context: Context): String = when {
+    !BackendService.chosen(context) -> "choose"
+    !BackendService.configured(context) -> "key"
+    !BackendService.worldReady(context) -> "loading"
+    else -> "chat"
+}
+
+@Composable
+private fun App(onLeave: () -> Unit) {
+    val context = LocalContext.current
+    var at by rememberSaveable { mutableStateOf(stage(context)) }
+    BackHandler(enabled = at == "key") { at = "choose" }        // 填密钥时按返回：回去重选
+    when (at) {
+        "choose" -> ChooseScreen(onDone = { at = stage(context) })
+        "key" -> Onboarding(onDone = { at = stage(context) })
+        "loading" -> LoadingScreen(onDone = { at = "chat" })
+        else -> Main(onLeave)
+    }
+}
+
+private val DEPTH = mapOf("" to 0, "settings" to 1, "thoughts" to 2, "key" to 2)
+
+@Composable
+private fun Main(onLeave: () -> Unit) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { BackendService.start(context) }
+    val scope = rememberCoroutineScope()
+    val backend = remember { Backend(context) }
+    val chat = remember { ChatModel(backend, scope) }
+    val ta = remember { Ta.saved(context) }
+    val still = reduceMotion()
+    var creator by rememberSaveable { mutableStateOf(BackendService.prefs(context).getBoolean("creator", false)) }
+    chat.creator = creator
+    val up by Hub.up.collectAsState()
+    val arrivals by Hub.arrivals.collectAsState()
+    LaunchedEffect(up, arrivals, creator) { if (up) chat.refresh() }
+    LaunchedEffect(up) {                                        // TA 在干嘛、外面什么天：开着的时候每分钟看一眼
+        while (up) {
+            delay(60_000)
+            chat.refresh()
         }
     }
 
-    /** 等后端起来，然后一直取到点该发的。 */
-    private fun pump() {
-        val started = System.currentTimeMillis()
-        var up = false
-        while (alive) {
-            try {
-                if (!up) {
-                    request("GET", "/health")
-                    up = true
-                    setStatus("后端起来了，用了 ${(System.currentTimeMillis() - started) / 1000} 秒")
-                }
-                val items = JSONObject(request("GET", "/mind/deliveries/due?session_id=$session&limit=50")).getJSONArray("items")
-                for (i in 0 until items.length()) {
-                    val item = items.getJSONObject(i)
-                    val payload = item.optJSONObject("payload") ?: JSONObject()
-                    when (item.getString("kind")) {
-                        "text" -> line("她：${payload.optString("text")}")
-                        "sticker" -> line("她：[表情包：${payload.optString("name")}]")
-                        "typing" -> setStatus("对方正在输入…")
-                    }
-                    request("POST", "/mind/deliveries/${item.getLong("id")}/ack", JSONObject().put("status", "sent"))
-                }
-            } catch (error: Exception) {
-                if (!up) setStatus("正在启动…${BackendService.lastError?.let { "\n$it" } ?: ""}")
-            }
-            Thread.sleep(1000)
+    var page by rememberSaveable { mutableStateOf("") }                  // "" 聊天 / settings / thoughts / key
+    var inner by rememberSaveable { mutableStateOf<String?>(null) }      // 正在看哪一轮 TA 想的
+    // 你发出第一句话之后再要通知权限，不在一打开就弹
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(chat.messages.size) {
+        if (Build.VERSION.SDK_INT >= 33 && chat.messages.any { it.mine } && !BackendService.prefs(context).getBoolean("asked_notify", false)) {
+            BackendService.prefs(context).edit().putBoolean("asked_notify", true).apply()
+            askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    BackHandler(enabled = page.isNotEmpty()) { page = if (page == "settings") "" else "settings" }
 
-    private fun say(text: String) {
-        try {
-            request("POST", "/chat", JSONObject().put("message", text).put("session_id", session).put("source", "android"))
-            val now = JSONObject(request("GET", "/mind/now?session_id=" + URLEncoder.encode(session, "UTF-8")))
-            val wait = if (now.isNull("sees_in")) -1 else now.getInt("sees_in")
-            setStatus("她在${now.optString("activity")}" + if (wait > 20) "，大概 ${(wait + 59) / 60} 分钟后会看到" else "")
-        } catch (error: Exception) {
-            line("（没发出去：$error）")
+    AnimatedContent(targetState = page, label = "page", transitionSpec = {
+        // 往里走从右边滑进来，退出来往右边滑出去；开了"减少动效"就直接换
+        val forward = DEPTH.getValue(targetState) > DEPTH.getValue(initialState)
+        if (still) fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+        else (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { if (forward) it / 6 else -it / 6 }) togetherWith
+            (fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { if (forward) -it / 6 else it / 6 })
+    }) { shown ->
+        when (shown) {
+            "settings" -> SettingsScreen(backend, ta, creator, onCreator = {
+                creator = it
+                BackendService.prefs(context).edit().putBoolean("creator", it).apply()
+            }, onThoughts = { page = "thoughts" }, onChangeKey = { page = "key" }, onBack = { page = "" })
+            "thoughts" -> ThoughtsScreen(backend, ta, onBack = { page = "settings" })
+            // 后端的配置是启动时读的：换完密钥重新打开一次，世界和记忆都还在
+            "key" -> Onboarding(onDone = { restartApp(context) }, change = true, onBack = { page = "settings" })
+            else -> ChatScreen(chat, ta, creator, onSettings = { page = "settings" }, onLeave = onLeave, onInner = { inner = it })
         }
     }
-
-    private fun runProbe() {
-        try {
-            val report = Python.getInstance().getModule("mobile_main").callAttr("probe").toString()
-            val runtime = Runtime.getRuntime()
-            line("诊断：$report\n内存（Java 堆）：${(runtime.totalMemory() - runtime.freeMemory()) / 1048576} MB；后端在跑：${BackendService.running}")
-        } catch (error: Throwable) {
-            line("诊断失败：$error")
-        }
-    }
-
-    private fun request(method: String, path: String, body: JSONObject? = null): String {
-        val connection = URL(base + path).openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.connectTimeout = 3000
-        connection.readTimeout = 300000
-        connection.setRequestProperty("X-Internal-Token", BackendService.token(this))
-        if (body != null) {
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.use { it.write(body.toString().toByteArray()) }
-        }
-        try {
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
-            if (code !in 200..299) throw IllegalStateException("HTTP $code $text")
-            return text
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun line(text: String) = ui.post {
-        log.append(text + "\n")
-        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
-    }
-
-    private fun setStatus(text: String) = ui.post { status.text = text }
-
-    override fun onDestroy() {
-        alive = false
-        super.onDestroy()
-    }
+    inner?.let { InnerSheet(backend, ta, it, onClose = { inner = null }) }
 }

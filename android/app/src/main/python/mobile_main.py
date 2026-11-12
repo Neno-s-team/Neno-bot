@@ -58,6 +58,81 @@ def stop() -> None:
         _server.should_exit = True
 
 
+def name() -> str:
+    """她叫什么：取自人设卡里"名字："那一行。界面的标题和通知用。"""
+    try:
+        for line in (HERE / "prompts" / "mind" / "self_card.md").read_text(encoding="utf-8").splitlines():
+            if "名字" in line and ("：" in line or ":" in line):
+                return line.replace(":", "：").split("：", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def cities() -> str:
+    """第一次打开时"住在"那一行：能选的城市，JSON [[名字, 显示名, 时区], …]，杭州排第一。只有一座时界面只显示、不让选。
+    时区是给界面算"她那边现在是早上还是晚上"用的。"""
+    import run
+
+    found = []
+    for name, label in run.cities(HERE):
+        pack = json.loads((HERE / "content" / "world" / "city" / name / "pack.json").read_text(encoding="utf-8"))
+        found.append([name, label, pack.get("timezone") or "Asia/Shanghai"])
+    return json.dumps(found, ensure_ascii=False)
+
+
+def personas() -> str:
+    """第一次打开时能选谁，JSON。现在只有"她"；角色卡把"他"做成配置之后，在这里加上 "he"，界面上那张卡就能选了。"""
+    return json.dumps(["she"])
+
+
+def try_keys(settings_json: str) -> str:
+    """第一次设置时真发一次最小的请求，看密钥通不通。通了返回空串，否则返回一句人话（不带报错原文）。"""
+    import run
+
+    values = run.read_env(HERE / "env.example")
+    values.update({key: str(value) for key, value in json.loads(settings_json or "{}").items() if value not in (None, "")})
+    kind, detail = run.key_problem(values)
+    if kind:
+        print("key test:", detail)      # 原文只进日志（adb logcat）
+    return {"": "", "network": "连不上这家的服务器。看一下网络，再点一次。",
+            "key": "这家说这串密钥不对。可能没复制全，或者这串已经被删掉了。",
+            "balance": "密钥是对的，但账户里还没有钱。充一点再回来点一次。"}.get(kind, "这家暂时没答上来。等一会儿再点一次。")
+
+
+def export(home: str, dest: str) -> str:
+    """设置里的"导出数据"：把聊天记录和她的世界存成一个 zip。成了返回空串，否则返回一句人话。
+
+    数据库正在被后端写着，不能直接拷文件：每个库先用 SQLite 自己的备份做一份完整的，再放进压缩包。
+    密钥不在里面——它存在 App 的系统设置里，不在数据目录。
+    """
+    import tempfile
+    import zipfile
+
+    data = Path(home) / "neno" / "data"
+    try:
+        with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
+            for index, path in enumerate(sorted(data.rglob("*"))):
+                rel = path.relative_to(data)
+                if not path.is_file() or rel.parts[0] in ("tmp", "logs", "cache") or path.name.endswith(("-wal", "-shm", "-journal")):
+                    continue
+                if path.suffix == ".db":
+                    copy = Path(tmp) / f"{index}.db"
+                    source, target = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True), sqlite3.connect(copy)
+                    try:
+                        source.backup(target)
+                    finally:
+                        source.close()
+                        target.close()
+                    out.write(copy, "data/" + rel.as_posix())
+                else:
+                    out.write(path, "data/" + rel.as_posix())
+        return ""
+    except Exception as exc:
+        print("export failed:", repr(exc))      # 原文只进日志
+        return "没存成。看看手机空间够不够，再试一次。"
+
+
 def probe() -> str:
     """M0 要验的几条里能在机器上直接看的：解释器、原生依赖装没装上、SQLite 带不带全文检索。返回 JSON。"""
     found: dict[str, object] = {"python": sys.version.split()[0], "platform": sys.platform, "sqlite": sqlite3.sqlite_version}

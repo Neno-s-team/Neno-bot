@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 聊天页的底色：浅色纯白，深色纯黑（values-night）。系统启动画面和窗口背景用它，跟界面接得上。 -->
+    <color name="paper">#FFFFFF</color>
+    <color name="icon_ground">#FFFFFF</color>
+</resources>

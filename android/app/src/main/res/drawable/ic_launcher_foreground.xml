@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标（临时的，正式标志还没定）：白底上一个带尾巴的蓝色气泡，就是聊天页里"我的气泡"的形状。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#1F8BF5"
+        android:pathData="M47,38H61A16,16 0 0 1 77,54V61A9,9 0 0 0 83,69.49L83,70H47A16,16 0 0 1 31,54A16,16 0 0 1 47,38Z" />
+</vector>

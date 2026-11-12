@@ -103,7 +103,9 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
     seg = _segment(doing.get("activity"), doing.get("since"), doing.get("until"), _place_label(actor["parent_id"]))
     if doing.get("activity") == "commute" and (doing.get("after") or {}).get("place"):
         # 路上：怎么去、去哪（"坐2号线转1号线（三坝→龙翔桥）去湖滨银泰"）
-        seg["activity"] = f"在路上，{doing.get('route') or ''}去{_place_label(doing['after']['place'])}"
+        how = doing.get("route") or ""
+        how = "走" if how == "走过去" else how          # "走过去去咖啡馆"不像话：走着去的就说"走去咖啡馆"
+        seg["activity"] = f"在路上，{how}去{_place_label(doing['after']['place'])}"
     elif doing.get("what"):
         seg["activity"] = doing["what"]  # 在参加世界里的某件事："在听讲座《…》""在北山街看银杏"
     conditions = [c["label"] for c in actor["state"].get("conditions", []) if c.get("until", 0) > (ts or clock.now())]

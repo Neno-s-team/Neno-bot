@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 界面全是 Compose 画的，这里只管窗口：没有标题栏，背景跟聊天页的底色一样。 -->
+    <style name="Theme.Meanwhile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+</resources>

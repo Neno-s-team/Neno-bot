@@ -9,8 +9,9 @@
     <!-- 后端只监听本机 127.0.0.1，界面用明文 HTTP 跟它说话 -->
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="此刻"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/Theme.Meanwhile"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -22,6 +23,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 在通知里直接回她 -->
+        <receiver
+            android:name=".ReplyReceiver"
+            android:exported="false" />
 
         <!-- 她的世界和大脑：前台服务里常驻，界面关了也在走 -->
         <service

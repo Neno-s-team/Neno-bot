@@ -121,7 +121,14 @@ def test_her_day_page_only_for_the_session_that_lives_in_the_world(env, monkeypa
     page = views.day(S)
     assert page["date"] == "2026-11-12" and page["today"] is True and seen == {"start": DAY, "end": T0}       # 只到此刻，不预告以后
     assert [i["group"] for i in page["items"]] == ["do", "go", "phone"] and page["summary"] == ["这天一共花了 ¥38"]
-    assert page["diary"] == "" and page["now"] == {"activity": "歇会儿", "sees_in": None}
+    assert page["diary"] == "" and page["now"] == {"activity": "歇会儿", "sees_in": None} and page["thoughts"] == []
+    # 这天起过的念头也在里面（做视频的素材）：早的在前，别的日子的不算
+    for key, at, status, said in (("d1", DAY + 10 * 3600, "sent", "路边有只橘猫"), ("d2", DAY + 8 * 3600, "declined", "还睡呢"),
+                                  ("d3", DAY - 3600, "sent", "昨天的")):
+        execute_write("INSERT INTO mind_proactive(session_id, key, kind, text, weight, born_at, due_at, expire_at, status, final_text,"
+                      " decided_at, created_at, updated_at) VALUES (?, ?, 'moment', '事', 0.8, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (S, key, at, at, at + 9999, status, said, at, at, at))
+    assert [(t["time"], t["word"], t["said"]) for t in views.day(S)["thoughts"]] == [("08:00", "想了想没发", ["还睡呢"]), ("10:00", "发了", ["路边有只橘猫"])]
     # 昨天：整天的；有她睡前对那天说的一句
     execute_write("INSERT INTO mind_reflection(session_id, night, status, window_start, window_end, result_json) VALUES (?, ?, 'done', ?, ?, ?)",
                   (S, "2026-11-12", DAY - 86400, DAY + 1800, json.dumps({"day_summary": "平平常常的一天，论文推了一点。"}, ensure_ascii=False)))

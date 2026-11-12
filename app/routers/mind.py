@@ -156,11 +156,12 @@ def _json(raw: Any) -> dict[str, Any]:
 
 @router.get("/mind/day")
 def day(session_id: str, date: str | None = None):
-    """她的一天（只看）：这天去了哪、干了什么、刷到了什么、谁找过她；还有睡前她自己对这天的一句话。date 不给就是今天。"""
+    """她的一天（只看）：这天去了哪、干了什么、刷到了什么、谁找过她、起过什么念头；还有睡前她自己对这天的一句话。
+    date 不给就是今天。没有对应的页面——做视频的拿它当素材（scripts/export_day.py 把它存成 JSON 文件）。"""
     from datetime import datetime
 
     from app import config
-    from app.services.mind import world_link
+    from app.services.mind import proactive, world_link
     from app.storage.db import fetch_one
 
     tz = clock.local_now().tzinfo
@@ -177,8 +178,11 @@ def day(session_id: str, date: str | None = None):
     night = fetch_one("SELECT result_json FROM mind_reflection WHERE session_id = ? AND status = 'done'"
                       " AND window_end >= ? AND window_end < ? ORDER BY window_end DESC LIMIT 1",
                       (session_id, start + 12 * 3600, start + 36 * 3600))
+    # 这天起过的念头，发了的和没发的都在，早的在前
+    ideas = sorted((t for t in proactive.thoughts(session_id, 500) if start <= t["at"] < start + 86400), key=lambda t: t["at"])
     return {"date": local.strftime("%Y-%m-%d"), "today": today, "items": items, "summary": summary,
             "diary": str(_json(night["result_json"]).get("day_summary") or "") if night else "",
+            "thoughts": [{**t, "time": datetime.fromtimestamp(t["at"], tz).strftime("%H:%M")} for t in ideas],
             "now": now(session_id) if today else None}
 
 

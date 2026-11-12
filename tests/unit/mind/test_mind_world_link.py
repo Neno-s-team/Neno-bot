@@ -209,6 +209,18 @@ def test_she_knows_what_she_is_attending(linked):
     assert seg["activity"] == "在听讲座《西湖文学地图》" and seg["level"] == 1
 
 
+def test_on_the_way_reads_like_a_sentence(linked):
+    from app.storage.world_store import entity, save_entity
+    for route, said in (("走过去", "在路上，走去"), ("骑共享单车", "在路上，骑共享单车去"), ("坐2号线（三坝→龙翔桥）", "在路上，坐2号线（三坝→龙翔桥）去")):
+        _set_doing(linked, "commute", place="street")
+        with linked.store.transaction(write=True) as c:
+            neno = entity(c, "life", "neno")
+            neno["state"]["doing"].update(route=route, after={"place": "library"})
+            save_entity(c, neno)
+        activity = schedule.segment_at(T0)["activity"]
+        assert activity.startswith(said) and "过去去" not in activity          # 走着去的不说"走过去去…"
+
+
 def test_she_knows_how_her_wallet_is_doing(linked):
     from app.services.mind.memory import wm_builder
     from app.services.mind.schemas import L1Appraisal

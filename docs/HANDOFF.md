@@ -296,7 +296,24 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
     这一条约 0.0063 美元（四五分钱人民币）。只有一个样本；对比报告里的平均是 61.6 秒。
   - OpenRouter 上的 V4.1 Flash 没要求也会思考（第一反应里八成输出是思考），所以第一反应要 4–9 秒；官方接口上我们明确关了思考，应该更快，待验。
 
-## 5.25 移动端 M1：先做了界面要用的后端接口（2026-11-12，主线任务第 3 步，界面还没开始）
+## 5.26 移动端 M1：界面（2026-11-12，主线任务第 3、3a 步）
+
+外观照用户定的原型重做了一遍：聊天页照苹果信息（纯白、她的气泡浅灰、我的气泡蓝），设置页照 Telegram 的结构。约定写在根目录 `DESIGN.md`，
+文件分工在 `android/README.md`。在安卓模拟器上走通并截图看过：浅色、深色、字号 1.3 倍。
+- 第一次打开：系统启动画面 → 选她或他和城市（`Choose.kt`）→ 填密钥（`Onboarding.kt`）→ 搭世界的加载动画（`Loading.kt`）→ 聊天。
+- 聊天页（`ChatScreen.kt`）：没有标题栏和底部导航；顶上是圆头像（她家此刻的画面）、名字胶囊、一行状态"杭州 小雨 · 在家刷手机"（都读后端）；
+  点头像或名字进设置。她想好了没发的话是虚线框加"没发"，只在造物者模式里出现。
+- 设置页（`SettingsScreen.kt`）：今天花了多少、模型与密钥、会主动找我（开关，当场生效）、造物者模式、通知、导出数据（存成 zip，不含密钥）、关于。
+- 没有"她的一天"页。做视频的素材用 `python scripts/export_day.py [日期] [文件]`，或者 `GET /mind/day`（现在带这天起过的念头）。
+- 为界面加的后端：`/mind/now` 多给 `city`、`weather`、`sky`、`hour`；`/mind/history?unsent=true`；`POST /mind/proactive`；`run.key_problem`。
+- **还没做的**：
+  - "他"选不了：后端只有一份人设，等角色卡那边把"她 / 他"做成配置；到时在 `mobile_main.personas()` 里加上 `"he"`，卡片就能选。
+  - 头像只有"下雨的早晨"一张，还不会按时段和天气换（入口留好了：`Parts.kt` 的 `homePicture()`）。
+  - 聊天页的"+"还不能发图片，点了只提示一句。
+  - 应用图标是临时的（白底蓝气泡）。
+  - 只在模拟器上看过；真机上的手势、流畅度、耗电没测。APK 还没放到 GitHub Release。
+
+## 5.25 移动端 M1：先做了界面要用的后端接口（2026-11-12，主线任务第 3 步）
 
 都挂在已有的 mind 路由上，只读，沿用内部令牌；以后网页版"她的一天"也用这几个。测试在 `tests/unit/mind/test_mind_views.py`。
 - `GET /mind/day?session_id=&date=`：她的一天。一条条带时刻和类别（`go` 去了哪 / `do` 干了什么 / `phone` 刷到的听说的 / `people` 谁找过她 / `thing` 遇到的事），
@@ -308,7 +325,7 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - `GET /mind/cost`：今天调模型花了多少（美元和按 `USD_CNY` 折的人民币），估不出来的调用单独数。
 - `GET /mind/history?session_id=`：最近的聊天记录；你发的每条带"她看到没有"（她真点开才算已读）。
 - `GET /mind/now`（之前做的）：她此刻在干嘛、多久后会看到。
-- 界面（Kotlin + Compose）还没写。M0 的验证界面在 `android/app/src/main/java/.../MainActivity.kt`，是临时的。
+- 界面见 5.26。
 
 ## 5.24 多城市 MC2 试做一座、MC3（2026-11-12）
 

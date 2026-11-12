@@ -3,7 +3,38 @@
 手机里跑完整的后端：Chaquopy 把 Python 和仓库根目录的 `app/` 原样打进 App，前台服务里起 uvicorn（只监听 `127.0.0.1`），
 界面是又一个"通道"，和 `channels/terminal.py` 一样走本机 HTTP。规划见 `docs/mobile-plan.md`，验证记录见 `docs/mobile-m0.md`。
 
-现在是 **M0**：一个只为验证用的界面（发一条、看她回、看诊断），不是给用户的界面。
+现在是 **M1**：给用户用的界面。外观的约定在仓库根目录的 `DESIGN.md`（照苹果信息做聊天页、照 Telegram 做设置页）。
+
+## 界面在哪
+
+都在 `app/src/main/java/ai/meanwhile/app/ui/`，Jetpack Compose：
+
+| 文件 | 是什么 |
+|---|---|
+| `Theme.kt` | 颜色（浅色 / 深色）、字号、间距。改外观先看这里 |
+| `Glyph.kt` | 全部图标（细线，一个画法） |
+| `Parts.kt` | 公共部件：圆头像（TA 家此刻的画面）、浮着的圆钮、底部主按钮、称呼"她 / 他" |
+| `Choose.kt` | 第一次打开①：选她或他、住哪座城市 |
+| `Onboarding.kt` | 第一次打开②：填模型密钥（设置里换密钥也是这一页） |
+| `Loading.kt` | 第一次打开③：搭世界的加载动画 |
+| `ChatScreen.kt` `ChatParts.kt` `ChatModel.kt` | 聊天页：顶部头像和名字胶囊、气泡、输入栏 |
+| `SettingsScreen.kt` | 设置页，从聊天页点名字胶囊进 |
+| `Creator.kt` | 造物者模式：她起过的念头、一条消息背后她想的 |
+
+- 第一次打开的顺序：系统启动画面 → 选她或他和城市 → 填密钥 → 搭世界 → 聊天。走到哪一步记在 App 的设置里（`persona`、密钥、`world_ready`）。
+- 界面上的城市名、天气、她在干嘛都来自后端（`GET /mind/now`），不写死。能选哪些城市、哪些角色问 `mobile_main.py` 的 `cities()` / `personas()`。
+- 没有"她的一天"页。要她一天的素材，电脑上跑 `python scripts/export_day.py`。
+- 头像图在 `app/src/main/res/drawable-nodpi/`，现在每人只有"下雨的早晨"一张；按时段和天气换图的入口是 `Parts.kt` 的 `homePicture()`。
+
+## 改完界面怎么看
+
+用模拟器或真机截图，浅色、深色、字号 1.3 倍都看一遍：
+
+```bash
+adb exec-out screencap -p > shot.png
+adb shell cmd uimode night yes            # 深色；看完改回 no
+adb shell settings put system font_scale 1.3   # 大字；看完改回 1.0
+```
 
 ## 构建
 
