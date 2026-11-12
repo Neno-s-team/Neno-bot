@@ -42,8 +42,10 @@ class BackendService : Service() {
         try {
             if (!Python.isStarted()) Python.start(AndroidPlatform(applicationContext))
             running = true
-            Python.getInstance().getModule("mobile_main")
-                .callAttr("start", filesDir.absolutePath, settingsJson(this), PORT)
+            val main = Python.getInstance().getModule("mobile_main")
+            // 每次启动把诊断写进日志（adb logcat -s Meanwhile）：解释器、原生依赖、SQLite 全文检索
+            Log.i(TAG, "probe " + main.callAttr("probe").toString())
+            main.callAttr("start", filesDir.absolutePath, settingsJson(this), PORT)
         } catch (error: Throwable) {
             lastError = error.toString()
             Log.e(TAG, "backend stopped", error)

@@ -60,7 +60,9 @@ chaquopy {
             install("requests")
             install("httpx")
             install("python-dotenv")
-            install("Pillow")
+            // Pillow 必须用 Chaquopy 自己编的那版：Flet 包库里版本更高的那几个把依赖的 libtiff 等放在 Chaquopy 找不到的地方，
+            // 装上去一导入就报 library "libtiff.so" not found。11.0.0 只有 Chaquopy 的包库有，写死它。
+            install("Pillow==11.0.0")
             install("tzdata")
         }
     }

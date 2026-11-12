@@ -22,7 +22,17 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
   加 `-PbackendRoot=<一份干净的导出目录>`（`python scripts/export_release.py <目录>` 能导出一份）。
 - 第一次构建要下载 Gradle、安卓构建插件、Python 运行时和依赖包，比较久。
 
-## 依赖里唯一麻烦的
+## 装到机器上看
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb logcat -s Meanwhile        # 每次启动会打一行 probe：解释器、原生依赖、SQLite 全文检索；后端起不来的报错也在这
+```
+
+## 依赖里麻烦的两个
 
 `pydantic-core` 是 Rust 写的，Chaquopy 自己的包库里没有。现在用的是 Flet 包库（`https://pypi.flet.dev`）里同样标签的安卓版：
 `pydantic-core 2.46.4`，所以 `pydantic` 固定在和它配套的 `2.13.4`。升级 pydantic 要两个一起看。
+
+`Pillow` 固定在 `11.0.0`：加了 Flet 包库之后，pip 会从那边拿更高版本的 Pillow，而它依赖的 `libtiff.so` 等放在 Chaquopy 找不到的地方，
+App 一启动就崩。`11.0.0` 只有 Chaquopy 自己的包库有。**Flet 包库里带额外共享库的包都不能用**，加新的原生依赖前先确认这一点。
