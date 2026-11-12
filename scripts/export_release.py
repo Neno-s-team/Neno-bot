@@ -24,12 +24,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # 整个目录
-DIRS = ["app/", "channels/", "content/", "prompts/mind/", "telegram_gateway/", "telegram_sidecar/", "tests/"]
+DIRS = ["app/", "channels/", "content/", "prompts/mind/", "telegram_gateway/", "telegram_sidecar/", "tests/", "android/"]
 # 单个文件
 FILES = [
     "README.md", "LICENSE", ".env.example", ".gitattributes", "requirements.txt", "pytest.ini",
     "run.py", "start.bat", "start.sh",
-    "docs/telegram-user-account.md", "docs/how-it-works.md",
+    "docs/telegram-user-account.md", "docs/how-it-works.md", "docs/mobile-m0.md",
     "scripts/build-tdlib.ps1", "scripts/build-telegram-sidecar.ps1", "scripts/start-telegram-gateway.ps1",
     "scripts/start-neno-backend.ps1", "scripts/start-neno-stack.ps1", "scripts/open-neno-browser.ps1",
     "scripts/corpus_wechat.py", "scripts/stickers2webp.ps1", "scripts/export_release.py",
