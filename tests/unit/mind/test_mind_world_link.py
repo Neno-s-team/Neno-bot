@@ -117,6 +117,10 @@ def test_lived_day_reaches_reflection(linked, monkeypatch):
         land_contact(c, w, {"label": "妈妈", "channel": "call", "npc": "mom"}, [["A", "吃了没"]], "妈打电话来问吃了没", "k")
     lived = world_link.day_events(T0 - 60, T0 + 4 * 3600)
     assert lived and any("妈打电话来问吃了没" in x for x in lived)
+    items, tail = world_link.day_items(T0 - 60, T0 + 4 * 3600)             # 同一份日子，一条条带类别（给"她的一天"页）
+    assert [f"{i['time']} {i['text']}" for i in items] + tail == lived
+    call = next(i for i in items if "妈打电话来问吃了没" in i["text"])
+    assert call["group"] == "people" and {i["group"] for i in items} <= {"do", "go", "phone", "people", "thing"}
     assert "tg:home" in reflection.active_sessions(T0)
     material = reflection._day_material("tg:home", T0 - 60, T0 + 4 * 3600)
     assert material["lived"] == lived

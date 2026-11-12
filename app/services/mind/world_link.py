@@ -257,15 +257,27 @@ def _obligations(t0: float, t1: float) -> list[tuple[float, float, dict[str, Any
     return merged
 
 
+# 世界事件 → "她的一天"页上的类别：go 去了哪 / do 干了什么 / phone 刷到的、听说的 / people 谁找过她 / thing 遇到的事
+_GROUPS = {"activity.started": "do", "life.doing": "do", "routine.skipped": "do", "task.crunch": "do", "task.done": "do",
+           "task.missed": "do", "task.assigned": "people", "npc.contacted": "people", "life.visit": "go", "life.attended": "go",
+           "life.planned": "go", "life.skipped_plan": "go", "life.heard": "phone"}
+
+
 def day_events(start: float, end: float, limit: int = 60) -> list[str]:
     """[start, end) 内她在世界里过的日子，压成几十行"几点 做了什么 / 谁找过她 / 出了什么事"，给夜间反思回想。"""
+    items, tail = day_items(start, end, limit)
+    return [f"{item['time']} {item['text']}" for item in items] + tail
+
+
+def day_items(start: float, end: float, limit: int = 60) -> tuple[list[dict[str, Any]], list[str]]:
+    """同一份日子，一条条带时刻和类别（给"她的一天"页）：([{at, time, group, text}], [这天的小结几句])。"""
     if not enabled():
-        return []
+        return [], []
     from datetime import datetime
     try:
         rows = [dict(r) for r in _fetch_events(start, end)]
     except Exception:
-        return []
+        return [], []
     tz = clock.local_now().tzinfo
     lines, last, spent, worked = [], None, 0.0, {}
     for row in rows:
@@ -322,15 +334,17 @@ def day_events(start: float, end: float, limit: int = 60) -> list[str]:
         elif kind == "routine.skipped":
             text = f"没去{_LABELS.get(p.get('activity'), p.get('activity'))}"
         if text and text != last:
-            lines.append(f"{at} {text}")
+            group = "phone" if kind == "life.moment" and p.get("kind") == "surf" else _GROUPS.get(kind, "thing")
+            lines.append({"at": row["sim_time"], "time": at, "group": group, "text": text})
             last = text
     lines = lines[-limit:]
+    tail = []
     for title, hours in worked.items():
         if hours >= 0.3:
-            lines.append(f"这天在「{title}」上花了 {round(hours, 1)} 小时")
+            tail.append(f"这天在「{title}」上花了 {round(hours, 1)} 小时")
     if spent >= 1:
-        lines.append(f"这天一共花了 ¥{round(spent)}")
-    return lines
+        tail.append(f"这天一共花了 ¥{round(spent)}")
+    return lines, tail
 
 
 def _fetch_events(start: float, end: float):

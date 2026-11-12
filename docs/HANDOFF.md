@@ -296,6 +296,20 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
     这一条约 0.0063 美元（四五分钱人民币）。只有一个样本；对比报告里的平均是 61.6 秒。
   - OpenRouter 上的 V4.1 Flash 没要求也会思考（第一反应里八成输出是思考），所以第一反应要 4–9 秒；官方接口上我们明确关了思考，应该更快，待验。
 
+## 5.25 移动端 M1：先做了界面要用的后端接口（2026-11-12，主线任务第 3 步，界面还没开始）
+
+都挂在已有的 mind 路由上，只读，沿用内部令牌；以后网页版"她的一天"也用这几个。测试在 `tests/unit/mind/test_mind_views.py`。
+- `GET /mind/day?session_id=&date=`：她的一天。一条条带时刻和类别（`go` 去了哪 / `do` 干了什么 / `phone` 刷到的听说的 / `people` 谁找过她 / `thing` 遇到的事），
+  加这天的小结（花了多少钱、在什么事上花了几小时）和睡前她自己对这天的一句话；今天的只到此刻。只有"家"会话有。
+  数据来自 `world_link.day_items`（`day_events` 现在是它的文字版，输出没变）。
+- `GET /mind/thoughts?session_id=`：她起过的念头，发了的和没发的都在（`proactive.thoughts`）。造物者模式的列表。
+- `GET /mind/cycles/{cycle_id}`：这一轮她心里怎么想的——第一反应、怎么理解的、什么感受、打算说的、没打算说的、原稿、发出去的、是不是想好了没发出去。
+  造物者模式里长按她的一条消息看；消息对应哪一轮，在投递项和历史消息里都带着 `cycle_id`。
+- `GET /mind/cost`：今天调模型花了多少（美元和按 `USD_CNY` 折的人民币），估不出来的调用单独数。
+- `GET /mind/history?session_id=`：最近的聊天记录；你发的每条带"她看到没有"（她真点开才算已读）。
+- `GET /mind/now`（之前做的）：她此刻在干嘛、多久后会看到。
+- 界面（Kotlin + Compose）还没写。M0 的验证界面在 `android/app/src/main/java/.../MainActivity.kt`，是临时的。
+
 ## 5.24 多城市 MC2 试做一座、MC3（2026-11-12）
 
 - **MC3（电脑版）**：`run.py` 的 `ensure_city` 在第一次运行、世界还没建时问"她住在哪座城市"，写进 `.env` 的 `WORLD_CITY`；

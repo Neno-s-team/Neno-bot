@@ -136,3 +136,118 @@ def retract(req: RetractRequest):
     store.remove_trace_from_pending_jobs(record["session_id"], req.trace_id)
     orchestration.rebuild_after_retract(record["session_id"], req.trace_id)
     return {"ok": True, "trace_id": req.trace_id, "retracted": True, "seen": record["seen"]}
+
+
+# ── 给界面看的（只读）：她的一天、她起过的念头、一条消息背后她想的、今天花了多少钱、历史消息 ──────────
+
+def _json(raw: Any) -> dict[str, Any]:
+    import json
+
+    try:
+        data = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+@router.get("/mind/day")
+def day(session_id: str, date: str | None = None):
+    """她的一天（只看）：这天去了哪、干了什么、刷到了什么、谁找过她；还有睡前她自己对这天的一句话。date 不给就是今天。"""
+    from datetime import datetime
+
+    from app import config
+    from app.services.mind import world_link
+    from app.storage.db import fetch_one
+
+    tz = clock.local_now().tzinfo
+    try:
+        local = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz) if date else clock.local_now()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    today = start <= clock.now() < start + 86400
+    items, summary = [], []
+    if session_id == config.MIND_HOME_SESSION:      # 只有接着世界的那个会话有"日子"
+        items, summary = world_link.day_items(start, min(start + 86400, clock.now()), limit=200)
+    # 这天的睡前回想：那一觉是这天中午之后、第二天中午之前睡下的
+    night = fetch_one("SELECT result_json FROM mind_reflection WHERE session_id = ? AND status = 'done'"
+                      " AND window_end >= ? AND window_end < ? ORDER BY window_end DESC LIMIT 1",
+                      (session_id, start + 12 * 3600, start + 36 * 3600))
+    return {"date": local.strftime("%Y-%m-%d"), "today": today, "items": items, "summary": summary,
+            "diary": str(_json(night["result_json"]).get("day_summary") or "") if night else "",
+            "now": now(session_id) if today else None}
+
+
+@router.get("/mind/thoughts")
+def thoughts(session_id: str, limit: int = 30):
+    """她起过的念头，发了的和没发的都在（造物者模式的列表）。"""
+    from app.services.mind import proactive
+
+    return {"mode": proactive.mode(), "items": proactive.thoughts(session_id, max(1, min(int(limit), 100)))}
+
+
+@router.get("/mind/cycles/{cycle_id}")
+def inner(cycle_id: str):
+    """这一轮她心里是怎么想的（造物者模式：长按她的一条消息看）。第一反应、想清楚后的感受、打算说的、没打算说的、原稿和发出去的。"""
+    from app.storage.db import fetch_all
+
+    row = store.get_cycle(cycle_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="cycle not found")
+    l1, thought, plan = _json(row.get("l1_json")), _json(row.get("l2_json")), _json(row.get("plan_json"))
+    l2, l3 = thought.get("l2") or {}, thought.get("l3") or {}
+    sent = [_json(r["payload_json"]).get("text") or f"[表情包：{_json(r['payload_json']).get('name')}]"
+            for r in fetch_all("SELECT payload_json FROM mind_delivery WHERE cycle_id = ? AND status = 'sent'"
+                               " AND kind IN ('text', 'sticker') ORDER BY seq", (cycle_id,))]
+    final = [line for line in str(row.get("final_text") or "").split("\n") if line.strip()]
+    return {
+        "cycle_id": cycle_id, "session_id": row["session_id"], "at": row.get("updated_at"),
+        "initiative": row.get("trigger_type") == "self",                 # 是她自己想说的，不是回谁
+        "gut": l1.get("gut") or "", "category": l1.get("category") or "", "depth": l1.get("depth") or "",
+        "thought": {"reads": l2.get("interpretation") or "", "feels": l2.get("feeling") or ""} if l2 else None,   # 随口一回的没有深思
+        "say_points": list(l3.get("say_points") or plan.get("say_points") or []),
+        "hidden": list(l3.get("hidden") or []), "tone": l3.get("tone") or plan.get("tone") or "", "hesitate": bool(l3.get("hesitate")),
+        "draft": str(row.get("expr_text") or ""), "final": final, "sent": sent,
+        "unsent": bool(final) and not sent,                              # 想好了却没发出去（被你的新消息打断、过期）
+    }
+
+
+@router.get("/mind/cost")
+def cost():
+    """今天（本地零点起）调模型花了多少钱。提供方报了花费的用它报的，没报的按价格表估；估不出来的单独数出来。"""
+    import os
+
+    from app.storage.operations import operations
+
+    start = clock.local_now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    rows = operations().all("SELECT COALESCE(provider, '') AS provider, COUNT(*) AS calls, COALESCE(SUM(cost_usd), 0) AS usd,"
+                            " SUM(cost_usd IS NULL AND status = 'ok') AS unknown FROM llm_usage WHERE created_at >= ?"
+                            " GROUP BY COALESCE(provider, '')", (start,))
+    usd = sum(float(r["usd"] or 0) for r in rows)
+    rate = float(os.getenv("USD_CNY", "") or 7.2)
+    return {"since": start, "usd": round(usd, 4), "cny": round(usd * rate, 2), "calls": sum(int(r["calls"]) for r in rows),
+            "unknown_calls": sum(int(r["unknown"] or 0) for r in rows),
+            "by_provider": [{"provider": r["provider"], "calls": int(r["calls"]), "usd": round(float(r["usd"] or 0), 4)} for r in rows]}
+
+
+@router.get("/mind/history")
+def history(session_id: str, limit: int = 60):
+    """最近的聊天记录，旧的在前（界面打开时先显示这些）。你发的每条带"她看到没有"；她发的带是哪一轮想出来的。"""
+    from app.services.mind import timeline
+    from app.storage.db import fetch_all
+
+    rows = fetch_all("SELECT m.id, m.role, m.content, m.message_type, m.created_at, m.trace_id, m.metadata_json, p.seen"
+                     " FROM messages m LEFT JOIN mind_perception p ON p.trace_id = m.trace_id"
+                     " WHERE m.session_id = ? AND m.role IN ('user', 'assistant') ORDER BY m.id DESC LIMIT ?",
+                     (session_id, max(1, min(int(limit), 300))))
+    items = []
+    for r in reversed(rows):
+        item = {"id": r["id"], "role": r["role"], "text": r["content"], "type": r["message_type"] or "text",
+                "at": timeline.message_ts({"created_at": r["created_at"]})}
+        if r["role"] == "user":
+            item["read"] = r["seen"] == "opened"                         # 她真点开看了才算已读
+        else:
+            item["cycle_id"] = _json(r["metadata_json"]).get("cycle_id")
+        items.append(item)
+    return {"items": items}
+

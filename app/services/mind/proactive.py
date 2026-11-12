@@ -273,15 +273,24 @@ WORDS = {"waiting": "等着", "skipped": "没提", "lapsed": "算了", "declined
          "queued": "正在发", "sent": "发了", "cancelled": "没发出去", "merged": "并进别的话里", "failed": "出错"}
 
 
+def thoughts(session_id: str, limit: int = 30) -> list[dict[str, Any]]:
+    """最近的念头和结局，新的在前（给造物者模式的列表：发了的和没发的都在）。"""
+    rows = fetch_all("SELECT * FROM mind_proactive WHERE session_id = ? ORDER BY COALESCE(decided_at, due_at) DESC LIMIT ?",
+                     (session_id, limit))
+    return [{"id": row["id"], "at": float(row["decided_at"] or row["due_at"]), "kind": row["kind"], "text": row["text"],
+             "status": row["status"], "word": WORDS.get(row["status"], row["status"]), "reason": row["reason"] or "",
+             "said": [line for line in str(row["final_text"] or "").split("\n") if line.strip()],
+             "cycle_id": row["cycle_id"]} for row in rows]
+
+
 def show(session_id: str, limit: int = 30) -> list[str]:
-    """最近的念头和结局，一行一个，新的在前。"""
+    """同一份，一行一个，命令行里看。"""
     lines = []
-    for row in fetch_all("SELECT * FROM mind_proactive WHERE session_id = ? ORDER BY COALESCE(decided_at, due_at) DESC"
-                         " LIMIT ?", (session_id, limit)):
-        when = datetime.fromtimestamp(float(row["decided_at"] or row["due_at"]), tz=clock.local_now().tzinfo)
-        tail = f"：{str(row['final_text']).replace(chr(10), ' / ')}" if row["final_text"] else ""
-        why = f"（{row['reason']}）" if row["reason"] else ""
-        lines.append(f"{when:%m-%d %H:%M} [{WORDS.get(row['status'], row['status'])}] {row['text'][:40]}{why}{tail}")
+    for item in thoughts(session_id, limit):
+        when = datetime.fromtimestamp(item["at"], tz=clock.local_now().tzinfo)
+        tail = f"：{' / '.join(item['said'])}" if item["said"] else ""
+        why = f"（{item['reason']}）" if item["reason"] else ""
+        lines.append(f"{when:%m-%d %H:%M} [{item['word']}] {item['text'][:40]}{why}{tail}")
     return lines
 
 
