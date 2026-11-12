@@ -27,6 +27,16 @@ def render(item: dict) -> str | None:
     return None                 # mark_read：终端里没有"已读"
 
 
+def hint(now: dict) -> str | None:
+    """刚发完消息时说一句她在干嘛、大概多久会看到——只在要等一阵的时候说。"""
+    wait = now.get("sees_in")
+    if wait is None or wait <= 20:
+        return None
+    phone = f"，手机在{now['phone']}" if now.get("phone") else ""
+    when = f"{-(-wait // 60)} 分钟" if wait < 5400 else f"{round(wait / 3600)} 小时"
+    return f"　（她在{now.get('activity') or '忙'}{phone}{'，静音' if now.get('muted') else ''}。大概 {when}后会看到）"
+
+
 def main(core: Core | None = None) -> int:
     core = core or Core()
     if not core.wait(60):
@@ -56,6 +66,13 @@ def main(core: Core | None = None) -> int:
                     continue
                 if reply.get("reply"):      # 后端没开异步投递时：当场回
                     print(f"{NAME}：{reply['reply']}")
+                    continue
+                try:
+                    line = hint(core.now())
+                except Exception:
+                    line = None
+                if line:
+                    print(line)
     except (EOFError, KeyboardInterrupt):
         print()
     alive = False

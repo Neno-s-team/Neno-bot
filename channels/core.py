@@ -42,6 +42,12 @@ class Core:
         resp.raise_for_status()
         return resp.json()
 
+    def now(self) -> dict[str, Any]:
+        """她此刻在干嘛、还没看的消息大概多久后会看到（sees_in 秒；None = 没有没看的）。"""
+        resp = self.http.get(f"{self.url}/mind/now", params={"session_id": self.session_id}, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
     def due(self, limit: int = 50) -> list[dict[str, Any]]:
         resp = self.http.get(f"{self.url}/mind/deliveries/due", params={"session_id": self.session_id, "limit": limit},
                              timeout=30)

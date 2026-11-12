@@ -253,6 +253,23 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 - **看记录**：`venv/Scripts/python -m app.services.mind.proactive`，一行一个念头和结局。
 - 没做：发图、发刷到的链接；聊到一半他不回了的追问（现在只追她主动发的）。
 
+## 5.20 简便部署与发布仓库（2026-11-12）
+
+用户定：另开一个公开仓库专门放"方便部署的稳定版"；这个仓库（Neno-bot）继续做开发。
+
+- **一条命令**：`start.bat` / `start.sh` → 建 venv、装依赖 → `run.py`：没有 `.env` 就从 `.env.example` 生成、自动生成内部令牌、
+  问一次 OpenRouter 密钥 → 起后端 → 进通道（填了 `TELEGRAM_BOT_TOKEN` 走机器人，否则终端）。
+- **免编译通道** `channels/`：`terminal.py`、`telegram_bot.py`（BotFather token + 6 位配对码，只理主人，绑定存 `data/channel.json`）。
+  都只做三件事：`POST /chat`、`GET /mind/deliveries/due`、`POST /mind/deliveries/{id}/ack`。共用会话 `MIND_HOME_SESSION`（默认 `me`）。
+  `GET /mind/now` 给终端用：她在干嘛、多久后会看到消息（第一次用的人等几分钟会以为坏了）。
+- **`.env.example` 是一份直接能用的省钱档**（haiku-5.5 + deepseek flash，价格查自 OpenRouter 公开接口）；质量档写在注释里。
+  `tests/unit/test_channels.py` 里有一条断言保证模板本身没有配置问题。
+- **发布**：`python scripts/export_release.py data/release/neno` —— 按白名单从 **已提交内容**（`git archive HEAD`）导出，
+  再拿本机 `.env` 的密钥/账号、数据库里记的账号名去比对导出的文件，另按通用格式找密钥和邮箱；有发现退出码 1。
+  `data/release/neno` 自己是一个 git 仓库（远端是发布仓库），每次发布是一次快照提交。开发笔记、内部计划、`prompts/system.txt`、`assets/` 不导出。
+- 发布前在导出目录里用全新 venv 跑一遍测试、真聊两句（`data/tmp/e2e_release.py`，后端开在 8011）。
+- 真人号 Telegram（TDLib）的步骤在 `docs/telegram-user-account.md`；结构说明 `docs/how-it-works.md`。
+
 ## 6. P4 反思 / 遗忘 / 在意事项（2026-11-10 实现，待真号观察）
 
 `app/services/mind/reflection.py`、`concerns.py`；表 `mind_reflection`（一晚一行，租约+重试）、`mind_concern`；`mind_episode` 加 `full_summary/faded_at/source`。开关 `MIND_REFLECT_ENABLED`（默认开），模型 `MIND_REFLECT_MODEL`（空=L2 模型），计费 `mind_reflect`。

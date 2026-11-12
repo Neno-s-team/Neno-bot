@@ -98,6 +98,23 @@ def deliveries_ack(delivery_id: int, req: DeliveryAckRequest):
     return {"ok": True, "id": delivery_id, "status": req.status}
 
 
+@router.get("/mind/now")
+def now(session_id: str):
+    """她此刻在干嘛、还没看的消息大概多久后会看到。给终端通道（和以后的页面）用：让人知道她不是坏了，是还没看手机。"""
+    from app.services.mind import schedule
+    from app.storage.db import fetch_one
+
+    ts = clock.now()
+    seg = schedule.segment_at(ts)
+    unseen = fetch_one("SELECT MIN(glance_at) AS t FROM mind_perception WHERE session_id = ? AND retracted = 0"
+                       " AND status IN ('pending', 'previewed')", (session_id,))
+    return {
+        "activity": str(seg.get("activity") or ""), "place": str(seg.get("place") or ""),
+        "phone": str(seg.get("phone") or ""), "level": int(seg.get("level", 3)), "muted": bool(seg.get("muted")),
+        "sees_in": max(0, round(float(unseen["t"]) - ts)) if unseen and unseen["t"] is not None else None,
+    }
+
+
 @router.post("/mind/retract")
 def retract(req: RetractRequest):
     record = store.get_perception_by_trace(req.trace_id)

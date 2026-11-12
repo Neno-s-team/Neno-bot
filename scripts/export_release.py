@@ -27,13 +27,34 @@ ROOT = Path(__file__).resolve().parent.parent
 DIRS = ["app/", "channels/", "content/", "prompts/mind/", "telegram_gateway/", "telegram_sidecar/", "tests/"]
 # 单个文件
 FILES = [
-    "README.md", "LICENSE", ".env.example", ".gitignore", ".gitattributes", "requirements.txt", "pytest.ini",
+    "README.md", "LICENSE", ".env.example", ".gitattributes", "requirements.txt", "pytest.ini",
     "run.py", "start.bat", "start.sh",
     "docs/telegram-user-account.md", "docs/how-it-works.md",
     "scripts/build-tdlib.ps1", "scripts/build-telegram-sidecar.ps1", "scripts/start-telegram-gateway.ps1",
     "scripts/start-neno-backend.ps1", "scripts/start-neno-stack.ps1", "scripts/open-neno-browser.ps1",
     "scripts/corpus_wechat.py", "scripts/stickers2webp.ps1", "scripts/export_release.py",
+    "scripts/verify_world_backend.py", "scripts/verify_world_cognition.py",     # 测试里的场景回放要用
 ]
+# 发布版自己的忽略规则（开发仓库那份夹着很多本机工具的条目）
+IGNORE = """.env
+.env.*
+!.env.example
+data/
+logs/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.sqlite*
+*.log
+*.bak
+node_modules/
+telegram_sidecar/build/
+runtime/
+third_party/
+"""
 PRIVATE_KEYS = re.compile(r"KEY|TOKEN|HASH|SECRET|SESSION|CHAT_IDS|API_ID|PASSWORD|PROXY")
 PATTERNS = {
     "OpenRouter 密钥": re.compile(r"sk-or-v1-[0-9a-f]{20,}"),
@@ -103,6 +124,7 @@ def export(target: Path, root: Path = ROOT) -> list[str]:
                              check=True).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(target, filter="data")
+    (target / ".gitignore").write_bytes(IGNORE.encode("utf-8"))
     print(f"导出 {len(paths)} 个文件到 {target}")
     for name in missing:
         print(f"注意：白名单里的 {name} 还没提交，这次没导出")

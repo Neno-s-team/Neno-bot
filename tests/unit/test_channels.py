@@ -89,6 +89,28 @@ def test_terminal_shows_what_arrives():
     assert terminal.render({"kind": "mark_read", "payload": {}}) is None
 
 
+def test_terminal_says_when_she_will_see_it_only_if_it_takes_a_while():
+    busy = {"activity": "上课", "phone": "包里", "muted": True, "level": 1, "sees_in": 3000}
+    assert terminal.hint(busy) == "　（她在上课，手机在包里，静音。大概 50 分钟后会看到）"
+    assert terminal.hint({**busy, "sees_in": 61, "muted": False, "phone": ""}) == "　（她在上课。大概 2 分钟后会看到）"
+    assert terminal.hint({**busy, "activity": "睡觉", "sees_in": 6 * 3600}).endswith("大概 6 小时后会看到）")
+    assert terminal.hint({**busy, "sees_in": 15}) is None and terminal.hint({**busy, "sees_in": None}) is None
+
+
+def test_backend_tells_what_she_is_doing_and_when_she_will_look(isolated_db, monkeypatch):
+    from app.routers import mind as mind_router
+    from app.services.mind import clock, schedule
+    from app.storage.db import execute_write
+
+    monkeypatch.setattr(clock, "now", lambda: 1000.0)
+    monkeypatch.setattr(schedule, "segment_at", lambda *a, **k: {"activity": "在路上", "level": 3, "phone": "手里", "muted": False})
+    assert mind_router.now("me") == {"activity": "在路上", "place": "", "phone": "手里", "level": 3, "muted": False, "sees_in": None}
+    for trace, glance, status, session in (("a", 1456.0, "pending", "me"), ("b", 1200.0, "opened", "me"), ("c", 1100.0, "pending", "other")):
+        execute_write("INSERT INTO mind_perception(session_id, trace_id, received_at, glance_at, status) VALUES (?, ?, 1000, ?, ?)",
+                      (session, trace, glance, status))
+    assert mind_router.now("me")["sees_in"] == 456                          # 只看这个会话里还没点开的
+
+
 @pytest.fixture()
 def bot(tmp_path):
     core = FakeCore()

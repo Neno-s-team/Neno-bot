@@ -81,7 +81,8 @@ IMAGE_LOCAL_SPOOL_ROOTS = tuple(
 
 # ── System Prompt（当前单句人设） ──────────────────────────────────────────
 CHAT_PERSONA_ENABLED = _env_bool("CHAT_PERSONA_ENABLED", True)
-SYSTEM_PROMPT = load_text("prompts/system.txt") if CHAT_PERSONA_ENABLED else ""
+# 旧的单句人设是可选的：文件不在（发布版不带）就当没开，大脑用 prompts/mind/ 下的自我卡
+SYSTEM_PROMPT = load_text("prompts/system.txt") if CHAT_PERSONA_ENABLED and os.path.exists("prompts/system.txt") else ""
 
 # ── 多层大脑 P1 ─────────────────────────────────────────────────────────────
 MIND_ENABLED = _env_bool("MIND_ENABLED", False)

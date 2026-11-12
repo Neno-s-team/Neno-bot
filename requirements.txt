@@ -6,3 +6,4 @@ pydantic
 httpx
 pytest
 Pillow>=10.4
+tzdata

@@ -35,7 +35,7 @@ def test_local_secrets_and_common_key_shapes_are_caught(tmp_path):
     (out / ".git").mkdir()
     (out / ".git" / "config").write_text("123456789", encoding="utf-8")                 # 发布仓库自己的 .git 不查
     (out / "a.py").write_text("ALLOWED = [123456789]  # 手滑写进来的\n", encoding="utf-8")
-    (out / "docs" / "b.md").write_text("联系 someone@gmail.com；Co-Authored-By: x <noreply@anthropic.com>；git@github.com:a/b\n",
+    (out / "docs" / "b.md").write_text("联系 someone" + "@" + "gmail.com；Co-Authored-By: x <noreply@anthropic.com>；git@github.com:a/b\n",
                                        encoding="utf-8")
     (out / "c.txt").write_text("模型 anthropic/claude-haiku-5.5；token 12345678:" + "A" * 35 + "\n", encoding="utf-8")
     (out / "ok.py").write_text("print('没什么特别的')\n", encoding="utf-8")

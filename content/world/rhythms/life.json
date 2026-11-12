@@ -2001,7 +2001,7 @@
   "want": 0.65
  },
  "surf": {
-  "note": "上网：她刷手机时真的在上网。不用浏览器的方式每次最多 steps 步；用浏览器时见 browser.steps，并且世界里这回刷手机到点了就放下。每天最多 sessions_per_day 次。模型走 WORLD_SURF_URL / WORLD_SURF_MODEL（用户定：本机 magpie 网关的 deepseek，不限调用次数）。block 是不去的站（主机名里含这些词）。",
+  "note": "上网：她刷手机时真的在上网。不用浏览器的方式每次最多 steps 步；用浏览器时见 browser.steps，并且世界里这回刷手机到点了就放下。每天最多 sessions_per_day 次。模型走 WORLD_SURF_URL / WORLD_SURF_MODEL（没配就用 WORLD_NPC_MODEL）。block 是不去的站（主机名里含这些词）。",
   "actor": "neno",
   "sessions_per_day": 6,
   "steps": 6,
