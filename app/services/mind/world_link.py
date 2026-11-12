@@ -135,6 +135,25 @@ def now_segment(ts: float | None = None) -> dict[str, Any] | None:
     return seg
 
 
+def where_now() -> dict[str, str]:
+    """界面上"杭州 小雨"那一行和头像换图要的：她那座城市叫什么、外面此刻什么天。世界没开就都是空的。"""
+    found = {"city": "", "weather": "", "sky": ""}
+    w = _world() if enabled() else None
+    if w is None:
+        return found
+    from app.services.world import city, weather
+    try:
+        found["city"] = str(city.pack((city.config(w) or {})["name"]).get("label") or "")
+    except (KeyError, ValueError):
+        pass
+    street = fetch_one("SELECT state FROM world_entities WHERE world_id = ? AND entity_id = 'street'", (config.MIND_WORLD_ID,))
+    state = json.loads(street["state"]) if street else {}
+    if state.get("weather"):
+        found["sky"] = str(state["weather"])                 # clear / cloudy / rain / snow
+        found["weather"] = weather.label(state)             # 小雨 / 多云 …
+    return found
+
+
 def _around(w: dict[str, Any]) -> dict[str, Any]:
     """今天是什么日子、外面什么天、她知道最近有什么事。"""
     from app.services.mind import timeline

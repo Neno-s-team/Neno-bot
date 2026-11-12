@@ -70,6 +70,12 @@ def keys_needed(values: dict[str, str]) -> list[str]:
 
 def try_keys(values: dict[str, str], post=None) -> str:
     """每个要用的提供方各发一次最小的请求。都通了返回空串，否则返回一句人话。"""
+    return key_problem(values, post)[1]
+
+
+def key_problem(values: dict[str, str], post=None) -> tuple[str, str]:
+    """同上，多给一个是哪一类问题：network（连不上）/ key（密钥不对）/ balance（没余额）/ other。都通了是 ("", "")。
+    手机界面按类别自己写提示（那边的人不看终端，也没有代理这回事）。"""
     import requests
 
     from app.llm import providers
@@ -91,14 +97,15 @@ def try_keys(values: dict[str, str], post=None) -> str:
             resp = post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json=body,
                         timeout=40, proxies={"http": proxy, "https": proxy} if proxy else None)
         except Exception as exc:
-            return f"连不上 {spec['label']}（{type(exc).__name__}）。检查网络" + ("或代理 OPENROUTER_PROXY。" if name == "openrouter" else "。")
+            return "network", (f"连不上 {spec['label']}（{type(exc).__name__}）。检查网络"
+                               + ("或代理 OPENROUTER_PROXY。" if name == "openrouter" else "。"))
         if resp.status_code == 401:
-            return f"{spec['label']} 说这个密钥不对。"
+            return "key", f"{spec['label']} 说这个密钥不对。"
         if resp.status_code == 402:
-            return f"{spec['label']} 的账户里没有余额，先充值。"
+            return "balance", f"{spec['label']} 的账户里没有余额，先充值。"
         if resp.status_code != 200:
-            return f"{spec['label']} 返回了 {resp.status_code}：{resp.text[:120]}"
-    return ""
+            return "other", f"{spec['label']} 返回了 {resp.status_code}：{resp.text[:120]}"
+    return "", ""
 
 
 def ensure_env(ask=input, path: Path = ENV, example: Path | None = None, check=try_keys) -> dict[str, str]:

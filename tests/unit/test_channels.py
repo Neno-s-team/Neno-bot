@@ -104,7 +104,9 @@ def test_backend_tells_what_she_is_doing_and_when_she_will_look(isolated_db, mon
 
     monkeypatch.setattr(clock, "now", lambda: 1000.0)
     monkeypatch.setattr(schedule, "segment_at", lambda *a, **k: {"activity": "在路上", "level": 3, "phone": "手里", "muted": False})
-    assert mind_router.now("me") == {"activity": "在路上", "place": "", "phone": "手里", "level": 3, "muted": False, "sees_in": None}
+    seen = mind_router.now("me")
+    assert {k: seen[k] for k in ("activity", "place", "phone", "level", "muted", "sees_in")} == {
+        "activity": "在路上", "place": "", "phone": "手里", "level": 3, "muted": False, "sees_in": None}
     for trace, glance, status, session in (("a", 1456.0, "pending", "me"), ("b", 1200.0, "opened", "me"), ("c", 1100.0, "pending", "other")):
         execute_write("INSERT INTO mind_perception(session_id, trace_id, received_at, glance_at, status) VALUES (?, ?, 1000, ?, ?)",
                       (session, trace, glance, status))

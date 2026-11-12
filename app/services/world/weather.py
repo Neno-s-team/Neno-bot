@@ -76,11 +76,18 @@ def is_real(state: dict, now: float) -> bool:
     return bool(state.get("weather_real_at")) and now - state["weather_real_at"] < FRESH_SECONDS
 
 
+def label(state: dict) -> str:
+    """外面什么天，就两三个字（"小雨""多云"）。界面上她名字下面那一行用。"""
+    if "weather" not in state:
+        return ""
+    return state.get("weather_label") or _PLAIN.get(state["weather"], state["weather"])
+
+
 def line(state: dict) -> str:
     """给她的脑子：外面什么天（"小雨，9°C（体感 6°C）；明天多云 8–16°C"）。"""
     if "weather" not in state:
         return ""
-    text = state.get("weather_label") or _PLAIN.get(state["weather"], state["weather"])
+    text = label(state)
     if state.get("temp") is not None:
         text += f"，{round(state['temp'])}°C"
         if state.get("feels") is not None and abs(state["feels"] - state["temp"]) >= 3:

@@ -100,8 +100,11 @@ def deliveries_ack(delivery_id: int, req: DeliveryAckRequest):
 
 @router.get("/mind/now")
 def now(session_id: str):
-    """她此刻在干嘛、还没看的消息大概多久后会看到。给终端通道（和以后的页面）用：让人知道她不是坏了，是还没看手机。"""
-    from app.services.mind import schedule
+    """她此刻在干嘛、还没看的消息大概多久后会看到。给终端通道和手机界面用：让人知道她不是坏了，是还没看手机。
+
+    界面还要：她住的城市叫什么、外面什么天（名字下面那行"杭州 小雨 · 在家刷手机"）、她那边现在几点（头像按时段和天气换图）。
+    """
+    from app.services.mind import schedule, world_link
     from app.storage.db import fetch_one
 
     ts = clock.now()
@@ -112,6 +115,7 @@ def now(session_id: str):
         "activity": str(seg.get("activity") or ""), "place": str(seg.get("place") or ""),
         "phone": str(seg.get("phone") or ""), "level": int(seg.get("level", 3)), "muted": bool(seg.get("muted")),
         "sees_in": max(0, round(float(unseen["t"]) - ts)) if unseen and unseen["t"] is not None else None,
+        **world_link.where_now(), "hour": clock.local_now().hour,
     }
 
 
@@ -186,6 +190,21 @@ def thoughts(session_id: str, limit: int = 30):
     return {"mode": proactive.mode(), "items": proactive.thoughts(session_id, max(1, min(int(limit), 100)))}
 
 
+class ProactiveRequest(BaseModel):
+    on: bool
+
+
+@router.post("/mind/proactive")
+def set_proactive(req: ProactiveRequest):
+    """界面上"会主动找我"的开关，当场生效。只管这一次运行：下次启动用什么，由启动它的一方说了算
+    （手机 App 把开关存在自己的设置里，启动时带进来；电脑上是 .env 里的 MIND_PROACTIVE）。"""
+    from app import config
+    from app.services.mind import proactive
+
+    config.MIND_PROACTIVE = "on" if req.on else "off"
+    return {"mode": proactive.mode()}
+
+
 @router.get("/mind/cycles/{cycle_id}")
 def inner(cycle_id: str):
     """这一轮她心里是怎么想的（造物者模式：长按她的一条消息看）。第一反应、想清楚后的感受、打算说的、没打算说的、原稿和发出去的。"""
@@ -230,9 +249,38 @@ def cost():
             "by_provider": [{"provider": r["provider"], "calls": int(r["calls"]), "usd": round(float(r["usd"] or 0), 4)} for r in rows]}
 
 
+def _unsent(session_id: str, since: float) -> list[dict[str, Any]]:
+    """她话都想好了却没发出去的（造物者模式里是虚线框）：被新消息打断或过期的那一轮的定稿，
+    还有起了念头、话想好了、最后没发的。还在路上的（有没发完的）不算。"""
+    from app.storage.db import fetch_all
+
+    found, seen = [], set()
+    cycles = fetch_all(
+        "SELECT c.cycle_id, c.final_text, c.updated_at AS at FROM mind_cycle c WHERE c.session_id = ? AND c.updated_at >= ?"
+        " AND c.status != 'running' AND COALESCE(c.final_text, '') != '' AND NOT EXISTS (SELECT 1 FROM mind_delivery d"
+        " WHERE d.cycle_id = c.cycle_id AND d.kind IN ('text', 'sticker') AND d.status IN ('sent', 'pending', 'claimed'))",
+        (session_id, since))
+    ideas = fetch_all(
+        "SELECT cycle_id, final_text, COALESCE(decided_at, due_at) AS at FROM mind_proactive WHERE session_id = ?"
+        " AND COALESCE(decided_at, due_at) >= ? AND COALESCE(final_text, '') != ''"
+        " AND status NOT IN ('waiting', 'queued', 'sent', 'merged')", (session_id, since))
+    for row in [*cycles, *ideas]:
+        if row["cycle_id"] and row["cycle_id"] in seen:      # 同一轮在两张表里都有：只算一次
+            continue
+        seen.add(row["cycle_id"])
+        for line in str(row["final_text"]).split("\n"):
+            if line.strip():
+                found.append({"id": 0, "role": "unsent", "text": line.strip(), "type": "text", "at": float(row["at"]),
+                              "cycle_id": row["cycle_id"]})
+    return found
+
+
 @router.get("/mind/history")
-def history(session_id: str, limit: int = 60):
-    """最近的聊天记录，旧的在前（界面打开时先显示这些）。你发的每条带"她看到没有"；她发的带是哪一轮想出来的。"""
+def history(session_id: str, limit: int = 60, unsent: bool = False):
+    """最近的聊天记录，旧的在前（界面打开时先显示这些）。你发的每条带"她看到没有"；她发的带是哪一轮想出来的。
+
+    unsent=true（造物者模式）：把她想好了却没发出去的话也按时间插进来，role 是 "unsent"。
+    """
     from app.services.mind import timeline
     from app.storage.db import fetch_all
 
@@ -249,5 +297,8 @@ def history(session_id: str, limit: int = 60):
         else:
             item["cycle_id"] = _json(r["metadata_json"]).get("cycle_id")
         items.append(item)
+    if unsent and items:
+        # 只插进这一屏聊天记录的时间范围里；同一刻的排在已发的后面（sorted 是稳定的）
+        items = sorted(items + _unsent(session_id, items[0]["at"]), key=lambda item: item["at"])
     return {"items": items}
 

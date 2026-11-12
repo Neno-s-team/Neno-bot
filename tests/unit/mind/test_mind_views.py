@@ -132,3 +132,55 @@ def test_her_day_page_only_for_the_session_that_lives_in_the_world(env, monkeypa
     with pytest.raises(HTTPException) as bad:
         views.day(S, "昨天")
     assert bad.value.status_code == 400
+
+
+def test_history_can_include_what_she_wrote_but_never_sent(env):
+    _say("user", "在干嘛", T0 - 600, trace="t1")
+    _say("assistant", "你醒没", T0 - 500, trace="delivery:c0:1", meta={"cycle_id": "c0", "seq": 1})
+    _say("user", "刚醒", T0 - 100, trace="t2")
+    # 一轮想好了、被新消息打断：两句定稿都没发出去
+    store.create_cycle("c1", S, trigger_type="self", trigger_ref="self:nudge:x")
+    store.update_cycle("c1", final_text="还睡呢\n都几点了", status="completed")
+    delivery.plan_deliveries(S, "还睡呢\n都几点了", cycle_id="c1", base_ts=T0 - 400)
+    store.cancel_remaining_deliveries("c1")
+    # 一轮正在发（还有没发完的）：不算没发
+    store.create_cycle("c2", S, trigger_type="message", trigger_ref="t2")
+    store.update_cycle("c2", final_text="熬夜了？", status="completed")
+    delivery.plan_deliveries(S, "熬夜了？", cycle_id="c2", base_ts=T0)
+    # 起了念头、话想好了、只记不发；同一轮（c1）在念头表里也有一份，只算一次；太早的不插进这一屏
+    for key, cycle, said, at, status in (("k1", "c1", "还睡呢\n都几点了", T0 - 400, "cancelled"), ("k2", None, "路边有只橘猫", T0 - 50, "shadow"),
+                                         ("k3", None, "很早以前想说的", T0 - 9000, "shadow"), ("k4", None, "发出去了的", T0 - 40, "sent")):
+        execute_write("INSERT INTO mind_proactive(session_id, key, kind, text, weight, born_at, due_at, expire_at, status, cycle_id,"
+                      " final_text, decided_at, created_at, updated_at) VALUES (?, ?, 'moment', '事', 0.8, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (S, key, at, at, at + 9999, status, cycle, said, at, at, at))
+    execute_write("UPDATE mind_cycle SET updated_at = ? WHERE cycle_id = 'c1'", (T0 - 400,))
+    assert [i["text"] for i in views.history(S)["items"]] == ["在干嘛", "你醒没", "刚醒"]            # 默认不带
+    items = views.history(S, unsent=True)["items"]
+    assert [(i["role"], i["text"]) for i in items] == [("user", "在干嘛"), ("assistant", "你醒没"), ("unsent", "还睡呢"),
+                                                       ("unsent", "都几点了"), ("user", "刚醒"), ("unsent", "路边有只橘猫")]
+    assert items[2]["cycle_id"] == "c1" and items[2]["at"] == T0 - 400
+
+
+def test_now_says_which_city_and_what_weather(env, monkeypatch):
+    from app.services.mind import schedule
+    from app.services.world import city
+
+    monkeypatch.setattr(schedule, "segment_at", lambda ts: {"activity": "刷手机", "place": "家", "phone": "手边", "level": 3})
+    assert views.now(S) | {"hour": 0} == {"activity": "刷手机", "place": "家", "phone": "手边", "level": 3, "muted": False,
+                                          "sees_in": None, "city": "", "weather": "", "sky": "", "hour": 0}     # 世界没开：城市和天气是空的
+    assert views.now(S)["hour"] == 15
+    street = {"state": json.dumps({"weather": "rain", "weather_label": "小雨", "temp": 9})}
+    monkeypatch.setattr(config, "MIND_WORLD_ID", "w1")
+    monkeypatch.setattr(world_link, "_world", lambda: {"world_id": "w1", "settings": {}})
+    monkeypatch.setattr(world_link, "fetch_one", lambda sql, args=(): street)
+    monkeypatch.setattr(city, "config", lambda w: {"name": "hangzhou"})
+    seen = views.now(S)
+    assert (seen["city"], seen["weather"], seen["sky"]) == ("杭州", "小雨", "rain")
+    street["state"] = json.dumps({"weather": "cloudy"})                    # 没有真实天气的说法时用大类的说法
+    assert views.now(S)["weather"] == "阴"
+
+
+def test_proactive_switch_takes_effect_right_away(env):
+    env.setattr(config, "MIND_PROACTIVE", "on")
+    assert views.set_proactive(views.ProactiveRequest(on=False)) == {"mode": "off"} and views.thoughts(S)["mode"] == "off"
+    assert views.set_proactive(views.ProactiveRequest(on=True)) == {"mode": "on"}
