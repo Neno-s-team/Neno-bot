@@ -135,7 +135,7 @@ def test_on_mode_sends_through_the_normal_delivery_path_then_she_follows_up(env,
     env["t"] = nudge["due_at"] + 25 * 60
     env["said"] = "人呢"
     assert proactive.tick(S, force=True)["outcome"] == "queued"
-    assert "主动发的消息，他一直没回" in env["calls"][-1]["initiative"]
+    assert "主动发了「路边有只橘猫 / 胖得离谱」，他一直没回" in env["calls"][-1]["initiative"]   # 带上她上回的原话
     execute_write("UPDATE mind_delivery SET status = 'sent'")
     proactive.tick(S, force=True)
     assert proactive.unanswered(S) == 2
@@ -208,12 +208,13 @@ def test_things_on_her_mind_only_come_up_while_she_is_awake(env):
     with get_conn() as conn:
         intents.add(conn, S, "问问他面试怎么样", source="reflection", strength=0.8, due_at=T0 + 86400, key="i1")
         intents.add(conn, S, "去图书馆看文献", source="reflection", strength=0.8, due_at=T0 + 86400, key="i2")
+        intents.add(conn, S, "电脑记得备份一下", source="reflection", strength=0.8, due_at=T0 + 86400, key="i3")
     env["seg"] = {"activity": "睡觉", "level": 0, "muted": True}
     assert proactive.collect(S, T0) == 0 and _rows() == []                  # 睡着时不登记，免得一睁眼全发出来
     env["seg"] = {"activity": "歇会儿", "level": 3, "muted": False}
     assert proactive.collect(S, T0) == 2
     kinds = {r["kind"]: r for r in _rows()}
-    assert set(kinds) == {"intent", "silence"}                              # 去图书馆是世界里的事，不归这里
+    assert set(kinds) == {"intent", "silence"} and len(_rows()) == 2        # 去图书馆归世界；备份电脑是她自己的事
     assert kinds["intent"]["text"] == "问问他面试怎么样" and "没跟他说话了" in kinds["silence"]["text"]
     assert kinds["silence"]["key"] == "silence:2026-11-12" and proactive.collect(S, T0 + 3600) == 0   # 一天只想起一回
 

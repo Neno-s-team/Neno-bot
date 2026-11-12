@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -36,6 +37,7 @@ from app.utils.logging_utils import log_event
 SHARE_FLOOR = 0.5                      # 世界里的小事：share 到这个数才算"想跟人说"
 TTL_HOURS = {"moment": 4.0, "concern": 10.0, "intent": 12.0, "silence": 10.0, "nudge": 6.0}
 STILL = [1.0, 0.85, 0.45, 0.15, 0.05]  # 她发了没回的条数 → 再发的概率
+ABOUT_HIM = re.compile(r"他|聊|问问|告诉")   # 打算里跟他有关的（"问问他面试怎么样"），不是她自己的杂事
 SILENCE_HOURS = 18.0                   # 这么久没说话才会"想起他"
 LEAD = {"moment": "刚遇到的事，想跟他说：", "concern": "心里惦记着：", "intent": "之前就想着：",
         "silence": "", "nudge": ""}
@@ -118,7 +120,8 @@ def collect(session_id: str, now: float) -> int:
                                    row["title"] + (f"（{row['detail']}）" if row.get("detail") else ""),
                                    0.7 * float(row["effective"]), now, now)
             for row in intents.open_intents(session_id, now):
-                if not row["choices"]:      # 对得上世界活动的打算归世界去做，这里只管"想跟他说/问他"的
+                # 对得上世界活动的打算归世界去做；剩下的里只有跟他有关的才是"想跟他说/问他"
+                if not row["choices"] and ABOUT_HIM.search(row["text"]):
                     added += _register(conn, session_id, f"intent:{row['id']}", "intent", row["text"],
                                        float(row["effective"]), now, now)
             last, his = _last_message(session_id), _last_message(session_id, "user")
@@ -129,10 +132,11 @@ def collect(session_id: str, now: float) -> int:
                                    f"有 {timeline.gap(now - last)}没跟他说话了", weight, now, now)
         # 她主动发了、他没回 → 一个"追一句"的念头（每回主动只生一个）
         since = _last_message(session_id, "user") or 0.0
-        row = conn.execute("SELECT id, decided_at FROM mind_proactive WHERE session_id = ? AND status IN ('sent','shadow')"
+        row = conn.execute("SELECT id, decided_at, final_text FROM mind_proactive WHERE session_id = ? AND status IN ('sent','shadow')"
                            " AND decided_at > ? ORDER BY decided_at DESC LIMIT 1", (session_id, since)).fetchone()
         if row is not None:
-            added += _register(conn, session_id, f"nudge:{row['id']}", "nudge", "你主动发的消息，他一直没回",
+            said = " / ".join(str(row["final_text"] or "").split("\n"))[:60]
+            added += _register(conn, session_id, f"nudge:{row['id']}", "nudge", f"主动发了「{said}」，他一直没回",
                                1.0, float(row["decided_at"]), now)
     return added
 
@@ -222,7 +226,7 @@ def think(row: dict[str, Any], session_id: str, now: float, n: int = 0) -> str:
     from app.services.mind.schemas import L1Appraisal
 
     if row["kind"] == "nudge":
-        text = f"你{timeline.ago(row['born_at'], now)}主动发的消息，他一直没回"
+        text = f"你{timeline.ago(row['born_at'], now)}{row['text']}"
     else:
         text = LEAD.get(row["kind"], "") + row["text"]
         if n:
@@ -282,7 +286,11 @@ def show(session_id: str, limit: int = 30) -> list[str]:
 
 
 if __name__ == "__main__":
+    import os
     import sys
 
+    from dotenv import load_dotenv
+
+    load_dotenv()      # 单独运行时 app.config 已经在读 .env 之前导入了，会话名从环境里现取
     sys.stdout.reconfigure(encoding="utf-8")
-    print("\n".join(show(config.MIND_HOME_SESSION)) or "还没有念头")
+    print("\n".join(show(os.getenv("MIND_HOME_SESSION", "").strip() or "me")) or "还没有念头")
