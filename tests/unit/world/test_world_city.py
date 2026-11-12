@@ -195,3 +195,58 @@ def test_long_bike_rides_lose_to_the_metro(engine):
     far = next(v for v in city.data(w)["venues"] if v["name"] == "河坊街")
     assert city.route(w, "my_room", far["id"])["mode"] == "metro"
     assert city.route(w, "my_room", "library")["mode"] == "bike"
+
+
+# ── 多城市 MC1：一个城市设置决定地图、事件池、同城活动的城市名 ─────────────────
+
+def test_one_city_setting_decides_map_events_and_local_listings(monkeypatch):
+    import json
+    from pathlib import Path
+
+    from app.services.world import rhythms
+
+    monkeypatch.delenv("WORLD_CITY", raising=False)
+    assert city.packs() == ["hangzhou"] and city.default_name() == "hangzhou"
+    cfg = rhythms.load("life")
+    assert cfg["city"]["name"] == "hangzhou" and cfg["real"]["city"] == "hangzhou"
+    assert cfg["happenings"]["pool"] == ["common", "hangzhou"]              # 全国通用的 + 这座城特有的
+    raw = Path(rhythms.CONTENT / "life.json").read_text(encoding="utf-8")
+    assert "hangzhou" not in raw                                            # 作息配置里不再写死哪座城
+    beijing = {"name": "beijing", "label": "北京", "douban": "beijing", "events": ["common", "beijing"]}
+    monkeypatch.setattr(city, "pack", lambda name: beijing if name == "beijing" else pytest.fail(name))
+    other = rhythms.load("life", "beijing")
+    assert (other["city"]["name"], other["real"]["city"], other["happenings"]["pool"]) == ("beijing", "beijing", ["common", "beijing"])
+    assert other["city"]["places"] == cfg["city"]["places"]                 # 锚点名各城市一样，坐标由城市包的地图给
+    assert {k: v for k, v in other.items() if k not in ("city", "real", "happenings")} == {
+        k: v for k, v in cfg.items() if k not in ("city", "real", "happenings")}
+    monkeypatch.setenv("WORLD_CITY", "Beijing")
+    assert rhythms.load("life")["city"]["name"] == "beijing"                # 新建世界时的默认城市看环境变量
+    assert "city" not in rhythms.load("neighborhood")                       # 不是生活世界的配置：原样
+
+
+def test_unknown_city_is_refused_and_pack_carries_what_the_builder_needs():
+    with pytest.raises(ValueError, match="没有这座城市的城市包"):
+        city.pack("atlantis")
+    info = city.pack("hangzhou")
+    assert info["label"] == "杭州" and info["douban"] == "hangzhou" and info["timezone"] == "Asia/Shanghai"
+    assert {"home", "campus", "life_radius", "metro_bbox", "downtown_bbox", "famous", "version"} <= set(info["build"])
+    assert city.load("hangzhou")["city"] == "杭州" and city.load("hangzhou")["version"] == info["build"]["version"]
+
+
+def test_world_keeps_the_city_it_was_built_in(engine, monkeypatch):
+    from app.services.world import happenings
+    from app.services.world.runtime import _ensure_life_world
+
+    w = _w(engine)
+    assert w["settings"]["city"] == "hangzhou" and len(happenings.templates(w)) == 34
+    assert {"lecture", "metro_delay", "marathon", "real_exhibition"} <= set(happenings.templates(w))
+    monkeypatch.setenv("WORLD_CITY", "beijing")                             # 后来改了环境变量：她不会因此搬家
+    _ensure_life_world(engine, "w")
+    assert _w(engine)["settings"]["city"] == "hangzhou" and _w(engine)["settings"]["rhythms"]["city"]["name"] == "hangzhou"
+    with engine.store.transaction(write=True) as c:                         # 多城市之前建的世界：没记城市
+        old = world(c, "w")
+        old["settings"].pop("city")
+        engine._save_world(c, old)
+    _ensure_life_world(engine, "w")
+    assert _w(engine)["settings"]["city"] == "hangzhou"
+

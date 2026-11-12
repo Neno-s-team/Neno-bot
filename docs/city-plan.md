@@ -9,7 +9,7 @@
 - **不调模型**：城市、路程、选店全是规则。
 
 ## 分步
-- **C1 城市数据（已实现）**：`scripts/build_city.py` → `content/world/city/hangzhou.json`
+- **C1 城市数据（已实现）**：`scripts/build_city.py` → `content/world/city/hangzhou/map.json`（多城市 MC1 之后每座城一个目录）
   - 地铁：线路（去掉反向重复）、站坐标、换乘关系。
   - 她的生活圈（家、学校周边约 3km）：真实店 + 生成店；小区、河、公园。
   - 市区去处：西湖、湖滨、武林、河坊街、西溪湿地、运河、商场、影院、书店、博物馆。

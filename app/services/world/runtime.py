@@ -281,7 +281,10 @@ def _ensure_life_world(engine, world_id: str) -> None:
                 changed = True
                 log.info("Life world %s gained %s", world_id, value["entity_id"])
         from app.services.world import city, rhythms
-        fresh = rhythms.load("life")
+        if not w["settings"].get("city"):
+            w["settings"]["city"] = city.DEFAULT      # 多城市之前建的世界都在杭州
+            changed = True
+        fresh = rhythms.load("life", w["settings"]["city"])      # 以世界自己记的城市为准，不看环境变量：中途换城等于搬家
         if w["settings"].get("rhythms") != fresh:
             # 作息/选项/参数以文件为准：改了文件重启就生效，她的状态（需求、喜好、习惯）不动
             w["settings"]["rhythms"] = fresh

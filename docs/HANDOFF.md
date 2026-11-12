@@ -200,7 +200,7 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
 
 ## 5.11 真实城市：杭州（2026-11-11，C1/C2）
 
-见 `docs/city-plan.md`。OSM 真实骨架 + 按密度补生成小店，`content/world/city/hangzhou.json`（`scripts/build_city.py` 构建，缓存在 data/tmp/osm）。她住紫金文苑、在浙大紫金港；路程按坐标和真实地铁；出门挑具体哪家店，有常去的、偶尔试新的。
+见 `docs/city-plan.md`。OSM 真实骨架 + 按密度补生成小店，`content/world/city/hangzhou/map.json`（`scripts/build_city.py` 构建，缓存在 data/tmp/osm）。她住紫金文苑、在浙大紫金港；路程按坐标和真实地铁；出门挑具体哪家店，有常去的、偶尔试新的。
 
 ## 5.12 世界里在发生的事：日历 / 真实天气 / 世界事件（2026-11-11）
 
@@ -295,6 +295,20 @@ core：`MIND_ENABLED`、`MIND_ASYNC_DELIVERY`、`MIND_L1_MODEL`、`MIND_DELIVERY
   - 重话（被导师骂了、不想读了）走深思：第一反应 9.4 秒 → **V4 Pro 深思 36.4 秒**（1355 个思考 token）→ Gemini 措辞 14 秒，合计约一分钟；
     这一条约 0.0063 美元（四五分钱人民币）。只有一个样本；对比报告里的平均是 61.6 秒。
   - OpenRouter 上的 V4.1 Flash 没要求也会思考（第一反应里八成输出是思考），所以第一反应要 4–9 秒；官方接口上我们明确关了思考，应该更快，待验。
+
+## 5.23 多城市 MC1：一个城市设置决定全部（2026-11-12，主线任务第 4 步的第一段）
+
+规划见 `docs/multi-city-plan.md`。先做了不依赖设备的这一段（M0 的真机部分在等设备）。
+- **城市包** `content/world/city/<城市>/`：`pack.json`（名字、豆瓣同城的城市名、用哪些事件池、时区、构建地图用的锚点）+ `map.json`（原来的 `city/hangzhou.json`）。
+- **一个设置**：世界建的时候定下住哪座城，记在 `settings.city`（新建时默认取环境变量 `WORLD_CITY`，再默认杭州）。
+  `city.apply_pack` 把它落到作息配置的三处（`city.name`、`happenings.pool`、`real.city`）；`life.json` 里不再写死哪座城。
+  之后重启刷新配置时**以世界自己记的为准**，不看环境变量——中途换城等于搬家，不支持。多城市之前建的世界补记成杭州。
+- **事件模板拆成两池**：`events/common/`（24 个，全国通用）和 `events/hangzhou/`（10 个：花期、河坊街灯会、湖滨跨年、杭州马拉松、地铁线路）。
+  拆前拆后 34 个模板一字不差；排期的随机抽样按模板 id 取，不受加载顺序影响。
+- **构建脚本** `scripts/build_city.py <城市>`：锚点全从 `pack.json` 的 `build` 读。用本机缓存的 OSM 数据重跑，产物和入库的 `map.json` 逐字节相同（`--check`）。
+- **还带着杭州味的**（做别的城市时要处理）：`events/common/campus.json` 里有一处"西湖"；`build_city.py` 里补生成小店的名字词表里有"老杭州"；
+  人设里的"浙大研究生"归角色卡会话。
+- 下一段 MC2（城市包）要每座城挑一所大学和旁边的小区、跑 OSM、写城市特有的事；MC3 是第一次运行时选城市。
 
 ## 5.22 移动端 M0：手机里跑完整后端（2026-11-12，主线任务第 2 步，进行中）
 

@@ -1635,7 +1635,7 @@
   "curiosity": 0.15
  },
  "city": {
-  "name": "hangzhou",
+  "note": "住哪座城由城市包定（content/world/city/<城市>/pack.json，建世界时选，默认杭州）：这里的 name、下面 happenings.pool、real.city 都由它填。places 的锚点名各城市一样。",
   "places": {
    "home_living": "home",
    "home_kitchen": "home",
@@ -1664,7 +1664,6 @@
   "name": "cn"
  },
  "happenings": {
-  "pool": "hangzhou",
   "actor": "neno"
  },
  "money": {
@@ -1935,7 +1934,6 @@
  },
  "real": {
   "note": "现实同步：在映的电影（猫眼）、这周杭州真实的展览和活动（豆瓣同城）、大家在追的剧（豆瓣热门）。每 6 小时取一次；取不到就用生成的。",
-  "city": "hangzhou",
   "films": 3,
   "shows": 10,
   "within_km": 22,

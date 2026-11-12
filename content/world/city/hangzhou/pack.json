@@ -1,0 +1,30 @@
+{
+ "note": "城市包：一座城市 = 这份说明 + map.json（scripts/build_city.py 按下面的 build 从 OpenStreetMap 构建）+ content/world/events/<events 里列的>/ 下的事件模板。",
+ "name": "hangzhou",
+ "label": "杭州",
+ "douban": "hangzhou",
+ "events": ["common", "hangzhou"],
+ "timezone": "Asia/Shanghai",
+ "build": {
+  "note": "锚点：她住的小区、学校（浙大紫金港；文学院在西区人文组团一带）。生活圈以学校东门为圆心。",
+  "version": "hangzhou-1",
+  "home": {"name": "紫金文苑", "osm_name": "紫金文苑"},
+  "campus": {
+   "name": "浙江大学紫金港校区",
+   "gate_label": "浙大东门",
+   "station": "浙大紫金港",
+   "east_gate": [30.3072, 120.0869],
+   "west": [30.3003, 120.0751],
+   "library": [30.3061, 120.0837],
+   "box": [30.294, 120.062, 30.314, 120.093]
+  },
+  "life_radius": 3200,
+  "metro_bbox": [30.05, 119.85, 30.55, 120.55],
+  "downtown_bbox": [30.2, 120.08, 30.33, 120.22],
+  "famous": {
+   "西湖": "attraction", "西溪国家湿地公园": "park", "武林广场": "attraction", "河坊街": "attraction",
+   "湖滨步行街": "attraction", "断桥残雪": "attraction", "苏堤": "attraction", "白堤": "attraction",
+   "拱宸桥": "attraction", "小河直街": "attraction", "南宋御街": "attraction"
+  }
+ }
+}

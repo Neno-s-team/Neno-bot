@@ -3,7 +3,8 @@
 和扰动（perturbations）的区别：扰动是"落在某个人身上的意外"；这里是"世界自己在发生的事"，
 不管她知不知道、去不去，它都按日历和种子发生。不调模型，可重放。
 
-- 内容池：content/world/events/<pool>/*.json；世界作息配置里 `happenings.pool` 指定。
+- 内容池：content/world/events/<pool>/*.json；世界作息配置里 `happenings.pool` 指定，可以是几个池
+  （城市包给的是 ["common", "<城市>"]：全国通用的 + 这座城市特有的）。
 - 每天清晨排一次：把 HORIZON 天后那天会发生的事定下来（提前几天"公布"），突发的事（地铁故障）当天才定。
 - 她怎么知道：群通知（group）、刷手机刷到（scroll）、路过看到（pass），都按概率——有的事她就是不知道。
 - 知道以后：有具体时间的（讲座）按兴趣抽"打算去"，到点看状态——累了、病了、下雨可能就不去了；
@@ -45,7 +46,13 @@ def load(pool: str) -> dict[str, dict]:
 
 
 def templates(w) -> dict[str, dict]:
-    return load(config(w)["pool"]) if enabled(w) else {}
+    if not enabled(w):
+        return {}
+    pools = config(w)["pool"]
+    result: dict[str, dict] = {}
+    for pool in ([pools] if isinstance(pools, str) else pools):
+        result.update(load(pool))
+    return result
 
 
 def state(w) -> dict:

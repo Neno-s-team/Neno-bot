@@ -19,11 +19,13 @@ CONTENT = Path(__file__).resolve().parents[3] / "content/world/rhythms"
 EPS = 1e-9
 
 
-def load(name: str) -> dict:
+def load(name: str, city_name: str | None = None) -> dict:
+    """读作息配置；里面用到城市的地方按城市包填上（city_name 不给就用新建世界的默认城市）。"""
     path = CONTENT / (name + ".json")
     if not path.is_file():
         raise WorldError("Rhythm profile not found", 404)
-    return json.loads(path.read_text(encoding="utf-8"))
+    from app.services.world import city
+    return city.apply_pack(json.loads(path.read_text(encoding="utf-8")), city_name)
 
 
 def config(w: dict) -> dict | None:
@@ -131,8 +133,10 @@ def status(c, w, aid) -> dict:
 # ── 初始化 ──────────────────────────────────────────────────────────────────
 
 def setup(c, w, profile: str, actor_ids: list[str]) -> None:
-    cfg = load(profile)
+    cfg = load(profile, w["settings"].get("city"))
     w["settings"]["rhythms"] = cfg
+    if cfg.get("city"):
+        w["settings"]["city"] = cfg["city"]["name"]      # 她住哪座城：建世界时定下，之后不变
     day, _ = _local_day(w, w["sim_time"])
     for aid in actor_ids:
         initial = cfg.get("actors", {}).get(aid, {}).get("initial", {})

@@ -1,7 +1,10 @@
-"""构建她的城市：OSM 真实骨架 + 按真实密度补生成的日常小店 → content/world/city/<city>.json
+"""构建她的城市：OSM 真实骨架 + 按真实密度补生成的日常小店 → content/world/city/<城市>/map.json
 
-    python scripts/build_city.py            # 用缓存（data/tmp/osm/），没有就去拉
-    python scripts/build_city.py --refresh  # 重新拉 OSM
+    python scripts/build_city.py                    # 杭州；用缓存（data/tmp/osm/<城市>/），没有就去拉
+    python scripts/build_city.py beijing            # 别的城市：先写好 content/world/city/beijing/pack.json 的 build 一节
+    python scripts/build_city.py hangzhou --refresh # 重新拉 OSM
+
+锚点（家、学校的坐标，生活圈半径，市区范围，有名的去处）都在城市包的 pack.json 里，这里不写死任何一座城。
 
 一次构建、结果入库，之后城市固定（像真城市一样不会每天变）；生活里的随机（哪家好吃、今天去哪）由世界种子抽。
 数据 © OpenStreetMap contributors，ODbL。
@@ -18,16 +21,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from osm_query import query  # noqa: E402
 
-CACHE = ROOT / "data" / "tmp" / "osm"
-OUT = ROOT / "content" / "world" / "city" / "hangzhou.json"
+CITY = next((a for a in sys.argv[1:] if not a.startswith("-")), "hangzhou") if __name__ == "__main__" else "hangzhou"
+PACK = json.loads((ROOT / "content" / "world" / "city" / CITY / "pack.json").read_text(encoding="utf-8"))
+SPEC = PACK["build"]
+CACHE = ROOT / "data" / "tmp" / "osm" / CITY
+OUT = ROOT / "content" / "world" / "city" / CITY / "map.json"
 
-# 锚点：她住的小区、学校（浙大紫金港；文学院在西区人文组团一带）
-HOME = {"name": "紫金文苑", "osm_name": "紫金文苑"}
-CAMPUS = {"name": "浙江大学紫金港校区", "east_gate": (30.3072, 120.0869), "west": (30.3003, 120.0751),
-          "library": (30.3061, 120.0837)}
-LIFE_RADIUS = 3200   # 生活圈（米），以浙大东门为圆心
-METRO_BBOX = (30.05, 119.85, 30.55, 120.55)
-DOWNTOWN_BBOX = (30.20, 120.08, 30.33, 120.22)  # 西湖、湖滨、武林、西溪一带
+# 锚点：她住的小区、学校；生活圈（米）以学校东门为圆心；市区范围里找有名的去处
+HOME = SPEC["home"]
+CAMPUS = {**SPEC["campus"], **{k: tuple(SPEC["campus"][k]) for k in ("east_gate", "west", "library")}}
+LIFE_RADIUS = SPEC["life_radius"]
+METRO_BBOX = tuple(SPEC["metro_bbox"])
+DOWNTOWN_BBOX = tuple(SPEC["downtown_bbox"])
 
 
 def dist(a, b) -> float:
@@ -64,8 +69,7 @@ def fetch(refresh: bool, center: tuple[float, float]) -> dict[str, list[dict]]:
                      for name, sel in (("sights", '["tourism"~"attraction|museum|gallery"]["wikidata"]'),
                                        ("malls", '["shop"="mall"]["name"]'), ("cinemas", '["amenity"="cinema"]["name"]'),
                                        ("books", '["shop"="books"]["name"]'), ("parks", '["leisure"="park"]["wikidata"]'))), [])
-                + _cached("town_famous", '[out:json][timeout:120];nwr["name"~"^(西湖|西溪国家湿地公园|武林广场|河坊街|湖滨步行街|'
-                                         f'断桥残雪|苏堤|白堤|拱宸桥|小河直街|南宋御街)$"]({b});out center tags;', refresh),
+                + _cached("town_famous", f'[out:json][timeout:120];nwr["name"~"^({"|".join(FAMOUS)})$"]({b});out center tags;', refresh),
     }
 
 
@@ -239,7 +243,7 @@ def generated_venues(spots: list[dict]) -> list[dict]:
 
 # ── 组装 ─────────────────────────────────────────────────────────────────────
 
-CAMPUS_BOX = (30.294, 120.062, 30.314, 120.093)  # 紫金港校区大致范围
+CAMPUS_BOX = tuple(SPEC["campus"]["box"])  # 校区大致范围
 
 
 def in_campus(lat: float, lon: float) -> bool:
@@ -254,9 +258,7 @@ def _short(name: str) -> str:
 
 
 NOT_A_PLACE = ("电器", "来伊份", "娱乐", "有限公司", "苏宁", "国美")
-FAMOUS = {"西湖": "attraction", "西溪国家湿地公园": "park", "武林广场": "attraction", "河坊街": "attraction",
-          "湖滨步行街": "attraction", "断桥残雪": "attraction", "苏堤": "attraction", "白堤": "attraction",
-          "拱宸桥": "attraction", "小河直街": "attraction", "南宋御街": "attraction"}
+FAMOUS = SPEC["famous"]      # 这座城里有名的去处（名字 → 类别）
 
 
 def town_places(elements: list[dict]) -> list[dict]:
@@ -275,7 +277,7 @@ def town_places(elements: list[dict]) -> list[dict]:
 
 
 def build(refresh: bool = False) -> dict:
-    center = CAMPUS["east_gate"]  # 生活圈圆心：浙大东门（家在 1.3km 外，半径 3.2km 都罩得住）
+    center = CAMPUS["east_gate"]  # 生活圈圆心：学校东门（家离得不远，生活圈半径要罩得住）
     raw = fetch(refresh, center)
     net = metro(raw["metro"])
     home_e = next(e for e in raw["areas"] if e.get("tags", {}).get("name") == HOME["osm_name"])
@@ -286,7 +288,7 @@ def build(refresh: bool = False) -> dict:
     for name, p in net["stations"].items():
         if dist(p, center) <= LIFE_RADIUS:
             spots.append({"name": f"{name}站", "short": name, "point": tuple(p), "size": 26})
-    spots.append({"name": "浙大东门", "short": "浙大东门", "point": CAMPUS["east_gate"], "size": 14})
+    spots.append({"name": CAMPUS["gate_label"], "short": CAMPUS["gate_label"], "point": CAMPUS["east_gate"], "size": 14})
     areas = []
     for e in raw["areas"]:
         tags, p = e.get("tags", {}), _point(e)
@@ -310,12 +312,12 @@ def build(refresh: bool = False) -> dict:
     gen = [v for v in generated_venues(spots) if not in_campus(v["lat"], v["lon"])]
     town = [t for t in town_places(raw["town"]) if dist((t["lat"], t["lon"]), center) > LIFE_RADIUS or t["name"] in FAMOUS]
     return {
-        "version": "hangzhou-1",
-        "city": "杭州",
+        "version": SPEC["version"],
+        "city": PACK["label"],
         "attribution": "地图数据 © OpenStreetMap contributors（ODbL）；日常小店为按真实密度补生成",
         "anchors": {"home": {"name": HOME["name"], "lat": round(home[0], 6), "lon": round(home[1], 6), "station": near_station},
                     "campus": {"name": CAMPUS["name"], "east_gate": CAMPUS["east_gate"], "west": CAMPUS["west"],
-                               "library": CAMPUS["library"], "station": "浙大紫金港"}},
+                               "library": CAMPUS["library"], "station": CAMPUS["station"]}},
         "stations": net["stations"],
         "lines": net["lines"],
         "venues": venues + gen + town,
@@ -325,6 +327,10 @@ def build(refresh: bool = False) -> dict:
 
 if __name__ == "__main__":
     city = build("--refresh" in sys.argv)
+    if "--check" in sys.argv:      # 只比对，不写：重构脚本后确认产物没变
+        same = json.dumps(city, ensure_ascii=False, separators=(",", ":")) == OUT.read_text(encoding="utf-8")
+        print("和现有的 map.json 一样" if same else "和现有的 map.json 不一样")
+        sys.exit(0 if same else 1)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(city, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     from collections import Counter

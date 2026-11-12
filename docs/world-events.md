@@ -15,7 +15,7 @@
 - 选项 `outdoor: 系数` × `weather.mood()`：雨、冷（体感 <10 递减）、热、大风不想在外面；不冷不热的晴天想出去。
 - 开关：`WORLD_REAL_WEATHER`（默认开；只在 MIND_WORLD_ID 的世界上跑）。
 
-## E2 世界事件（`app/services/world/happenings.py`，内容池 `content/world/events/hangzhou/*.json`）
+## E2 世界事件（`app/services/world/happenings.py`，内容池 `content/world/events/common/*.json` + `content/world/events/<城市>/*.json`）
 和扰动的区别：扰动是落在某个人身上的意外；这里是世界自己在发生的事，不管她知不知道、去不去。
 - 池子 31 类：校园（讲座、读书会、开题/答辩、图书馆闭馆、食堂上新、晚会、银杏/樱花、期末周）、
   城里（银杏/红叶/梅花/樱花/荷花/桂花季、特展、电影、新书分享、商场活动、灯会、跨年、圣诞集市、马拉松）、
@@ -100,7 +100,7 @@
 
 - `runtime.real_loop` 每 6 小时取一次（`WORLD_REAL_FEED`，默认开），联网在事务外；一样都没取到半小时后重试。
   每样各自成败，没取到的沿用旧的；某样超过 3 天没更新（`real.has` 为假）就退回生成的。测试/模拟不联网。
-- 真事的模板在 `content/world/events/hangzhou/real.json`（`schedule.kind == "real"`，只定"怎么知道、去不去"）。
+- 真事的模板在 `content/world/events/common/real.json`（`schedule.kind == "real"`，只定"怎么知道、去不去"）。
   生成模板标 `unless_real`（film / exhibition / book_talk）：有真数据时不再排；已排下、她还不知道的撤掉，知道的留着。
 - 筛选：标题含黑名单词（博览会、VR、早鸟、亲子、沉浸式…）的不收；离家超过 22 km 的不收；每类按热度取前几件。
 - 时间形状（`_shape`）：当天几小时内的一场 → 到点去（走"打算去 → 到点看状态"）；持续多天 → 空档里的选项；

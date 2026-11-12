@@ -1,14 +1,19 @@
 """真实城市（C2）：地点坐标、路程（走路 / 骑车 / 地铁）、按类别找附近的店。不调模型，可重放。
 
-城市数据在 content/world/city/<name>.json（scripts/build_city.py 构建）；世界的作息配置里
-`city.name` 指定用哪座城，`city.places` 把模板里的固定地点（家、学校、楼下咖啡店……）钉到城市坐标上。
+一座城市是一个"城市包" content/world/city/<name>/：pack.json（叫什么、同城活动用哪个城市名、用哪些事件模板、
+构建地图用的锚点）+ map.json（scripts/build_city.py 构建）。世界建的时候定下住哪座城（settings.city，
+默认取环境变量 WORLD_CITY，再默认杭州），之后不变——中途换城等于搬家，现在不支持。
+apply_pack() 把这一个选择落到作息配置的三处：`city.name`、`happenings.pool`、`real.city`。
+`city.places` 把模板里的固定地点（家、学校、楼下咖啡店……）钉到城市坐标上，锚点名各城市一样。
 城里的店用到才在世界里实体化（entity_id 就是店的 id，"v" 开头）。
 """
 from __future__ import annotations
 
+import copy
 import heapq
 import json
 import math
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -30,9 +35,44 @@ def dist(a, b) -> float:
     return math.hypot((b[0] - a[0]) * 111320, (b[1] - a[1]) * 111320 * math.cos(lat))
 
 
+DEFAULT = "hangzhou"
+
+
+def packs() -> list[str]:
+    """有哪些城市可选。"""
+    return sorted(p.parent.name for p in CONTENT.glob("*/pack.json") if (p.parent / "map.json").is_file())
+
+
+@lru_cache(maxsize=16)
+def pack(name: str) -> dict:
+    path = CONTENT / name / "pack.json"
+    if not path.is_file():
+        raise ValueError(f"没有这座城市的城市包：{name}（可选：{'、'.join(packs())}）")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def default_name() -> str:
+    """新建世界时她住哪：环境变量 WORLD_CITY，没设就是杭州。"""
+    return os.getenv("WORLD_CITY", "").strip().lower() or DEFAULT
+
+
+def apply_pack(cfg: dict, name: str | None = None) -> dict:
+    """把"住哪座城"落到作息配置里用到城市的三处。没有 city 这一节的配置（不是生活世界）原样返回。"""
+    if "city" not in cfg:
+        return cfg
+    info = pack(name or default_name())
+    result = copy.deepcopy(cfg)
+    result["city"]["name"] = info["name"]
+    if "happenings" in result:
+        result["happenings"]["pool"] = list(info["events"])
+    if "real" in result:
+        result["real"]["city"] = info["douban"]
+    return result
+
+
 @lru_cache(maxsize=4)
 def load(name: str) -> dict:
-    data = json.loads((CONTENT / f"{name}.json").read_text(encoding="utf-8"))
+    data = json.loads((CONTENT / name / "map.json").read_text(encoding="utf-8"))
     data["by_id"] = {v["id"]: v for v in data["venues"]}
     graph: dict[str, list[tuple[str, str, float]]] = {}
     for line in data["lines"]:

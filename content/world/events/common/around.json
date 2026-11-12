@@ -1,0 +1,237 @@
+{
+ "note": "身边的事（小区、常去的店、地铁）和网上的事。",
+ "pool": [
+  {
+   "id": "water_off",
+   "scope": "nearby",
+   "title": "小区{what}",
+   "detail": "物业贴了通知",
+   "slots": {
+    "what": [
+     "停水",
+     "停电检修",
+     "燃气检修"
+    ]
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.07,
+    "weekdays": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "start": [
+     9
+    ],
+    "hours": [
+     6,
+     8
+    ]
+   },
+   "lead_days": [
+    1,
+    2
+   ],
+   "channels": {
+    "group": 0.8,
+    "pass": 0.9
+   },
+   "via": {
+    "group": "小区业主群"
+   },
+   "pass_area": "home",
+   "effects": {
+    "boost": {
+     "cook": -1.0,
+     "eat_out": 0.3,
+     "study_library": 0.3
+    }
+   }
+  },
+  {
+   "id": "renovation",
+   "scope": "nearby",
+   "title": "楼上在装修",
+   "detail": "白天电钻声不停",
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.05,
+    "days": [
+     5,
+     12
+    ]
+   },
+   "lead_days": [
+    0,
+    0
+   ],
+   "channels": {
+    "pass": 1.0
+   },
+   "pass_area": "home",
+   "effects": {
+    "boost": {
+     "study_desk": -0.45,
+     "read_bed": -0.25,
+     "nap": -0.6,
+     "study_library": 0.25,
+     "study_cafe": 0.2
+    },
+    "hours": [
+     8.5,
+     17.5
+    ],
+    "weekdays": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   }
+  },
+  {
+   "id": "new_shop",
+   "scope": "nearby",
+   "title": "{place}新开张",
+   "detail": "路过看到门口摆着花篮",
+   "place": {
+    "near_home": [
+     "noodle",
+     "snack",
+     "restaurant",
+     "milk_tea",
+     "cafe",
+     "bakery",
+     "mala"
+    ],
+    "unknown": true
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.3,
+    "days": [
+     10,
+     16
+    ]
+   },
+   "lead_days": [
+    0,
+    0
+   ],
+   "channels": {
+    "pass": 0.5,
+    "scroll": 0.15
+   },
+   "via": {
+    "scroll": "朋友圈"
+   },
+   "pass_area": "home",
+   "effects": {
+    "fresh_venue": 0.4
+   }
+  },
+  {
+   "id": "shop_gone",
+   "scope": "nearby",
+   "title": "{place}关门转让了",
+   "detail": "卷帘门上贴着转让",
+   "place": {
+    "regular": 3
+   },
+   "schedule": {
+    "kind": "random",
+    "per_week": 0.03,
+    "days": [
+     9999,
+     9999
+    ]
+   },
+   "lead_days": [
+    0,
+    0
+   ],
+   "channels": {
+    "pass": 0.7
+   },
+   "pass_area": "home",
+   "effects": {
+    "closes_venue": true
+   }
+  },
+  {
+   "id": "double11",
+   "scope": "online",
+   "title": "双十一",
+   "detail": "到处都在打折",
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "11-11"
+    ],
+    "start": 0,
+    "hours": 24
+   },
+   "lead_days": [
+    5,
+    10
+   ],
+   "channels": {
+    "scroll": 0.9
+   },
+   "via": {
+    "scroll": "淘宝"
+   }
+  },
+  {
+   "id": "double12",
+   "scope": "online",
+   "title": "双十二",
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "12-12"
+    ],
+    "start": 0,
+    "hours": 24
+   },
+   "lead_days": [
+    2,
+    4
+   ],
+   "channels": {
+    "scroll": 0.6
+   },
+   "via": {
+    "scroll": "淘宝"
+   }
+  },
+  {
+   "id": "618",
+   "scope": "online",
+   "title": "618",
+   "schedule": {
+    "kind": "dates",
+    "on": [
+     "06-18"
+    ],
+    "start": 0,
+    "hours": 24
+   },
+   "lead_days": [
+    5,
+    10
+   ],
+   "channels": {
+    "scroll": 0.8
+   },
+   "via": {
+    "scroll": "淘宝"
+   }
+  }
+ ]
+}
