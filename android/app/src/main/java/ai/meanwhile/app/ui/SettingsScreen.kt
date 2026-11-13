@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -78,6 +79,7 @@ fun SettingsScreen(backend: Backend, ta: Ta, creator: Boolean, onCreator: (Boole
     var now by remember { mutableStateOf<Now?>(null) }
     var proactive by remember { mutableStateOf(BackendService.proactive(context)) }
     val said = remember { SnackbarHostState() }          // 导出完了说一声：从底下冒出来的一小条
+    val scroll = rememberScrollState()
     LaunchedEffect(Unit) {
         cost = try { backend.cost() } catch (_: Exception) { null }
         now = try { backend.now() } catch (_: Exception) { null }
@@ -89,10 +91,10 @@ fun SettingsScreen(backend: Backend, ta: Ta, creator: Boolean, onCreator: (Boole
     }
 
     Box(Modifier.fillMaxSize().background(c.ground)) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).statusBarsPadding().navigationBarsPadding()) {
             Column(Modifier.fillMaxWidth().padding(top = 46.dp, bottom = 22.dp, start = Space.xl, end = Space.xl),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                HomePicture(ta, 100.dp, hour = now?.hour, sky = now?.sky)
+                HomePicture(ta, 100.dp, hour = now?.hour, sky = now?.sky, asleep = now?.activity == "睡觉")
                 Text(name, style = Mw.type.headlineSmall, color = c.ink, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 14.dp))
                 val city = now?.city?.ifBlank { null } ?: cityLabel(context)
                 val sub = listOf(if (city.isEmpty()) "" else "住在$city", now?.let { doing(it) } ?: "").filter { it.isNotEmpty() }.joinToString(" · ")
@@ -136,7 +138,8 @@ fun SettingsScreen(backend: Backend, ta: Ta, creator: Boolean, onCreator: (Boole
                 Item(Glyph.Info, c.gray, "关于 Meanwhile-此刻", "开源 · 版本 ${version(context)}", onClick = { openUrl(context, REPO) }) { Chevron() }
             }
         }
-        TopFade(c.ground)
+        // 滚上去的卡片不从返回钮和状态栏底下透出来：滚动过了，顶上才出现一条实的底色（返回钮那么高）
+        TopFade(c.ground, shown = scroll.value > 0, below = 64.dp)
         BottomFade(c.ground)
         SnackbarHost(said, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
         RoundButton(Glyph.BackArrow, "返回", onBack, Modifier.statusBarsPadding().padding(start = 12.dp, top = Space.s), size = 48.dp)
@@ -207,8 +210,9 @@ private fun Item(icon: ImageVector, tile: Color, title: String, sub: String, mod
 private fun Toggle(icon: ImageVector, tile: Color, title: String, sub: String, on: Boolean, onChange: (Boolean) -> Unit) {
     val c = Mw.colors
     Item(icon, tile, title, sub, Modifier.toggleable(value = on, role = Role.Switch, onValueChange = onChange)) {
-        // thumbContent 给一个空的：这样关着的时候圆钮也是整颗大小（Material 默认关着时会缩小一圈）
-        Switch(checked = on, onCheckedChange = null, thumbContent = {}, colors = SwitchDefaults.colors(
+        // 圆钮里放一块看不见的东西：Material 的开关只有"圆钮里有内容"时，关着也是整颗大小；不然关着会缩成一个小点，像禁用
+        Switch(checked = on, onCheckedChange = null, thumbContent = { Spacer(Modifier.size(SwitchDefaults.IconSize)) },
+            colors = SwitchDefaults.colors(
             checkedThumbColor = Color.White, checkedTrackColor = c.green, checkedBorderColor = Color.Transparent,
             uncheckedThumbColor = Color.White, uncheckedTrackColor = c.switchOff, uncheckedBorderColor = Color.Transparent))
     }

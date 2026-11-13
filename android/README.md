@@ -24,7 +24,8 @@
 - 第一次打开的顺序：系统启动画面 → 选她或他和城市 → 填密钥 → 搭世界 → 聊天。走到哪一步记在 App 的设置里（`persona`、密钥、`world_ready`）。
 - 界面上的城市名、天气、她在干嘛都来自后端（`GET /mind/now`），不写死。能选哪些城市、哪些角色问 `mobile_main.py` 的 `cities()` / `personas()`。
 - 没有"她的一天"页。要她一天的素材，电脑上跑 `python scripts/export_day.py`。
-- 头像图在 `app/src/main/res/drawable-nodpi/`，现在每人只有"下雨的早晨"一张；按时段和天气换图的入口是 `Parts.kt` 的 `homePicture()`。
+- 头像图在 `app/src/main/res/drawable-nodpi/`：她家有八张（睡着、深夜 / 傍晚 / 白天各分下不下雨、晴朗的早晨），同一个房间同一个机位，
+  `Parts.kt` 的 `homePicture()` 按她那边几点、什么天气、是不是在睡觉来挑；"他"的家现在只有一张。每张图的来历（怎么出的、用的什么提示词）写在图片文件自己的注释里。
 
 ## 改完界面怎么看
 

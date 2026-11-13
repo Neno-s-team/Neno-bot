@@ -48,7 +48,7 @@ object Notifier {
             .setAllowGeneratedReplies(false)
             .build()
         val notice = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(R.drawable.ic_stat_bubble)
             .setStyle(style)
             .setContentIntent(open)
             .addAction(action)

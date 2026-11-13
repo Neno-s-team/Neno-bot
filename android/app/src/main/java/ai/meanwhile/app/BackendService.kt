@@ -49,7 +49,7 @@ class BackendService : Service() {
         Notifier.ensureChannel(this)
         val notice = Notification.Builder(this, CHANNEL)
             .setContentTitle("${ta}的世界在运转")
-            .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+            .setSmallIcon(R.drawable.ic_stat_bubble)
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= 34) {

@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -88,7 +89,9 @@ fun InnerSheet(backend: Backend, ta: Ta, cycleId: String, onClose: () -> Unit) {
         try { inner = backend.inner(cycleId) } catch (_: Exception) { missing = true }
     }
     val c = Mw.colors
-    ModalBottomSheet(onDismissRequest = onClose, containerColor = c.card, contentColor = c.ink) {
+    // 一次升到内容那么高（不停在半屏）：不然最后一行会被屏幕底边拦腰切断
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = c.card, contentColor = c.ink) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = Space.xl)
             .padding(bottom = Space.xl), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             val seen = inner

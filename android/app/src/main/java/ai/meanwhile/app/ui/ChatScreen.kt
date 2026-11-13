@@ -2,6 +2,7 @@ package ai.meanwhile.app.ui
 
 import ai.meanwhile.app.Hub
 import ai.meanwhile.app.Message
+import android.os.Build
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,9 +38,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.layer.CompositingStrategy
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -82,36 +91,65 @@ fun ChatScreen(model: ChatModel, ta: Ta, creator: Boolean, onSettings: () -> Uni
     val c = Mw.colors
     var headPx by remember { mutableIntStateOf(0) }
     val head = with(LocalDensity.current) { headPx.toDp() }
+    // 消息列表画的时候顺手录一份（连底色一起），顶上那一块拿它来做模糊。模糊要安卓 12 以上。
+    val behind = if (Build.VERSION.SDK_INT >= 31) rememberGraphicsLayer() else null
     Column(Modifier.fillMaxSize().background(c.paper).imePadding()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            MessageList(model, ta, typing, creator, head, onInner)
-            Header(name, statusLine(model.now, up, ta, creator), ta, model, onSettings, onLeave, Modifier.onSizeChanged { headPx = it.height })
+            Box(Modifier.fillMaxSize().then(if (behind == null) Modifier else Modifier.drawWithContent {
+                behind.record {
+                    drawRect(c.paper)
+                    this@drawWithContent.drawContent()
+                }
+                drawLayer(behind)
+            })) {
+                MessageList(model, ta, typing, creator, head, onInner)
+            }
+            Header(name, statusLine(model.now, up, ta, creator), ta, model, behind, onSettings, onLeave, Modifier.onSizeChanged { headPx = it.height })
         }
         note?.let {
             Text(it, style = Mw.type.labelSmall, color = c.ink3, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.xs))
         }
-        InputBar(model.draft, onText = { model.draft = it }, onSend = model::send, onPlus = { note = "还不能发图片，下一版加上" },
+        InputBar(model.draft, onText = { model.draft = it }, onSend = model::send, onPlus = { note = "现在还不能发图片" },
             modifier = Modifier.navigationBarsPadding().padding(bottom = Space.xs))
     }
 }
 
-/** 顶上那一块。底色从上到下由实到透明，消息从它下面滑过。 */
+/**
+ * 顶上那一块，消息从它下面滑过：滑到这里的消息是糊的，上面再盖一层由实到透明的底色，最下面三成渐渐隐掉。
+ * behind 是消息列表录下来的那一份；没有（安卓 12 以下画不了模糊）就退一步：到状态那行字为止是实的底色，往下渐隐。
+ */
 @Composable
-private fun Header(name: String, status: String, ta: Ta, model: ChatModel, onSettings: () -> Unit, onLeave: () -> Unit, modifier: Modifier) {
+private fun Header(name: String, status: String, ta: Ta, model: ChatModel, behind: GraphicsLayer?, onSettings: () -> Unit,
+                   onLeave: () -> Unit, modifier: Modifier) {
     val c = Mw.colors
-    val fade = with(LocalDensity.current) { 34.dp.toPx() }
+    val density = LocalDensity.current
+    val fade = with(density) { 34.dp.toPx() }
+    val blur = with(density) { 24.dp.toPx() }
+    val blurred = rememberGraphicsLayer()
     Box(modifier.fillMaxWidth().drawBehind {
-        // 到状态那行字为止是实的（不然滑过去的消息会从字缝里透出来），往下 34dp 渐渐隐掉
+        // solid：状态那行字的下沿。到这里为止模糊是足的、底色盖得厚（字后面不透出清楚的消息），再往下 34dp 一起渐渐隐掉
         val solid = ((size.height - fade) / size.height).coerceIn(0f, 1f)
-        drawRect(Brush.verticalGradient(0f to c.paper, solid to c.paper, 1f to c.paper.copy(alpha = 0f)))
+        if (behind != null) {
+            blurred.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+            blurred.compositingStrategy = CompositingStrategy.Offscreen
+            blurred.clip = true
+            blurred.record {
+                drawLayer(behind)
+                drawRect(Brush.verticalGradient(solid to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+            }
+            drawLayer(blurred)
+            drawRect(Brush.verticalGradient(0f to c.paper.copy(alpha = 0.92f), solid to c.paper.copy(alpha = 0.86f), 1f to c.paper.copy(alpha = 0f)))
+        } else {
+            drawRect(Brush.verticalGradient(0f to c.paper, solid to c.paper, 1f to c.paper.copy(alpha = 0f)))
+        }
     }.statusBarsPadding().padding(bottom = 34.dp)) {
         RoundButton(Glyph.Back, "离开", onLeave, Modifier.padding(start = 12.dp, top = 10.dp))
         Column(Modifier.align(Alignment.TopCenter).padding(top = 6.dp).clip(RoundedCornerShape(24.dp))
             .clickable(onClickLabel = "打开设置", role = Role.Button, onClick = onSettings).padding(horizontal = Space.l),
             horizontalAlignment = Alignment.CenterHorizontally) {
             HomePicture(ta, 66.dp, Modifier.shadow(2.dp, CircleShape, ambientColor = c.shadow, spotColor = c.shadow),
-                hour = model.now?.hour, sky = model.now?.sky)
+                hour = model.now?.hour, sky = model.now?.sky, asleep = model.now?.activity == "睡觉")
             Row(Modifier.offset(y = (-10).dp).shadow(4.dp, RoundedCornerShape(16.dp), ambientColor = c.shadow, spotColor = c.shadow)
                 .background(c.float, RoundedCornerShape(16.dp)).padding(start = 14.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知栏里的小图标：和应用图标同一个带尾巴的气泡，单色（系统会给它上色）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.5,5H13.5A6.5,6.5 0 0 1 20,11.5V14.4A3.6,3.6 0 0 0 22.4,17.8L22.4,18H8.5A6.5,6.5 0 0 1 2,11.5A6.5,6.5 0 0 1 8.5,5Z" />
+</vector>

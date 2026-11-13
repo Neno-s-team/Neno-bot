@@ -5,6 +5,9 @@ import ai.meanwhile.app.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,14 +29,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -63,19 +70,33 @@ fun hourThere(context: Context): Int = java.util.Calendar.getInstance(java.util.
 fun cityLabel(context: Context): String = BackendService.prefs(context).getString("city_label", "") ?: ""
 
 /**
- * TA 家此刻的画面（画面里不出现人）。按 TA 那边的时段和天气换图：现在每人只有下雨的早晨这一张，
- * 以后图多了只改这里。hour 是 TA 那边几点，sky 是 clear / cloudy / rain / snow。
+ * TA 家此刻的画面（画面里不出现人），按 TA 那边的时段和天气换。同一个房间、同一个机位的八张：
+ * 睡着（灯都关了）；深夜、傍晚、白天各有不下雨和下雨的两张；晴朗的早晨一张（早晨下雨用白天下雨那张）。
+ * hour 是 TA 那边几点，sky 是 clear / cloudy / rain / snow（下雪也用下雨那几张），asleep 是 TA 这会儿在睡觉。
+ * "他"的家现在只有一张，等角色定了再补。
  */
-@Suppress("UNUSED_PARAMETER")
-fun homePicture(ta: Ta, hour: Int?, sky: String?): Int = when (ta) {
-    Ta.She -> R.drawable.home_she_rain
-    Ta.He -> R.drawable.home_he_rain
+fun homePicture(ta: Ta, hour: Int, sky: String?, asleep: Boolean = false): Int {
+    val wet = sky == "rain" || sky == "snow"
+    return when {
+        ta == Ta.He -> R.drawable.home_he_rain
+        asleep -> R.drawable.home_she_asleep
+        hour < 5 || hour >= 20 -> if (wet) R.drawable.home_she_night_rain else R.drawable.home_she_night
+        hour >= 17 -> if (wet) R.drawable.home_she_evening_rain else R.drawable.home_she_evening
+        wet -> R.drawable.home_she_rain
+        hour < 9 -> R.drawable.home_she_morning
+        else -> R.drawable.home_she_day
+    }
 }
 
+/** 圆头像。hour、sky 不给（世界还没建起来时）就只按 TA 那座城市现在几点来挑。画面换的时候慢慢化过去。 */
 @Composable
-fun HomePicture(ta: Ta, size: Dp, modifier: Modifier = Modifier, hour: Int? = null, sky: String? = null) {
-    Image(painterResource(homePicture(ta, hour, sky)), contentDescription = "${ta.word}家此刻的样子",
-        contentScale = ContentScale.Crop, modifier = modifier.size(size).clip(CircleShape))
+fun HomePicture(ta: Ta, size: Dp, modifier: Modifier = Modifier, hour: Int? = null, sky: String? = null, asleep: Boolean = false) {
+    val context = LocalContext.current
+    val picture = homePicture(ta, hour ?: remember { hourThere(context) }, sky, asleep)
+    Crossfade(picture, animationSpec = tween(if (reduceMotion()) 0 else 600), label = "home", modifier = modifier.size(size).clip(CircleShape)) {
+        Image(painterResource(it), contentDescription = "${ta.word}家此刻的样子", contentScale = ContentScale.Crop,
+            modifier = Modifier.size(size))
+    }
 }
 
 /** 浮着的圆钮（返回）。看上去 44dp，能点的范围 48dp。 */
@@ -105,20 +126,27 @@ fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit, modifier:
 }
 
 /**
- * 能上下滚的页面，贴着屏幕最底下放一层由透明到底色的渐隐：内容滚到系统导航条（三个键的那种）下面时不跟按键搅在一起。
- * 手势导航的手机上这一层只有一二十 dp 高，几乎看不出来。
+ * 能上下滚的页面，贴着屏幕最底下：系统导航条那一截是实的底色（内容不从按键底下透出来），上面 12dp 渐渐隐掉。
+ * 手势导航的手机上那一截只有一二十 dp 高。
  */
 @Composable
 fun BoxScope.BottomFade(color: Color) {
-    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsBottomHeight(WindowInsets.navigationBars)
-        .background(Brush.verticalGradient(listOf(color.copy(alpha = 0f), color.copy(alpha = 0.94f)))))
+    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(12.dp).background(Brush.verticalGradient(listOf(color.copy(alpha = 0f), color))))
+        Box(Modifier.fillMaxWidth().windowInsetsBottomHeight(WindowInsets.navigationBars).background(color))
+    }
 }
 
-/** 同样的道理，贴着最上面：状态栏那一截是实的底色，往下 16dp 渐渐隐掉——内容滚上去时不跟时间、电量叠在一起。 */
+/**
+ * 同样的道理，贴着最上面：状态栏加上 below 那么高（给浮着的返回钮留的）是实的底色，再往下 16dp 渐渐隐掉。
+ * shown = 页面滚动过了才出现：没滚的时候上面本来就没东西要挡。
+ */
 @Composable
-fun BoxScope.TopFade(color: Color) {
-    Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+fun BoxScope.TopFade(color: Color, shown: Boolean, below: Dp) {
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(150), label = "topFade")
+    Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().graphicsLayer { this.alpha = alpha }) {
         Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(color))
+        Box(Modifier.fillMaxWidth().height(below).background(color))
         Box(Modifier.fillMaxWidth().height(16.dp).background(Brush.verticalGradient(listOf(color, color.copy(alpha = 0f)))))
     }
 }

@@ -18,8 +18,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -169,23 +171,26 @@ fun InputBar(text: String, onText: (String) -> Unit, onSend: (String) -> Unit, o
                 Icon(Glyph.Plus, contentDescription = null, tint = c.ink)
             }
         }
-        Row(Modifier.weight(1f).padding(start = 5.dp, top = 5.dp, bottom = 5.dp).heightIn(min = 38.dp)
-            .border(1.dp, c.hair, RoundedCornerShape(19.dp)), verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.weight(1f).padding(start = Space.l, top = 7.dp, bottom = 7.dp), contentAlignment = Alignment.CenterStart) {
-                if (text.isEmpty()) Text("发消息", style = Mw.type.bodyMedium, color = c.hint)
-                BasicTextField(value = text, onValueChange = { onText(it.take(2000)) }, maxLines = 5,
-                    textStyle = Mw.type.bodyMedium.copy(color = c.ink), cursorBrush = SolidColor(c.me),
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "发消息" })
+        Box(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth().padding(start = 5.dp, top = 5.dp, bottom = 5.dp).heightIn(min = 38.dp)
+                .border(1.dp, c.hair, RoundedCornerShape(19.dp)), verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.weight(1f).padding(start = Space.l, top = 7.dp, bottom = 7.dp), contentAlignment = Alignment.CenterStart) {
+                    if (text.isEmpty()) Text("发消息", style = Mw.type.bodyMedium, color = c.hint)
+                    BasicTextField(value = text, onValueChange = { onText(it.take(2000)) }, maxLines = 5,
+                        textStyle = Mw.type.bodyMedium.copy(color = c.ink), cursorBrush = SolidColor(c.me),
+                        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "发消息" })
+                }
+                Spacer(Modifier.size(38.dp))          // 给发送钮留的位置
             }
-            Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
-                androidx.compose.animation.AnimatedVisibility(visible = text.isNotBlank(),
-                    enter = scaleIn(tween(140), initialScale = 0.6f) + fadeIn(tween(140)),
-                    exit = scaleOut(tween(100), targetScale = 0.6f) + fadeOut(tween(100))) {
-                    Box(Modifier.size(38.dp).clip(CircleShape).clickable(role = Role.Button) { onSend(text.trim()); onText("") }
-                        .semantics { contentDescription = "发送" }, contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(30.dp).background(c.me, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(Glyph.Send, contentDescription = null, tint = c.onMe)
-                        }
+            // 发送钮：看上去是输入框右端 30dp 的蓝圆，能点的范围 48dp（上下各比输入框多出 5dp，右边多出 5dp）
+            androidx.compose.animation.AnimatedVisibility(visible = text.isNotBlank(),
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 5.dp),
+                enter = scaleIn(tween(140), initialScale = 0.6f) + fadeIn(tween(140)),
+                exit = scaleOut(tween(100), targetScale = 0.6f) + fadeOut(tween(100))) {
+                Box(Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button) { onSend(text.trim()); onText("") }
+                    .semantics { contentDescription = "发送" }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(30.dp).background(c.me, CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Glyph.Send, contentDescription = null, tint = c.onMe)
                     }
                 }
             }
